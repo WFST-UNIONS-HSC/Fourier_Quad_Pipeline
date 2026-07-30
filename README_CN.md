@@ -382,8 +382,8 @@ docker pull ghcr.io/syoong-s/fourier_quad_pipeline/cpppipeline:latest
 
 **触发：** 推送 `v*` 标签。
 
-创建 GitHub Release（含自动生成的发布说明），并将仓库下每个顶层目录各自
-打包为一个 zip 文件作为附件：
+创建 GitHub Release（含自动生成的发布说明），并将仓库下每个顶层内容
+目录各自打包为一个 zip 文件作为附件：
 
 ```
 artifacts/
@@ -392,9 +392,7 @@ artifacts/
 ├── f77_docker.zip
 ├── cpp_Standard.zip
 ├── cpp_Lite.zip
-├── cpp_docker.zip
-├── .github.zip
-└── repository-root.zip
+└── cpp_docker.zip
 ```
 
 ### 发布流程

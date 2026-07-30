@@ -392,7 +392,7 @@ docker pull ghcr.io/syoong-s/fourier_quad_pipeline/cpppipeline:latest
 **Trigger:** push a `v*` tag.
 
 Creates a GitHub Release with auto-generated release notes and attaches one
-zip file per top-level directory:
+zip file per top-level content directory:
 
 ```
 artifacts/
@@ -401,9 +401,7 @@ artifacts/
 ├── f77_docker.zip
 ├── cpp_Standard.zip
 ├── cpp_Lite.zip
-├── cpp_docker.zip
-├── .github.zip
-└── repository-root.zip
+└── cpp_docker.zip
 ```
 
 ### Release workflow
