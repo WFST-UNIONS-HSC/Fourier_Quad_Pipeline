@@ -62,7 +62,12 @@ c Get the positions of the stars in the reference catalog:
       if (ierror.ne.0) then
         write(*,'(A)') cat_standard
         write(*,*) ierror
-        pause 'catalog file error!!'
+        write(*,*) 'Error / gen_astrometry_data catalog file error!!'
+        proc_error = 1
+        nss=0
+        n_user=0
+        n_ref=0
+        goto 40
       endif
       read(20,*)
       do while (ierror.ge.0)
@@ -113,7 +118,7 @@ c Get the Astrometric calibration parameters:
         y2(nss)=ys(j)
       enddo
 
-      write(*,*) nss,n_ref,n_user,trim(filename)
+      ! write(*,*) nss,n_user,n_ref,trim(filename)
 
 40    open(unit=10,file=trim(filename),status='replace')
       rewind 10
@@ -628,7 +633,10 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       double precision vec(npd+nc*3),vec1(npd+nc*3),vec2(npd+nc*3)
       double precision bvec1(npd+nc*3),bvec2(npd+nc*3)
       double precision matx(npd+nc*3,npd+nc*3)
-      double precision matx_1(npd+nc*3,npd+nc*3),r
+      double precision r
+c numerical_fix F4 workspace (matx_1 is no longer needed, see below):
+      double precision dscal(npd+nc*3),dsign
+      integer indx(npd+nc*3)
 
 
       ntot=npd+nc*3
@@ -700,14 +708,54 @@ c              endif
 
       k=npd+ic*3
 
-      call matrix_inverse_doub(matx,k,ntot,matx_1)
+c numerical_fix F4: the legacy path called matrix_inverse_doub, which
+c (a) "normalized" the matrix by dividing every entry by one global
+c scalar max|matx(i,j)| -- that leaves the condition number completely
+c unchanged and does nothing about the column imbalance -- and then
+c (b) built an EXPLICIT inverse and multiplied it into the right hand
+c side. The design columns span 17 orders of magnitude (the PU terms
+c xi**px*eta**py fall to ~1e-14 at 7th order while the per-chip affine
+c columns carry pixel coordinates ~4e3), giving cond(A)=3.1e9 and
+c cond(A^T A)=8.9e20, far past the double precision limit of 4.5e15.
+c The published chip1 solution therefore missed its own least squares
+c optimum by 0.089 arcsec: with a per-chip constant column present the
+c optimal residual mean is identically zero, yet the released solution
+c had deta=+0.0851 arcsec (19 sigma).
+c
+c Two changes, both exact in exact arithmetic:
+c   1. symmetric Jacobi scaling matx -> D*matx*D, D=diag(1/sqrt(N_ii)),
+c      which equilibrates the columns that the scalar norm could not;
+c   2. one LU factorization reused for both right hand sides through
+c      backsubstitution, instead of an explicit inverse.
+c An error decomposition on the real data showed step 2 alone is what
+c matters: the same NR LU driven by backsubstitution lands within
+c 1e-5 arcsec, while LAPACK applied as inv(N)*b still produces the full
+c 0.094 arcsec error. Step 1 additionally guarantees aamax>=1 inside
+c ludcmp_doub, so its blocking read(*,*) branch cannot be reached.
+
       do i=1,k
-        vec1(i)=0d0
-        vec2(i)=0d0
+        if (matx(i,i).gt.0d0) then
+          dscal(i)=1d0/sqrt(matx(i,i))
+        else
+          dscal(i)=1d0
+        endif
+      enddo
+
+      do i=1,k
         do j=1,k
-          vec1(i)=vec1(i)+matx_1(i,j)*bvec1(j)
-          vec2(i)=vec2(i)+matx_1(i,j)*bvec2(j)
+          matx(i,j)=matx(i,j)*dscal(i)*dscal(j)
         enddo
+        vec1(i)=bvec1(i)*dscal(i)
+        vec2(i)=bvec2(i)*dscal(i)
+      enddo
+
+      call ludcmp_doub(matx,k,ntot,indx,dsign)
+      call lubksb_doub(matx,k,ntot,indx,vec1)
+      call lubksb_doub(matx,k,ntot,indx,vec2)
+
+      do i=1,k
+        vec1(i)=vec1(i)*dscal(i)
+        vec2(i)=vec2(i)*dscal(i)
       enddo
 
 

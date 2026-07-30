@@ -1,44 +1,51 @@
       subroutine proc_shear(iexpo)
       implicit none
       include 'para.inc'
+      include 'cust_para.inc'
 
       integer iexpo,nchip,ichip
       character*(strl) IMAGE_FILE(NMAX_cHIP),DIR_OUTPUT
 
       call get_image_list(iexpo,IMAGE_FILE,nchip,DIR_OUTPUT)
 
-      call expo_shear(nchip,IMAGE_FILE,DIR_OUTPUT)
+      call expo_shear(nchip,IMAGE_FILE,DIR_OUTPUT,chipnx,chipny)
 
       return
       end
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-      subroutine expo_shear(nchip,IMAGE_FILE,DIR_OUTPUT)
+      subroutine expo_shear(nchip,IMAGE_FILE,DIR_OUTPUT,chipnx,chipny)
       implicit none
       include 'para.inc'
+
 
       integer ichip,nchip
       character*(strl) IMAGE_FILE(NMAX_cHIP),DIR_OUTPUT
 
       integer proc_error,nstar,status,nstar_tot
       character*(strl) PREFIX,headname,filename,PREFIX1,PREFIX2
-      character*(strl) PREFIX_head
+      character*(strl) PREFIX_expo
       integer ngal,ierror,nn1,nn2,i,j,u,v,nx,ny,k
       real g1,g2,de,h1,h2
       real gal_p_coll(ngal_max,ns,ns),gal_para(ngal_max,npara)
       double precision cRPIX(2),cD(2,2),cRVAL(2)
       double precision PU(2,npd)
-      real gal_p(ns,ns),psf_model(ns,ns),aa(npara)
+      real gal_p(ns,ns),psf_model(ns,ns),psf_model0(ns,ns),aa(npara)
       double precision ra,dec,gf1,gf2,temp,cos2,sin2,cos4,sin4
       double precision x,y,xx,yy
       integer parity
-      double precision local_coe(ns,ns,npl),PSF_coe(ns,ns,npo)
+      double precision local_coe(ns,ns,npl+1),PSF_coe(ns,ns,npo)
       real ePSF(ns,ns),ePSF_p(ns,ns),psf_FWHM,psfmap(npx,npy)
       real px,py,dstar
+      real poly_ave,poly_std,poly_chi2
+
+      integer i_ccd,chipnx,chipny
+      real res_factor
 
       proc_error=0
 
-      call get_PREFIX_expo(IMAGE_FILE(1),PREFIX)
-      headname=trim(DIR_OUTPUT)//'/astrometry/'//trim(PREFIX)//'.head'
+      call get_PREFIX_expo(IMAGE_FILE(1),PREFIX_expo)
+      headname=trim(DIR_OUTPUT)//'/astrometry/'//trim(PREFIX_expo)
+     .//'.head'
 
       if (ext_PSF.eq.1) then
         filename=trim(PSF_PATH)//'/PSF.fits'
@@ -51,6 +58,18 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         enddo
       endif
 
+      if (PSF_Ms .eq. 1) then
+        filename=trim(DIR_OUTPUT)//'/rescale/'//trim(PREFIX_expo)//
+     .'_factor.dat'
+        open(unit=91,file=filename,status='old',iostat=ierror)
+        if (ierror.ne.0) then
+          write(*,*) 'cannot find rescale factor file' 
+          stop
+        endif
+        rewind 91
+        read(91,*) res_factor
+        close(91)
+      endif
 
       do ichip=1,nchip
         proc_error=0
@@ -61,22 +80,27 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
           filename=trim(PREFIX1)//'_PSF_coe_local.dat'
           open(unit=10,file=filename,status='old',iostat=ierror)
           rewind 10
-          read(10,*) nstar,status
+          read(10,*) nstar,status,poly_ave,poly_std
           if (status.eq.-1) then
             proc_error=1
           else
             do i=1,ns
               do j=1,ns
-                read(10,*) (local_coe(i,j,k),k=1,npl)
+                read(10,*) (local_coe(i,j,k),k=1,npl+1)
               enddo
             enddo
           endif
           close(10)
+
+          if (PSF_Ms.eq.1) then
+            call get_chip_id(IMAGE_FILE(ichip),i_ccd)
+          endif
+
         elseif (ext_PSF.ne.1 .and. PSF_type.eq.2) then
           filename=trim(PREFIX1)//'_PSF_local.fits'
           call readimage(filename,nx,ny,npx,npy,psfmap)
           nstar=int(psfmap(step_psf-1,step_psf-1)+0.5)
-          if (psfmap(step_psf,step_psf).lt.-1.) proc_error=1
+          if (psfmap(step_psf,step_psf).lt.-1.) proc_error=1          
         endif
         if (proc_error.eq.1) then
           ngal=0
@@ -95,7 +119,7 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         rewind 10
         if (ierror.ne.0) then
           write(*,*) filename
-          stop 'catalog file error in shear_proc!!'
+          stop 'Error / proc_shear source_info catalog file error!!'
         endif
         read(10,*)
 c        read(10,*) 'ig xc yc sigma peak imax jmax half_light_flux half_light_area flag flux2 SNR_F'
@@ -119,10 +143,10 @@ c        read(10,*) 'ig xc yc sigma peak imax jmax half_light_flux half_light_ar
         call read_stamps(ngal_max,1,ngal,ns,ns,gal_p_coll
      .,nn1,nn2,filename)
 
-50        filename=trim(PREFIX2)//'_shear.dat'
+50      filename=trim(PREFIX2)//'_shear.dat'
         open(unit=10,file=filename,status='replace')
         rewind 10
-        write(10,*) 'ig xc yc sigma nstar imax jmax ' 
+        write(10,*) 'poly_chi2 xc yc sigma nstar imax jmax ' 
      .,'half_light_flux half_light_area flag psf_FWHM SNR_F '  
      .,'ra dec gf1 gf2 g1 g2 de h1 h2 cos2 sin2 parity'
 
@@ -132,13 +156,22 @@ c        read(10,*) 'ig xc yc sigma peak imax jmax half_light_flux half_light_ar
               gal_p(u,v)=gal_p_coll(i,u,v)
             enddo
           enddo
-          x=gal_para(i,2)
-          y=gal_para(i,3)
+          x=dble(gal_para(i,2))
+          y=dble(gal_para(i,3))
           if (ext_PSF.eq.1) then
-            call get_PSF_model(ns,1,1,local_coe,x,y,psf_model)
+            call get_PSF_model(ns,1,1,local_coe,x,y,psf_model
+     .                                             ,psf_model0)
           else
             if (PSF_type.eq.1) then
-              call get_PSF_model(ns,npl,nplx,local_coe,x,y,psf_model)
+              if (PSF_Ms.eq.1) then
+                call get_PSF_model_hierarchical(i_ccd,x,y
+     .,res_factor,local_coe,psf_model)
+              elseif (PSF_Ms.eq.0) then
+                xx = 2.0*(x / dble(chipnx)) -1.0
+                yy = 2.0*(y / dble(chipny)) -1.0
+              call get_PSF_model(ns,npl,nplx,local_coe,xx,yy,psf_model
+     .                                                      ,psf_model0)
+              endif
             elseif (PSF_type.eq.2) then
               px=x
               py=y
@@ -146,6 +179,17 @@ c        read(10,*) 'ig xc yc sigma peak imax jmax half_light_flux half_light_ar
      .,psf_model,dstar)
             endif
           endif
+          if (isnan(psf_model(1,1))) then
+            write(10,*) (-999.0, j=1, iparity)
+            write(*,*) 'Error / proc_shear PSF model layer1 for chip'
+     ., trim(IMAGE_FILE(ichip))
+            cycle
+          endif
+          call ana_chi2_simple(ns,psf_model,psf_model0,poly_chi2)
+          ! poly_chi2 = MINVAL(psf_model)
+
+          gal_para(i,1) = (poly_chi2 - poly_ave) / poly_std
+
           call get_PSF_area(psf_model,psf_FWHM)
 
           gal_para(i,iPSF)=psf_FWHM
@@ -191,6 +235,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       integer i,j,n_2,cc
       real ks,peak,thresh,area,ks_2,kx,kx2,ky,ky2,k2,k,temp,temp1
       real filter_deriv,filter,ff,norm
+      real r_win
 
       real pi,PSFr_ratio
       parameter (pi=3.1415926)
@@ -202,10 +247,9 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
           if (psf(i,j).gt.peak) peak=psf(i,j)
         enddo
       enddo
-ccccccccccccccccccc
+
       thresh=exp(-1.)*peak
-c     thresh=exp(-0.5)*peak
-ccccccccccccccccccc
+
       area=0.
       do i=1,n
         do j=1,n
@@ -216,7 +260,9 @@ ccccccccccccccccccc
       ks=sqrt(area/pi)
       ks_2=(ks*PSFr_ratio)**(-2)
 
-      thresh=peak*1e-5
+      thresh=peak*1e-4
+      ! thresh=3.0
+      call get_window_min_k(n,psf,thresh,r_win)
       n_2=n/2
       cc=1+n_2
 
@@ -234,15 +280,16 @@ ccccccccccccccccccc
           ky2=ky*ky
           k2=kx2+ky2
           k=sqrt(k2)
-          if (psf(i,j).gt.thresh) then
+          ! if (psf(i,j).gt.thresh) then
+          if (k .lt. r_win) then
             ff=k2*ks_2
-            temp=exp(-ff)/psf(i,j)              ! 相当于T
-            temp1=temp*gal(i,j)                 ! 相当于T*M
+            temp=exp(-ff)/psf(i,j)              ! T
+            temp1=temp*gal(i,j)                 ! T*M
 
             g1=g1-temp1*(kx2-ky2)
             g2=g2-temp1*2.*kx*ky
             de=de+temp1*k2*(2.-ff)              ! N
-            h1=h1+temp1*ks_2*(k2*k2-8.*kx2*ky2) ! U
+            h1=h1+temp1*ks_2*(k2*k2-8.*kx2*ky2) ! -U
             h2=h2+temp1*ks_2*4.*kx*ky*(kx2-ky2)
 
           endif
@@ -279,3 +326,115 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       return
       end
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      subroutine get_window_min_k(ns,psf_model,thresh,k_win)
+        implicit none
+      
+      integer ns,i,j,c_pix
+      real psf_model(ns,ns),thresh,k_win
+      real k_min,kx,ky,temp
+
+      c_pix=ns/2 + 1
+      k_min=1.e+10
+      do i=1,ns
+        do j=1,ns
+          if (psf_model(i,j).gt.thresh) cycle
+          kx = i-c_pix
+          ky = j-c_pix
+          temp=kx*kx+ky*ky
+          if (temp.lt.k_min) k_min=temp
+        enddo
+      enddo
+
+      if (k_min .gt. 0.0) then
+        k_win=sqrt(k_min)
+      else
+        k_win=0.
+      endif
+
+      return
+      end
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      subroutine get_window_min_k_ver2(ns,psf_model,thresh,k_win)
+        implicit none
+
+      integer ns,i,j,c_pix,bin_idx,nbins,n_avg
+      real psf_model(ns,ns),thresh,k_win,k_dent
+      real kx,ky,kval,logval,bin_k,a
+      integer, allocatable :: cnt(:)
+      real, allocatable :: sum_log(:),sum_sq(:),stddev(:)
+
+      c_pix=ns/2 + 1
+      nbins=int(ns*sqrt(2.0)/0.5) + 2
+
+      allocate(cnt(nbins),sum_log(nbins),sum_sq(nbins),stddev(nbins))
+      cnt=0
+      sum_log=0.0
+      sum_sq=0.0
+      stddev=0.0
+      k_dent = 1e5
+
+      do i=1,ns
+        do j=1,ns
+          kx=i-c_pix
+          ky=j-c_pix
+          kval=sqrt(kx*kx+ky*ky)
+          if (psf_model(i,j).le.0.0) then
+            if (kval.lt.k_dent) k_dent=kval
+            cycle
+          endif
+          bin_idx=int(kval/0.5)+1
+          if (bin_idx.gt.nbins) cycle
+          logval=log(psf_model(i,j))
+          cnt(bin_idx)=cnt(bin_idx)+1
+          sum_log(bin_idx)=sum_log(bin_idx)+logval
+          sum_sq(bin_idx)=sum_sq(bin_idx)+logval*logval
+        enddo
+      enddo
+
+      do bin_idx=1,nbins
+        if (cnt(bin_idx).gt.1) then
+          stddev(bin_idx)=sqrt(max(0.0,
+     &      sum_sq(bin_idx)/cnt(bin_idx)
+     &      -(sum_log(bin_idx)/cnt(bin_idx))**2))
+        endif
+      enddo
+
+      a=0.0
+      n_avg=0
+      do bin_idx=1,nbins
+        bin_k=(bin_idx-1)*0.5
+        if (bin_k.ge.10.0) exit
+        if (cnt(bin_idx).gt.1.and.stddev(bin_idx).gt.0.0) then
+          a=a+stddev(bin_idx)
+          n_avg=n_avg+1
+        endif
+      enddo
+
+      if (n_avg.gt.0) then
+        a=a/n_avg
+      else
+        k_win=0.0
+        deallocate(cnt,sum_log,sum_sq,stddev)
+        return
+      endif
+
+      k_win=0.0
+      do bin_idx=1,nbins
+        bin_k=(bin_idx-1)*0.5
+        if (bin_k.lt.10.0) cycle
+        if (cnt(bin_idx).le.1) cycle
+        if (stddev(bin_idx).gt.thresh*a) then
+          k_win=bin_k
+          deallocate(cnt,sum_log,sum_sq,stddev)
+          return
+        endif
+      enddo
+
+      if (k_dent .lt. k_win) k_win=k_dent
+
+      deallocate(cnt,sum_log,sum_sq,stddev)
+      return
+      end
+ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+

@@ -39,10 +39,20 @@
           if (k.gt.0) then
             j=j-1
           endif
-          write(*,*) source,i,j,trim(message)
-          if (i.ne.0) i=i+1
+
+          if (i.ne.0) then 
+            i=i+1
+            if (mod(i, 100) .eq. 1) then
+              write(*,*) source,i,j,trim(message)
+              flush(6)
+            endif
+          endif
           if (i.gt.num_job) i=0
-          if (j.eq.0) complete=1
+          if (j.eq.0) then 
+            complete=1
+            write(*,*) source,i,j,trim(message)
+            flush(6)
+          endif
         endif
       enddo
 

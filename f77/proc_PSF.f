@@ -18,14 +18,17 @@
       call plot_stars(nchip,IMAGE_FILE,DIR_OUTPUT
      .,nc,p_chip)
 
+      if (PSF_Ms .eq. 1) then
+        call save_rescale_factor(nchip,IMAGE_FILE,DIR_OUTPUT)
+      endif
+
       if (PSF_type.eq.1) then
         call make_PSF_local_fit(nchip,IMAGE_FILE,DIR_OUTPUT)
       elseif (PSF_type.eq.2) then
         call make_PSF_hybrid(nchip,IMAGE_FILE,DIR_OUTPUT)
       else
-        pause 'Invalid PSF fitting method!'
+        stop 'Error / PSF Invalid PSF fitting method!'
       endif
-
 
       return
       end
@@ -85,7 +88,7 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         rewind 10
         if (ierror.ne.0) then
           write(*,*) filename
-          stop 'catalog file error!!'
+          stop 'Error / PSF star_can_info catalog file error!!'
         endif
         read(10,*)
 c        read(10,*) 'ig xp yp SNR'
@@ -409,7 +412,7 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
       enddo
 
-      write(*,*) trim(PREFIX),' total no. of stars:',ntot
+      ! write(*,*) trim(PREFIX),' total no. of stars:',ntot
       close(10)
 
 
@@ -424,10 +427,11 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       subroutine make_PSF_local_fit(nchip,IMAGE_FILE,DIR_OUTPUT)
       implicit none
       include 'para.inc'
+      include 'cust_para.inc'
 
       integer nchip
       character*(strl) IMAGE_FILE(NMAX_cHIP),DIR_OUTPUT
-      character*(strl) PREFIX,filename
+      character*(strl) PREFIX,filename,PREFIX_e
 
       integer nstar(NMAX_cHIP)
       double precision star_para(NMAX_cHIP,nstar_max,npara)
@@ -435,24 +439,45 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
       integer ntot,nc,k,i,j,w,u,v,nums
       double precision posi(nstar_max,2)
-      double precision xx,yy,PSF_coe_l(ns,ns,npl)
-      real model(ns,ns),px,py,sshape(nstar_max,3),msshape(nstar_max,3)
+      double precision xx,yy,PSF_coe_l(ns,ns,npl+1)
+      real px,py,sshape(nstar_max,3),msshape(nstar_max,3)
+      real model0(ns,ns),model(ns,ns),poly_ave,poly_std
       real ee(2),size,star(nstar_max,ns,ns)
 
-      integer nn1,nn2
+      real res_factor
+      integer ierror
+      real psf_residual(nstar_max,ns,ns),temp_res(ns,ns)
 
-      call get_PREFIX_expo(IMAGE_FILE(1),PREFIX)
-      filename=trim(DIR_OUTPUT)//'/result/'//trim(PREFIX)//
+      integer nn1,nn2
+      integer chip_index
+      character*(2) ccd_id
+      real,allocatable :: poly_cochi2(:)
+
+      call get_PREFIX_expo(IMAGE_FILE(1),PREFIX_e)
+      filename=trim(DIR_OUTPUT)//'/result/'//trim(PREFIX_e)//
      .'_star_comp_expo.dat'
       open(unit=90,file=filename,status='replace')
       rewind 90
 
+      if (PSF_Ms.eq.1) then 
+        filename=trim(DIR_OUTPUT)//'/rescale/'//trim(PREFIX_e)//
+     .'_factor.dat'
+        open(unit=91,file=filename,status='old',iostat=ierror)
+        if (ierror.ne.0) then
+          write(*,*) 'cannot find rescale factor file' 
+          stop
+        endif
+        rewind 91
+        read(91,*) res_factor
+        close(91)
+      endif
+
       ntot=0
       do k=1,nchip
         nums=0
+        call get_PREFIX(IMAGE_FILE(k),PREFIX)
 
         if (nstar(k).gt.0) then
-          call get_PREFIX(IMAGE_FILE(k),PREFIX)
           nn1=ns*len_s
           nn2=ns*(int(nstar(k)/len_s)+1)
           filename=trim(DIR_OUTPUT)//'/stamps/'//trim(PREFIX)
@@ -482,20 +507,27 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
           enddo
         enddo
 
+        if (PSF_Ms.eq.1) then
+          call get_chip_id(IMAGE_FILE(k),chip_index)
+          write(ccd_id,'(I2)') chip_index
+          filename=trim(DIR_OUTPUT)//'/starxy/'//trim(PREFIX_e)//
+     .'_'//trim(adjustl(ccd_id))//'_star_xy.dat'
+          open(unit=20,file=filename,status='replace')
+          rewind 20
+        endif
+        
         if (nums.ge.nstar_min_local) then
-          call interpolate_PSF(nums,nstar_max,star,posi,ns
-     .,npl,nplx,PSF_coe_l)
-          write(10,*) nums,1
-          do i=1,ns
-            do j=1,ns
-              write(10,*) (PSF_coe_l(i,j,u),u=1,npl)
-            enddo
-          enddo
+          if (PSF_Ms.eq.1) write(20,*) nums,1
           write(90,*) k,nums,1
+          call ITP_norm_PSF(nums,nstar_max,star,posi,ns
+     .,npl,nplx,chipnx,chipny,PSF_coe_l)
+          allocate(poly_cochi2(nums))
           do i=1,nums
-            xx=posi(i,1)
-            yy=posi(i,2)
-            call get_PSF_model(ns,npl,nplx,PSF_coe_l,xx,yy,model)
+            xx=2.0 * (posi(i,1) / dble(chipnx)) - 1.0
+            yy=2.0 * (posi(i,2) / dble(chipny)) - 1.0
+            call get_PSF_model(ns,npl,nplx,PSF_coe_l,xx,yy,model,model0)
+            call ana_chi2_simple(ns,model,model0,poly_cochi2(i))
+            ! poly_cochi2(i) = MINVAL(model)
             call get_power_all(ns,ns,model,ee,size,0.02)
             msshape(i,1)=size
             msshape(i,2)=ee(1)
@@ -503,12 +535,53 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
             px=posi(i,1)
             py=posi(i,2)
             write(90,*) px,py,(sshape(i,u),u=1,3),(msshape(i,v),v=1,3)
+
+            if (PSF_Ms.eq.1) then
+              if (size.lt.0.1 .or. isnan(model(1,1))) then 
+                write(20,*) -1,-1
+              else
+                write(20,*) px,py
+              endif
+              do u=1,ns
+                do v=1,ns
+                  temp_res(u,v)=star(i,u,v)-model(u,v)
+                enddo
+              enddo
+              call PSF_rescale(temp_res,res_factor)
+              do u=1,ns
+                do v=1,ns
+                  psf_residual(i,u,v)=temp_res(u,v)
+                enddo
+              enddo
+            endif
           enddo
+          call get_array_ave_std(poly_cochi2,nums,poly_ave,poly_std)
+          if (allocated(poly_cochi2)) deallocate(poly_cochi2)
+          write(10,*) nums,1,poly_ave,poly_std
+          do i=1,ns
+            do j=1,ns
+              write(10,*) (PSF_coe_l(i,j,u),u=1,(npl+1))
+            enddo
+          enddo
+          
+
+          if (PSF_Ms.eq.1) then
+            nn1=ns*len_s
+            nn2=ns*(int(nums/len_s)+1)
+            filename=trim(DIR_OUTPUT)//'/fits_psfresi/'//trim(PREFIX_e)
+     .//'_'//trim(adjustl(ccd_id))//'_psf_p_resi.fits' 
+            call write_stamps(nstar_max,1,nums,ns,ns,psf_residual
+     .,nn1,nn2,filename)
+          endif
+
         else
-          write(10,*) nums,-1
+          write(10,*) nums,-1,-1,-1
           write(90,*) k,nums,-1
+          if (PSF_Ms.eq.1) write(20,*) nums,-1
         endif
         close(10)
+        if (PSF_Ms.eq.1) close(20)
+
       enddo
 
       close(90)
@@ -531,9 +604,10 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       integer ntot,nc,k,i,j,w,u,v,nums,nx,ny,ixt,iyt,ix,iy,xs,ys
       double precision posi(nstar_max,2)
       real pp(nstar_max,2)
-      double precision xx,yy,PSF_coe_l(ns,ns,npl)
+      double precision xx,yy,PSF_coe_l(ns,ns,npl+1)
       real model(ns,ns),px,py,sshape(nstar_max,3),mshape(nstar_max,3)
       real ee(2),size,star(nstar_max,ns,ns),psfmap(npx,npy),dmax
+      real model0(ns,ns)
 
       integer nn1,nn2
 
@@ -584,14 +658,14 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
           write(10,*) nums,1
           do i=1,ns
             do j=1,ns
-              write(10,*) (PSF_coe_l(i,j,u),u=1,npl)
+              write(10,*) (PSF_coe_l(i,j,u),u=1,npl+1)
             enddo
           enddo
 c------------------------------------------------------------------
           do i=1,nums
             xx=posi(i,1)
             yy=posi(i,2)
-            call get_PSF_model(ns,npl,nplx,PSF_coe_l,xx,yy,model)
+            call get_PSF_model(ns,npl,nplx,PSF_coe_l,xx,yy,model,model0)
             do u=1,ns
               do v=1,ns
                 star(i,u,v)=star(i,u,v)-model(u,v)
@@ -610,7 +684,7 @@ c------------------------------------------------------------------
             do iy=1,iyt
               ys=(iy-1)*step_psf+1
               yy=(iy-0.5d0)*step_psf
-              call get_PSF_model(ns,npl,nplx,PSF_coe_l,xx,yy,model)
+        call get_PSF_model(ns,npl,nplx,PSF_coe_l,xx,yy,model,model0)
               do u=1,ns
                 do v=1,ns
                   psfmap(xs+u-1,ys+v-1)
@@ -693,12 +767,13 @@ c          call fit_2D(nsam,nsam,arr,npp,nppx,coe)
       return
       END
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-      subroutine get_PSF_model(ns,npp,nppx,PSF_coe,xx,yy,model)
+      subroutine get_PSF_model(ns,npp,nppx,PSF_coe,xx,yy,modelp,model0)
       implicit none
 
       integer ns,npp,nppx
-      double precision xx,yy,PSF_coe(ns,ns,npp)
-      real model(ns,ns),x,y,coe(npp),func_val,func_val_2
+      double precision xx,yy,PSF_coe(ns,ns,npp+1)
+      real x,y,func_val,func_val_2
+      real coep(npp),coe0(1),modelp(ns,ns),model0(ns,ns)
       integer i,j,k
 
       x=xx
@@ -707,10 +782,15 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       do i=1,ns
         do j=1,ns
           do k=1,npp
-            coe(k)=PSF_coe(i,j,k)
+            coep(k)=PSF_coe(i,j,k)
           enddo
-c          model(i,j)=func_val(x,y,npp,nppx,coe)
-          model(i,j)=func_val_2(x,y,npp,coe)
+          coe0(1)=PSF_coe(i,j,npp+1)
+          model0(i,j)=func_val_2(x,y,1,coe0)
+          modelp(i,j)=func_val_2(x,y,npp,coep)
+          if (isnan(modelp(i,j))) then
+            modelp(1,1) = modelp(i,j)
+            return
+          endif
         enddo
       enddo
 
@@ -727,13 +807,16 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
       thresh=power(ns/2+1,ns/2+1)*exp(-1.)
 
-      area=0.
+      area=-1e-5
       do i=1,ns
         do j=1,ns
           if (power(i,j).ge.thresh) area=area+1.
         enddo
       enddo
-
+      if (area.le.0.) then
+        FWHM=0.0
+        return
+      endif
       beta=ns/(2.*pi)/sqrt(area/pi)
       FWHM=beta*2.*sqrt(2.*log(2.))*pixel_size
 
@@ -1092,3 +1175,50 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       return
       end
 ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+c ==========================================
+c Function: Save the exposure PSF rescaling factor
+c Method: Use identity scaling when no valid stars are available
+c ==========================================
+      subroutine save_rescale_factor(nchip,IMAGE_FILE,DIR_OUTPUT)
+      implicit none
+      include 'para.inc'
+      include 'cust_para.inc'
+
+      integer nchip,ichip,i
+      character*(strl) IMAGE_FILE(NMAX_cHIP),DIR_OUTPUT
+      character*(strl) PREFIX,filename
+
+      integer nstar(NMAX_cHIP)
+      double precision star_para(NMAX_cHIP,nstar_max,npara)
+      common /star_info_pass/ star_para,nstar
+
+      real summ,ntot
+
+      summ = 0.0
+      ntot = 0.0
+      do ichip=1,nchip
+        if (nstar(ichip).eq.0) cycle
+        do i=1,nstar(ichip)
+          if (star_para(ichip,i,5).le.0) cycle
+          summ = summ + star_para(ichip,i,11)
+          ntot = ntot + 1.0
+        enddo
+      enddo
+
+      if (ntot.gt.0.0) then
+        summ = summ / ntot
+        summ = rescale_size / summ
+      else
+        summ = 1.0
+      endif
+      call get_PREFIX_expo(IMAGE_FILE(1),PREFIX)
+      filename=trim(DIR_OUTPUT)//'/rescale/'//trim(PREFIX)//
+     .'_factor.dat'
+      open(unit=10,file=filename,status='replace')
+      rewind 10
+      write(10,*) summ
+      close(10)
+      return
+      end
+ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+

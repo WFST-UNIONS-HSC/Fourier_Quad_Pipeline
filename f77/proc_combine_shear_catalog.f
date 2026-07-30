@@ -28,7 +28,7 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       character*(strl) PREFIX,filename
       character*1000 cat_content,cat_list1,cat_list2
       integer ichip,ierror,u,i,m,n,chip_index
-      real cat(npara),g1c,g2c
+      real cat(iparity),g1c,g2c
 
 
       call get_PREFIX_expo(IMAGE_FILE(1),PREFIX)
@@ -103,6 +103,10 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
               m=m+1
               cycle
             endif
+            if (cat(1) .lt. -900.0) then
+              m=m+1
+              cycle
+            endif
             n=n+1
             ! g1c=cat(igf1)+g1_c
             ! g2c=cat(igf2)+g2_c
@@ -132,10 +136,8 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
               cycle
             endif
             n=n+1
-            ! g1c=cat(igf1)+g1_c
-            ! g2c=cat(igf2)+g2_c
-            g1c = 0.
-            g2c = 0.
+            g1c=cat(igf1)+g1_c
+            g2c=cat(igf2)+g2_c
             cat(ig1)=cat(ig1)-g1c*cat(ide)+g1c*cat(ih1)+g2c*cat(ih2)
             cat(ig2)=cat(ig2)-g2c*cat(ide)+g1c*cat(ih2)-g2c*cat(ih1)
             write(20,*) chip_index,(cat(u),u=1,iparity)

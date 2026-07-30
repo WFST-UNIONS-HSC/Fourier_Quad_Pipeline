@@ -258,7 +258,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       return
       end
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-      subroutine flatten_stamp(ns,nl,stamp,weight,ierror)
+      subroutine flatten_stamp_2D(ns,nl,stamp,weight,ierror)
       implicit none
 
       integer ns,nl,ierror
@@ -1443,3 +1443,65 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       return
       end
 ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      subroutine flatten_stamp_new(ns,nl,stamp,weight,ierror)
+      implicit none
+
+      integer ns,nl,ierror
+      real stamp(nl,nl)
+      integer weight(nl,nl)
+
+      real border_vals(nl*nl)
+      real bg_median, temp_val
+      integer i, j, np, d1, d2, inc
+
+      ierror=0
+      d1=(nl-ns)/2
+      d2=nl-d1+1
+      np=0
+
+      do i=1,nl
+        do j=1,nl
+          if ((i.le.d1 .or. i.ge.d2 .or. j.le.d1 .or. j.ge.d2)
+     .    .and. weight(i,j).eq.1) then
+            np=np+1
+            border_vals(np)=stamp(i,j)
+          endif
+        enddo
+      enddo
+
+      if (np.le.(nl*nl-ns*ns)*0.3) then
+        ierror=-1
+        return
+      else
+
+        inc = np / 2
+        do while (inc .gt. 0)
+          do i = inc + 1, np
+            temp_val = border_vals(i)
+            j = i
+            do while (j .gt. inc)
+              if (border_vals(j-inc) .le. temp_val) exit
+              border_vals(j) = border_vals(j-inc)
+              j = j - inc
+            enddo
+            border_vals(j) = temp_val
+          enddo
+          inc = inc / 2
+        enddo
+
+        if (mod(np, 2) .eq. 0) then
+          bg_median = (border_vals(np/2) + border_vals(np/2+1)) / 2.0
+        else
+          bg_median = border_vals(np/2 + 1)
+        endif
+
+
+        do i=1,nl
+          do j=1,nl
+            stamp(i,j) = stamp(i,j) - bg_median
+          enddo
+        enddo
+      endif
+
+      return
+      end

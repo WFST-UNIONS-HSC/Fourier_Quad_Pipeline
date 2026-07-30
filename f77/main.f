@@ -1,5 +1,6 @@
       program main
       use mpi
+      use psf_storage_mod, only: free_psf_memory
       include 'para.inc'
 
       integer ierr, my_id, num_procs
@@ -12,15 +13,22 @@
 
       real expo_para(6,NMAX_EXPO),expo_para_t(6,NMAX_EXPO)
       common /expo_para_pass/ expo_para
-      integer iexpo,i,j
+      integer iexpo,i,j,rng_seed
 
       external pre_process,proc_astrometry,proc_source,proc_comb
-      external proc_FourierT,proc_PSF,proc_shear,proc_info
+      external proc_FourierT_st1,proc_FourierT_st2
+      external proc_PSF,proc_shear,proc_info
 
       !----- MPI initialization ---------
       call MPI_Init( ierr )
       call MPI_comm_rank(MPI_cOMM_WORLD, my_id, ierr )
       call MPI_comm_size(MPI_cOMM_WORLD, num_procs, ierr )
+c ==========================================
+c Function: Initialize one RNG stream per MPI rank
+c Method: Mix the local clock and rank before the first RNG call
+c ==========================================
+      call initialize_ran1_seed(my_id,num_procs,rng_seed)
+      write(*,*) 'RNG_SEED rank seed: ',my_id,rng_seed
       ! my_id = 0,1,...,num_procs-1
       call MPI_BARRIER(MPI_cOMM_WORLD, ierr ) ! synchronize all nodes
 
@@ -46,16 +54,25 @@
       call MPI_BARRIER(MPI_cOMM_WORLD,ierr)
 
       if (mod(PROcESS_stage,7).eq.0)
-     .call mpi_distribute(N_EXPO,proc_FourierT,'FourierT ...')
+     .call mpi_distribute(N_EXPO,proc_FourierT_st1,'FFT st1...')
       call MPI_BARRIER(MPI_cOMM_WORLD,ierr)
 
-      if (mod(PROcESS_stage,11).eq.0)
-     .call mpi_distribute(N_EXPO,proc_PSF,'PSF ...')
+      if (mod(PROcESS_stage,11).eq.0) then
+        call mpi_distribute(N_EXPO,proc_PSF,'PSF ...')
+        if (PSF_Ms.eq.1) call chip_psf_recons(N_EXPO)
+      endif
       call MPI_BARRIER(MPI_cOMM_WORLD,ierr)
 
       if (mod(PROcESS_stage,13).eq.0)
+     .call mpi_distribute(N_EXPO,proc_FourierT_st2,'FFT st2...')
+      call MPI_BARRIER(MPI_cOMM_WORLD,ierr)
+
+
+      if (mod(PROcESS_stage,17).eq.0)
      .call mpi_distribute(N_EXPO,proc_shear,'Shear ...')
       call MPI_BARRIER(MPI_cOMM_WORLD,ierr)
+
+      if (PSF_Ms.eq.1) call free_psf_memory()
 
       do iexpo=1,NMAX_EXPO
         do i=1,6
@@ -63,7 +80,7 @@
         enddo
       enddo
 
-      if (mod(PROcESS_stage,17).eq.0)
+      if (mod(PROcESS_stage,19).eq.0)
      .call mpi_distribute(N_EXPO,proc_info,'Info ...')
 
       call MPI_BARRIER(MPI_cOMM_WORLD,ierr)
@@ -89,7 +106,7 @@
         close(10)
       endif
 
-      if (mod(PROcESS_stage,19).eq.0)
+      if (mod(PROcESS_stage,23).eq.0)
      .call mpi_distribute(N_EXPO,proc_comb,'combine ...')
       call MPI_BARRIER(MPI_cOMM_WORLD,ierr)
 

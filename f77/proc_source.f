@@ -4,11 +4,15 @@
 
       integer iexpo,nchip,ichip,i
       character*(strl) IMAGE_FILE(NMAX_cHIP),DIR_OUTPUT,FLAT_FILE
-
+      character*2 chip_name
       call get_image_list(iexpo,IMAGE_FILE,nchip,DIR_OUTPUT)
 
       do ichip=1,nchip
 c        call get_flatname(IMAGE_FILE(ichip),FLAT_FILE)
+        ! call get_chip_id(IMAGE_FILE(ichip),i)
+        ! write(chip_name,'(I2.2)') i
+    !     FLAT_FILE=trim(FLAT_PATH)//'/flat_'
+    !  .//trim(chip_name)//'_weight.fits'
         call chip_process_source(IMAGE_FILE,ichip,DIR_OUTPUT,FLAT_FILE)
       enddo
 
@@ -277,8 +281,9 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
       proc_error=0
       nstar=0
+      ngal=0
 
-      if (include_FLAT.eq.2)                    
+      if (include_FLAT.eq.1)                    
      . call readimage(FLAT_FILE,nx,ny,npx,npy,flat)
       call readimage(IMAGE_FILE(ichip),nx,ny,npx,npy,array)
       call get_PREFIX(IMAGE_FILE(ichip),PREFIX)
@@ -286,22 +291,28 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       PREFIX=trim(DIR_OUTPUT)//'/stamps/'//trim(PREFIX)
       filename=trim(PREFIX)//'_norm.fits'
       call readimage(filename,nx,ny,npx,npy,normap)
+      if (normap(1,1).ge.0. .or. normap(1,1).lt.(-99990.)
+     .    .or. normap(1,1).ne.normap(1,1)) then
+        proc_error=1
+        write(*,*) 'Error / proc_source rejected failed norm chip',
+     .    trim(IMAGE_FILE(ichip))
+        return
+      endif
       do i=1,ccD_split
         do j=1,3
           sigabc(i,j)=normap(1+i,j)
         enddo
       enddo
-      if (normap(1,1).gt.0) proc_error=1
       do i=1,nx
         do j=1,ny
           weight(i,j)=1
           if (normap(i,j).lt.(-900.)) weight(i,j)=0
-          if (include_FLAT.eq.2) then
-            if (abs(flat(i,j)).le.flat_thresh) then
-              array(i,j)=array(i,j)*(1.-flat(i,j))
-            else
-              weight(i,j)=0
-            endif
+          if (include_FLAT.eq.1) then
+            ! if (abs(flat(i,j)).le.flat_thresh) then
+              array(i,j)=array(i,j)*flat(i,j)
+            ! else
+              ! weight(i,j)=0
+            ! endif
           endif
         enddo
       enddo
@@ -363,8 +374,9 @@ c------------------------------------------------------
      .,nx,ny,array,weight,nstar,proc_error)
 
       endif
-
-      write(*,*) trim(IMAGE_FILE(ichip)),proc_error,nstar,ngal
+      
+      if (proc_error.ne.0) write(*,*) 'Error / proc_source'
+     ., trim(IMAGE_FILE(ichip)),proc_error,nstar,ngal
 
       return
       END
@@ -385,6 +397,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       integer nx,ny,proc_error,ierr
       integer weight(npx,npy)
       integer i,j,ix,iy,iz,old_w,new_w
+      double precision flags_ft,flags_fg,flags_gold,ext_mash
       double precision mag_g,mag_r,mag_i,mag_z,mag_y
       double precision magerr_g,magerr_r,magerr_i,magerr_z,magerr_y
       double precision zp,zperr
@@ -395,17 +408,19 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
      .,cRPIX,cD,cRVAL,PU,npd,astrometry_shift_ratio)
 
       do n=1,sortnum
-        open(unit=10,file=trim(sortfile(n)),status='old',iostat=ierr)
-        rewind 10
+        open(unit=10,file=trim(sortfile(n)),status='old',action='read'
+     .,iostat=ierr)
         if (ierr.ne.0) then
-          write(*,*) trim(sortfile(n))
-     .,'  catalog file error in deblending!!'
+    !       write(*,*) trim(sortfile(n))
+    !  .,'  catalog file error in deblending!!'
           cycle
         endif
+        rewind 10
         read(10,*)
 
         do while (ierr.ge.0)
-          read(10,*,iostat=ierr) ra,dec,mag_g,magerr_g,mag_r,magerr_r,
+          read(10,*,iostat=ierr) flags_ft,flags_fg,flags_gold,ext_mash,
+     .ra,dec,mag_g,magerr_g,mag_r,magerr_r,
      .mag_i,magerr_i,mag_z,magerr_z,mag_y,magerr_y,zp,zperr
           if (ierr.lt.0) cycle
           if (zp.lt.0 .or. zp.gt.5.) cycle
@@ -681,7 +696,7 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
       if (ierror.ne.0) then
         write(*,*) catname
-        pause 'catalog file error!!'
+        stop 'Error / gen_source_catalog catalog file error!!'
       endif
       read(10,*)
 
@@ -788,6 +803,7 @@ c      The purpose of this subroutine to extract sources from an existing extern
       double precision xx,yy,ra,dec,dra,ra_c,dec_bound(2),diffra
       real astrometry_shift_ratio
       parameter (astrometry_shift_ratio=0.2)
+      real dummy1,dummy2,dummy3,dummy4
 
       integer imax,jmax
       common /defect_pass/ imax,jmax
@@ -802,17 +818,18 @@ c      The purpose of this subroutine to extract sources from an existing extern
 
       ig=0
       do n=1,sortnum
-        open(unit=10,file=trim(sortfile(n)),status='old',iostat=ierror)
-        rewind 10
+        open(unit=10,file=trim(sortfile(n)),status='old',action='read'
+     .,iostat=ierror)
         if (ierror.ne.0) then
-          write(*,*) trim(sortfile(n))
-     .,'  catalog file error in source_ext!!'
+    !       write(*,*) trim(sortfile(n))
+    !  .,'  catalog file error in source_ext!!'
           cycle
         endif
+        rewind 10
         read(10,*)
 
         do while (ierror.ge.0)
-          read(10,*,iostat=ierror) ra,dec
+          read(10,*,iostat=ierror) dummy1,dummy2,dummy3,dummy4,ra,dec
           if (ierror.lt.0) cycle
           ig=ig+1
 
@@ -896,12 +913,12 @@ c      The purpose of this subroutine to extract sources from an existing extern
         igal=1
         ig=sid(igal)
         do n=1,sortnum
-        open(unit=10,file=trim(sortfile(n)),status='old',iostat=ierror)
-          rewind 10
+        open(unit=10,file=trim(sortfile(n)),status='old',action='read'
+     .,iostat=ierror)
           if (ierror.ne.0) then
-            close(10)
             cycle
           endif
+          rewind 10
           read(10,'(A)',iostat=ierror) cat_list
           if (orighead.eq.0) then
             write(15,'(A)') trim(cat_list)
@@ -959,8 +976,8 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       nsteph=5
       do i=1,nsteph
         do j=1,nsteph
-          if((i.eq.1).or.(i.eq.nsteph).or.(j.eq.1).or.(j.eq.nsteph))
-     .then
+          if ((i.eq.1).or.(i.eq.nsteph).or.(j.eq.1).or.(j.eq.nsteph))
+     . then
             ix1=x1+nl*(i-(nsteph+1)/2)
             iy1=y1+nl*(j-(nsteph+1)/2)
             ix2=ix1+nl-1
@@ -1002,7 +1019,7 @@ c//////////To decorate the defects \\\\\\\\\\\\\\
         enddo
       enddo
 
-      call flatten_stamp(ns,nl,stampl,weightl,flag)
+      call flatten_stamp_2D(ns,nl,stampl,weightl,flag)
 
       if (flag.lt.0) return
 
@@ -1077,7 +1094,7 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         enddo
       enddo
 
-      call flatten_stamp(ns,nl,stampl,weightl,flag)
+      call flatten_stamp_2D(ns,nl,stampl,weightl,flag)
 
       if (flag.lt.0) return
 
@@ -1161,7 +1178,7 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       rewind 10
       if (ierror.ne.0) then
         write(*,*) filename
-        pause 'catalog file error!!'
+        stop 'Error / gen_star_candidate catalog file error!!'
       endif
       read(10,*)
 c      read(10,*) 'ig xp yp sigma peak imax jmax half_light_flux'
@@ -1277,7 +1294,7 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
       if (ierror.ne.0) then
         write(*,*) catname
-        pause 'catalog file error!!'
+        stop 'Error / gen_star_candidate_direct catalog file error!!'
       endif
       read(10,*)
 

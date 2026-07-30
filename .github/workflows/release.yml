@@ -1,0 +1,63 @@
+name: Publish release
+
+# ==========================================
+# Trigger: push a version tag (v*) or manual dispatch.
+# Creates a GitHub Release and attaches one zip file per
+# top-level directory in the repository.
+# ==========================================
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create release with zipped directories
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Package each top-level directory
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+
+          # Zip every top-level directory (including hidden ones like .github)
+          # but exclude .git and CI-only directories.
+          find . -maxdepth 1 -mindepth 1 -type d \
+              ! -name '.git' \
+              ! -name '.planning' \
+              -print0 | sort -z | while IFS= read -r -d '' dir; do
+            dirname="$(basename "$dir")"
+            echo "Zipping: $dirname"
+            zip -r "artifacts/${dirname}.zip" "$dir" \
+                -x '*/.git/*' '*/.git'
+          done
+
+          # Package root-level loose files into a separate zip
+          root_files=""
+          for f in README.md README_CN.md LICENSE .gitignore; do
+            [ -f "$f" ] && root_files="$root_files $f"
+          done
+          if [ -n "$root_files" ]; then
+            echo "Zipping: repository-root"
+            zip "artifacts/repository-root.zip" $root_files
+          fi
+
+          echo "=== Artifact list ==="
+          ls -lh artifacts/
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            artifacts/*.zip
