@@ -376,40 +376,13 @@ docker pull ghcr.io/syoong-s/fourier_quad_pipeline/f77pipeline:latest
 docker pull ghcr.io/syoong-s/fourier_quad_pipeline/cpppipeline:latest
 ```
 
-### GitHub Release
+## 贡献
+这个项目是张骏教授一系列Fourier Quad方法的开源实现：
 
-**工作流：** [`.github/workflows/release.yml`](.github/workflows/release.yml)
+- Zhang, J. (2007). Measuring the cosmic shear in Fourier space: Measuring the cosmic shear in Fourier space. Monthly Notices of the Royal Astronomical Society, 383(1), 113–118. https://doi.org/10.1111/j.1365-2966.2007.12585.x
+- Zhang, J., Luo, W., & Foucaud, S. (2015). Accurate shear measurement with faint sources. Journal of Cosmology and Astroparticle Physics, 2015(01), 024–024. https://doi.org/10.1088/1475-7516/2015/01/024
+- Zhang, J., Zhang, P., & Luo, W. (2017). APPROACHING THE CRAMÉR–RAO BOUND IN WEAK LENSING WITH PDF SYMMETRIZATION. The Astrophysical Journal, 834(1), 8. https://doi.org/10.3847/1538-4357/834/1/8
 
-**触发：** 推送 `v*` 标签。
-
-创建 GitHub Release（含自动生成的发布说明），并将仓库下每个顶层内容
-目录各自打包为一个 zip 文件作为附件：
-
-```
-artifacts/
-├── f77.zip
-├── f77_Lite.zip
-├── f77_docker.zip
-├── cpp_Standard.zip
-├── cpp_Lite.zip
-└── cpp_docker.zip
-```
-
-### 发布流程
-
-```bash
-# 1. 提交所有更改
-git add -A
-git commit -m "Prepare release v1.0.0"
-
-# 2. 打标签并推送
-git tag v1.0.0
-git push origin main --tags
-```
-
-推送标签后将同时触发两个工作流。
-
----
 
 ## 许可证
 

@@ -19,6 +19,7 @@ scripts.
 - [Docker Environments](#docker-environments)
 - [HPC Deployment](#hpc-deployment)
 - [CI/CD](#cicd)
+- [Attribution](#attribution)
 - [License](#license)
 
 ---
@@ -366,11 +367,6 @@ Two GitHub Actions workflows automate image publication and releases.
 
 ### Docker images → GHCR
 
-**Workflow:** [`.github/workflows/docker-images.yml`](.github/workflows/docker-images.yml)
-
-**Trigger:** push a `v*` tag (e.g., `git tag v1.0.0 && git push origin v1.0.0`)
-or manual dispatch.
-
 Builds and publishes two images to the GitHub Container Registry:
 
 | Image | GHCR path | Tags |
@@ -385,40 +381,13 @@ docker pull ghcr.io/syoong-s/fourier_quad_pipeline/f77pipeline:latest
 docker pull ghcr.io/syoong-s/fourier_quad_pipeline/cpppipeline:latest
 ```
 
-### GitHub Release
+## Attribution
+This project implements the method proposed by Prof. Zhang in:
 
-**Workflow:** [`.github/workflows/release.yml`](.github/workflows/release.yml)
+- Zhang, J. (2007). Measuring the cosmic shear in Fourier space: Measuring the cosmic shear in Fourier space. Monthly Notices of the Royal Astronomical Society, 383(1), 113–118. https://doi.org/10.1111/j.1365-2966.2007.12585.x
+- Zhang, J., Luo, W., & Foucaud, S. (2015). Accurate shear measurement with faint sources. Journal of Cosmology and Astroparticle Physics, 2015(01), 024–024. https://doi.org/10.1088/1475-7516/2015/01/024
+- Zhang, J., Zhang, P., & Luo, W. (2017). APPROACHING THE CRAMÉR–RAO BOUND IN WEAK LENSING WITH PDF SYMMETRIZATION. The Astrophysical Journal, 834(1), 8. https://doi.org/10.3847/1538-4357/834/1/8
 
-**Trigger:** push a `v*` tag.
-
-Creates a GitHub Release with auto-generated release notes and attaches one
-zip file per top-level content directory:
-
-```
-artifacts/
-├── f77.zip
-├── f77_Lite.zip
-├── f77_docker.zip
-├── cpp_Standard.zip
-├── cpp_Lite.zip
-└── cpp_docker.zip
-```
-
-### Release workflow
-
-```bash
-# 1. Commit all changes
-git add -A
-git commit -m "Prepare release v1.0.0"
-
-# 2. Tag and push
-git tag v1.0.0
-git push origin main --tags
-```
-
-Pushing the tag triggers both workflows simultaneously.
-
----
 
 ## License
 
