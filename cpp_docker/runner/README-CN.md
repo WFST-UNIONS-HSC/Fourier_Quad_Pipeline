@@ -7,7 +7,7 @@ GCC/OpenMPI 不进入应用 ABI。
 启动链只有一条：
 
 `srun --mpi=pmi2` → `run-apptainer.sh` → `apptainer exec --cleanenv` →
-SIF 内链接的 `Fourier_Quad_Main`。
+SIF 内链接的 `Fourier_Quad_Pipe`。
 
 ## 1. 站点前提
 
@@ -105,7 +105,7 @@ sbatch compile-pipeline.slurm
 
 此作业只有一个 task，在 SIF 中按 `CPP_MAKE_CLEAN` 执行清理，再使用
 `CPP_BUILD_JOBS` 并行编译 18 个 translation unit，最终确认
-`Fourier_Quad_Main` 可执行。`CPP_BUILD_JOBS` 不得超过申请的
+`Fourier_Quad_Pipe` 可执行。`CPP_BUILD_JOBS` 不得超过申请的
 `SLURM_CPUS_PER_TASK`。
 
 ## 7. PMI2 烟雾测试
@@ -141,7 +141,7 @@ sbatch cpppipeline.slurm
 
 无额外参数时，程序读取
 `${PROCESS_DATA_CONTAINER}/expo_list.list`。脚本名后的参数会传给
-`Fourier_Quad_Main`。真实数据运行与无数据 smoke 分开，runner 不会自行
+`Fourier_Quad_Pipe`。真实数据运行与无数据 smoke 分开，runner 不会自行
 修改科学路径或 exposure 内容。
 
 ## 9. Slurm 模板与日志

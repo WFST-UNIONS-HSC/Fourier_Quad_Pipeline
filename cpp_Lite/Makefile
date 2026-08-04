@@ -26,7 +26,7 @@ SRCS = main.cpp \
        ExStar.cpp
 
 OBJS = $(SRCS:.cpp=.o)
-TARGET = Fourier_Quad_Main
+TARGET = Fourier_Quad_Pipe
 
 all: $(TARGET)
 

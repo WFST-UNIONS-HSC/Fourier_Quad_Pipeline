@@ -242,7 +242,7 @@ LAPACK/BLAS、Eigen3。
 cd cpp_Standard   # 或 cpp_Lite
 # 如需修改星表路径，编辑 LensingConfig.hpp
 make -j4
-# 可执行文件：./Fourier_Quad_Main
+# 可执行文件：./Fourier_Quad_Pipe
 ```
 
 `cpp_Standard` 的 Makefile 支持可选的 `STACK_PREFIX`：
@@ -255,7 +255,7 @@ make STACK_PREFIX=/opt/cppstack -j4
 
 ```bash
 mpirun -np <N> ./Fourier_Quad_Pipe <EXPO_LIST>    # Fortran
-mpirun -np <N> ./Fourier_Quad_Main <EXPO_LIST>    # C++
+mpirun -np <N> ./Fourier_Quad_Pipe <EXPO_LIST>    # C++
 ```
 
 `EXPO_LIST` 是一个文本文件，列出曝光名称和芯片数。每个 MPI 进程被分配一部分
@@ -300,9 +300,9 @@ docker compose run --rm FourierQuad-CPP
 进入容器后：
 
 ```bash
-cd /workspace/cpp_Standard
+cd /workspace/src_pipe
 make -j4
-mpirun -np 4 ./Fourier_Quad_Main /data/DataProcess/expo_list.list
+mpirun -np 4 ./Fourier_Quad_Pipe /data/DataProcess/expo_list.list
 ```
 
 ### 验证镜像

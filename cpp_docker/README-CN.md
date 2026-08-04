@@ -70,8 +70,8 @@ docker compose run --rm FourierQuad-CPP
 容器内执行：
 
 ```bash
-make -C /workspace/cpp_Standard clean
-make -C /workspace/cpp_Standard -j4
+make -C /workspace/src_pipe clean
+make -C /workspace/src_pipe -j4
 ```
 
 Makefile 使用 `mpicxx`、C++17、CFITSIO、FFTW、Eigen、LAPACK 和 BLAS。
@@ -79,7 +79,7 @@ Makefile 使用 `mpicxx`、C++17、CFITSIO、FFTW、Eigen、LAPACK 和 BLAS。
 
 固定容器路径为：
 
-- 源码：`/workspace/cpp_Standard`
+- 源码：`/workspace/src_pipe`
 - 测天星表：`/data/catalogs/AstroDir`
 - 源星表：`/data/catalogs/ExtSrcDir`
 - 平场：`/data/calib/FlatDir`

@@ -37,7 +37,7 @@ verify_runtime() {
         test -r \"\${CPP_STACK_PREFIX}/include/eigen3/Eigen/Dense\"
         test -e \"\${CPP_STACK_PREFIX}/lib/liblapack.so\"
         test -e \"\${CPP_STACK_PREFIX}/lib/libblas.so\"
-        test -d /workspace/cpp_Standard
+        test -d /workspace/src_pipe
         test -d /data/catalogs/AstroDir
         test -d /data/catalogs/ExtSrcDir
         test -d /data/calib/FlatDir
@@ -72,9 +72,9 @@ verify_compiler_linkage() {
 # ==========================================
 verify_source_absence() {
     docker run --rm "${IMAGE_NAME}" bash -lc '
-        test ! -e /workspace/cpp_Standard/main.cpp
-        test ! -e /workspace/cpp_Standard/Fourier_Quad_Main
-        test -z "$(find /workspace/cpp_Standard -xdev -type f -print -quit)"
+        test ! -e /workspace/src_pipe/main.cpp
+        test ! -e /workspace/src_pipe/Fourier_Quad_Pipe
+        test -z "$(find /workspace/src_pipe -xdev -type f -print -quit)"
     '
 }
 

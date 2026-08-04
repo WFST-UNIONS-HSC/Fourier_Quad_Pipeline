@@ -32,7 +32,7 @@ SRCS = main.cpp \
 
 OBJS = $(SRCS:.cpp=.o)
 DEPS = $(OBJS:.o=.d)
-TARGET = Fourier_Quad_Main
+TARGET = Fourier_Quad_Pipe
 
 all: $(TARGET)
 

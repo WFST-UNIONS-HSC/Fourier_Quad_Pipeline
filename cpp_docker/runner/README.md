@@ -8,7 +8,7 @@ compiler ABI compatibility are not part of the launch contract.
 The process boundary is:
 
 `srun --mpi=pmi2` → `run-apptainer.sh` → `apptainer exec --cleanenv` →
-container-linked `Fourier_Quad_Main`.
+container-linked `Fourier_Quad_Pipe`.
 
 ## Site prerequisites
 
@@ -114,7 +114,7 @@ sbatch cpppipeline.slurm
 
 Without script arguments, the executable receives
 `${PROCESS_DATA_CONTAINER}/expo_list.list`. Additional arguments after the
-script name are passed to `Fourier_Quad_Main`.
+script name are passed to `Fourier_Quad_Pipe`.
 
 ## Scheduler templates
 

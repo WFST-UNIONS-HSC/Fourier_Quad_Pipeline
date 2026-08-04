@@ -63,7 +63,7 @@ Makefile 使用标准 `CPPFLAGS`、`CXXFLAGS`、`LDFLAGS` 和 `LDLIBS`，
 容器默认依靠自身环境变量，无需写死站点路径。
 
 Makefile 生成 `.d` 自动依赖文件，`clean` 只删除当前源码目录的 object、
-dependency 和 `Fourier_Quad_Main`。`LensingConfig.hpp` 中的星表和平场
+dependency 和 `Fourier_Quad_Pipe`。`LensingConfig.hpp` 中的星表和平场
 路径属于科学配置，本实现没有修改；runner bind 目标必须与它一致。
 
 ## 5. 通用 Slurm runner

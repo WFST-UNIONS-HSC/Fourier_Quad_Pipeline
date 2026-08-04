@@ -250,7 +250,7 @@ LAPACK/BLAS, Eigen3.
 cd cpp_Standard   # or cpp_Lite
 # Optionally edit LensingConfig.hpp for your catalog paths
 make -j4
-# Executable: ./Fourier_Quad_Main
+# Executable: ./Fourier_Quad_Pipe
 ```
 
 The `cpp_Standard` Makefile supports an optional `STACK_PREFIX`:
@@ -263,7 +263,7 @@ make STACK_PREFIX=/opt/cppstack -j4
 
 ```bash
 mpirun -np <N> ./Fourier_Quad_Pipe <EXPO_LIST>    # Fortran
-mpirun -np <N> ./Fourier_Quad_Main <EXPO_LIST>    # C++
+mpirun -np <N> ./Fourier_Quad_Pipe <EXPO_LIST>    # C++
 ```
 
 `EXPO_LIST` is a text file listing exposure names and chip counts. Each MPI rank
@@ -309,9 +309,9 @@ docker compose run --rm FourierQuad-CPP
 Inside the container:
 
 ```bash
-cd /workspace/cpp_Standard
+cd /workspace/src_pipe
 make -j4
-mpirun -np 4 ./Fourier_Quad_Main /data/DataProcess/expo_list.list
+mpirun -np 4 ./Fourier_Quad_Pipe /data/DataProcess/expo_list.list
 ```
 
 ### Verifying an image

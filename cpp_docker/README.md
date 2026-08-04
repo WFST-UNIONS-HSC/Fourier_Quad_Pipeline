@@ -56,8 +56,8 @@ Copy `.env.example` to `.env`, fill every host path, and run:
 
 ```text
 docker compose run --rm FourierQuad-CPP
-make -C /workspace/cpp_Standard clean
-make -C /workspace/cpp_Standard -j4
+make -C /workspace/src_pipe clean
+make -C /workspace/src_pipe -j4
 ```
 
 The Makefile uses `mpicxx`, C++17, and the image search paths. Its optional

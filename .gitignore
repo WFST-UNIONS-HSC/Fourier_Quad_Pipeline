@@ -3,7 +3,6 @@
 *.d
 *.mod
 *.smod
-Fourier_Quad_Main
 Fourier_Quad_Pipe
 
 # Superplan planning workspace

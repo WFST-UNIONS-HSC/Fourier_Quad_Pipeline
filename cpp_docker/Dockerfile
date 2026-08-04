@@ -169,12 +169,12 @@ RUN dnf install -y \
                --create-home --shell /bin/bash cpp; \
        fi \
     && mkdir -p \
-        /workspace/cpp_Standard \
+        /workspace/src_pipe \
         /data/catalogs/AstroDir \
         /data/catalogs/ExtSrcDir \
         /data/calib/FlatDir \
         /data/DataProcess \
-    && chown -R cpp:cpp /workspace/cpp_Standard /data
+    && chown -R cpp:cpp /workspace/src_pipe /data
 
 COPY --from=stack-builder \
     /opt/cppstack/.pixi/envs/default \
@@ -212,6 +212,6 @@ LABEL cpppipeline.pmi2.client="slurm-25.11.2"
 LABEL cpppipeline.slurm.direct-launch="true"
 
 USER cpp
-WORKDIR /workspace/cpp_Standard
+WORKDIR /workspace/src_pipe
 
 CMD ["/bin/bash"]

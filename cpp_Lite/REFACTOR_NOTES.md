@@ -105,7 +105,7 @@
 
 ```bash
 mpicxx -O1 -std=c++17 -Wall -I/usr/include/eigen3 -I<cfitsio/fftw3 include> -c *.cpp
-mpicxx -O1 -std=c++17 *.o -o Fourier_Quad_Main -lcfitsio -lfftw3 -lfftw3f -llapack -lblas -lm
+mpicxx -O1 -std=c++17 *.o -o Fourier_Quad_Pipe -lcfitsio -lfftw3 -lfftw3f -llapack -lblas -lm
 ```
 
 17 个 `.cpp` 源文件全部通过编译，零错误；与原始 `cppv2`（18 个 `.cpp`）逐文件对照，

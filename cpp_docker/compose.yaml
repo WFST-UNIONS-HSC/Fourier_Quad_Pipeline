@@ -10,13 +10,13 @@ services:
         CPP_UID: ${HOST_UID:-1000}
         CPP_GID: ${HOST_GID:-1000}
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
-    working_dir: /workspace/cpp_Standard
+    working_dir: /workspace/src_pipe
     stdin_open: true
     tty: true
     volumes:
       - type: bind
         source: ${CPP_SOURCE_HOST}
-        target: /workspace/cpp_Standard
+        target: /workspace/src_pipe
       - type: bind
         source: ${ASTROMETRY_CAT_HOST}
         target: ${ASTROMETRY_CAT_CONTAINER:-/data/catalogs/AstroDir}
