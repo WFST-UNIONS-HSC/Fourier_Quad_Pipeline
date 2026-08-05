@@ -31,6 +31,21 @@ namespace SourceExtractor {
             std::error_code ec;
             return std::filesystem::exists(path, ec) && !ec;
         }
+
+        // ==========================================
+        // Function: Skip catalog fields that precede right ascension
+        // Method: Discard the configured number of whitespace-delimited tokens so external
+        //         catalog metadata may use arbitrary token types without named dummy variables.
+        // ==========================================
+        bool skipExternalCatalogLeadingColumns(std::istream& input) {
+            std::string ignored;
+            for (int column = 0; column < LensingConfig::ext_cat_columns_before_ra; ++column) {
+                if (!(input >> ignored)) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 
     void procSource(int iexpo) {
@@ -45,163 +60,23 @@ namespace SourceExtractor {
         
         int nchip = static_cast<int>(image_files.size());
         for (int ichip = 1; ichip <= nchip; ++ichip) {
-            std::string flat_file;
-            getFlatName(image_files[ichip - 1], flat_file);
-            chipProcessSource(image_files, ichip, dir_output, flat_file);
+            chipProcessSource(image_files, ichip, dir_output);
         }
     }
 
-    void getFlatName(const std::string& imageFile, std::string& flatFile) {
-        int id = UniversalUtils::getChipId(imageFile);
-        std::ostringstream oss_id;
-        oss_id << std::setw(2) << std::setfill('0') << id;
-        std::string cc = oss_id.str();
-
-        size_t slash_pos = imageFile.find_last_of('/');
-        if (slash_pos == std::string::npos) {
-            slash_pos = 0;
-        }
-
-        char b = ' ';
-        if (slash_pos + 23 < imageFile.length()) {
-            b = imageFile[slash_pos + 23];
-        }
-
-        std::string time = "";
-        if (slash_pos + 5 + 4 <= imageFile.length()) {
-            time = imageFile.substr(slash_pos + 5, 4);
-        }
-
-        int ym = 0;
-        if (!time.empty()) {
-            std::istringstream(time) >> ym;
-        }
-
-        std::string tttt = "1901";
-        if (b == 'z') {
-            if (ym < 1308) tttt = "1303";
-            else if (ym < 1403) tttt = "1308";
-            else if (ym < 1408) tttt = "1403";
-            else if (ym < 1411) tttt = "1408";
-            else if (ym < 1412) tttt = "1411";
-            else if (ym < 1501) tttt = "1412";
-            else if (ym < 1502) tttt = "1501";
-            else if (ym < 1508) tttt = "1502";
-            else if (ym < 1511) tttt = "1508";
-            else if (ym < 1512) tttt = "1511";
-            else if (ym < 1601) tttt = "1512";
-            else if (ym < 1606) tttt = "1601";
-            else if (ym < 1608) tttt = "1606";
-            else if (ym < 1609) tttt = "1608";
-            else if (ym < 1610) tttt = "1609";
-            else if (ym < 1611) tttt = "1610";
-            else if (ym < 1612) tttt = "1611";
-            else if (ym < 1701) tttt = "1612";
-            else if (ym < 1703) tttt = "1701";
-            else if (ym < 1704) tttt = "1703";
-            else if (ym < 1707) tttt = "1704";
-            else if (ym < 1709) tttt = "1707";
-            else if (ym < 1711) tttt = "1709";
-            else if (ym < 1801) tttt = "1711";
-            else if (ym < 1805) tttt = "1801";
-            else if (ym < 1809) tttt = "1805";
-            else if (ym < 1810) tttt = "1809";
-            else if (ym < 1811) tttt = "1810";
-            else if (ym < 1901) tttt = "1811";
-            else tttt = "1901";
-        } else if (b == 'r') {
-            if (ym < 1403) tttt = "1304";
-            else if (ym < 1409) tttt = "1403";
-            else if (ym < 1410) tttt = "1409";
-            else if (ym < 1411) tttt = "1410";
-            else if (ym < 1412) tttt = "1411";
-            else if (ym < 1501) tttt = "1412";
-            else if (ym < 1503) tttt = "1501";
-            else if (ym < 1506) tttt = "1503";
-            else if (ym < 1511) tttt = "1506";
-            else if (ym < 1512) tttt = "1511";
-            else if (ym < 1601) tttt = "1512";
-            else if (ym < 1602) tttt = "1601";
-            else if (ym < 1606) tttt = "1602";
-            else if (ym < 1609) tttt = "1606";
-            else if (ym < 1610) tttt = "1609";
-            else if (ym < 1611) tttt = "1610";
-            else if (ym < 1612) tttt = "1611";
-            else if (ym < 1701) tttt = "1612";
-            else if (ym < 1703) tttt = "1701";
-            else if (ym < 1704) tttt = "1703";
-            else if (ym < 1707) tttt = "1704";
-            else if (ym < 1708) tttt = "1707";
-            else if (ym < 1709) tttt = "1708";
-            else if (ym < 1710) tttt = "1709";
-            else if (ym < 1801) tttt = "1710";
-            else if (ym < 1803) tttt = "1801";
-            else if (ym < 1805) tttt = "1803";
-            else if (ym < 1808) tttt = "1805";
-            else if (ym < 1809) tttt = "1808";
-            else if (ym < 1810) tttt = "1809";
-            else if (ym < 1811) tttt = "1810";
-            else if (ym < 1901) tttt = "1811";
-            else tttt = "1901";
-        } else if (b == 'g') {
-            if (ym < 1310) tttt = "1308";
-            else if (ym < 1401) tttt = "1310";
-            else if (ym < 1409) tttt = "1401";
-            else if (ym < 1410) tttt = "1409";
-            else if (ym < 1412) tttt = "1410";
-            else if (ym < 1501) tttt = "1412";
-            else if (ym < 1502) tttt = "1501";
-            else if (ym < 1506) tttt = "1502";
-            else if (ym < 1511) tttt = "1506";
-            else if (ym < 1601) tttt = "1511";
-            else if (ym < 1602) tttt = "1601";
-            else if (ym < 1606) tttt = "1602";
-            else if (ym < 1609) tttt = "1606";
-            else if (ym < 1610) tttt = "1609";
-            else if (ym < 1611) tttt = "1610";
-            else if (ym < 1612) tttt = "1611";
-            else if (ym < 1701) tttt = "1612";
-            else if (ym < 1703) tttt = "1701";
-            else if (ym < 1704) tttt = "1703";
-            else if (ym < 1707) tttt = "1704";
-            else if (ym < 1708) tttt = "1707";
-            else if (ym < 1709) tttt = "1708";
-            else if (ym < 1710) tttt = "1709";
-            else if (ym < 1801) tttt = "1710";
-            else if (ym < 1803) tttt = "1801";
-            else if (ym < 1805) tttt = "1803";
-            else if (ym < 1808) tttt = "1805";
-            else if (ym < 1809) tttt = "1808";
-            else if (ym < 1810) tttt = "1809";
-            else if (ym < 1811) tttt = "1810";
-            else if (ym < 1901) tttt = "1811";
-            else tttt = "1901";
-        }
-
-        std::string filter_str(1, b);
-        flatFile = LensingConfig::FLAT_PATH + "/expo_" + filter_str + "/" + filter_str + tttt + "/flat_" + cc + "_smooth.fits";
-    }
 
     // ==========================================
     // Function: Process one chip for source and star catalog generation
     // Method: Reject a failed Stage 1 normalized-map sentinel before reading coefficients or
-    //         constructing a sigma map, then follow the configured catalog branch.
+    //         constructing a sigma map, then follow the lite external-catalog branch.
     // ==========================================
-    void chipProcessSource(const std::vector<std::string>& imageFiles, int ichip, const std::string& dirOutput, const std::string& flatFile) {
+    void chipProcessSource(const std::vector<std::string>& imageFiles, int ichip, const std::string& dirOutput) {
         int proc_error = 0;
         int nstar = 0;
         int ngal = 0;
 
         int nx = 0, ny = 0;
         std::vector<float> array;
-
-        std::vector<float> flat;
-        if (LensingConfig::include_FLAT == 1) {
-            int fnx = 0, fny = 0;
-            if (!FitsIO::readImage(flatFile, fnx, fny, flat)) {
-                std::cerr << "Warning: flat file could not be read: " << flatFile << std::endl;
-            }
-        }
 
         if (!FitsIO::readImage(imageFiles[ichip - 1], nx, ny, array)) {
             std::cerr << "Error reading image: " << imageFiles[ichip - 1] << std::endl;
@@ -241,11 +116,6 @@ namespace SourceExtractor {
                 if (normap[idx] < -900.0f) {
                     weight[idx] = 0;
                 }
-                if (LensingConfig::include_FLAT == 1) {
-                    if (!flat.empty()) {
-                        array[idx] *= flat[idx];
-                    }
-                }
             }
         }
 
@@ -273,40 +143,29 @@ namespace SourceExtractor {
 
         getExpoCatalog(PREFIX, nx, ny, sigmap, weight, normap, proc_error);
 
-        if (LensingConfig::ext_cat == 0) {
-            genSourceCatalog(PREFIX, nx, ny, array, weight, ngal, proc_error);
-            if (LensingConfig::ext_PSF == 0) {
-                genStarCandidate(PREFIX, nstar, proc_error);
-            }
-        } else {
-            std::string PREFIX_head = UniversalUtils::getPrefixExpo(imageFiles[0]);
-            filename = dirOutput + "/astrometry/" + PREFIX_head + ".head";
-            
-            double cRPIX[2] = {0.0, 0.0};
-            double cD[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
-            double cRVAL[2] = {0.0, 0.0};
-            double PU[2][LensingConfig::npd] = {0};
+        std::string PREFIX_head = UniversalUtils::getPrefixExpo(imageFiles[0]);
+        filename = dirOutput + "/astrometry/" + PREFIX_head + ".head";
 
-            Astrometry::readAstrometryPara(filename, ichip, cRPIX, cD, cRVAL, PU, LensingConfig::npd, proc_error);
+        double cRPIX[2] = {0.0, 0.0};
+        double cD[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
+        double cRVAL[2] = {0.0, 0.0};
+        double PU[2][LensingConfig::npd] = {0};
 
-            std::string catfile = LensingConfig::SOURCE_CAT;
-            std::vector<std::string> sortfile(27);
-            int sortnum = 0;
+        Astrometry::readAstrometryPara(filename, ichip, cRPIX, cD, cRVAL, PU, LensingConfig::npd, proc_error);
 
-            if (proc_error == 0) {
-                generateGalCatFileName(cRVAL, catfile, sortfile, sortnum);
-            }
+        std::string catfile = LensingConfig::SOURCE_CAT;
+        std::vector<std::string> sortfile(27);
+        int sortnum = 0;
 
-            if (LensingConfig::deblending == 1) {
-                deBlending(sortfile, sortnum, nx, ny, weight, cRPIX, cD, cRVAL, PU, proc_error);
-            }
-
-            genSourceExtCatalog(sortfile, sortnum, PREFIX, nx, ny, array, weight, sigmap, cRPIX, cD, cRVAL, PU, ngal, proc_error);
-
-            if (LensingConfig::ext_PSF == 0) {
-                genStarCandidateDirect(PREFIX, nx, ny, array, weight, nstar, proc_error);
-            }
+        if (proc_error == 0) {
+            generateGalCatFileName(cRVAL, catfile, sortfile, sortnum);
         }
+
+        deBlending(sortfile, sortnum, nx, ny, weight, cRPIX, cD, cRVAL, PU, proc_error);
+
+        genSourceExtCatalog(sortfile, sortnum, PREFIX, nx, ny, array, weight, sigmap, cRPIX, cD, cRVAL, PU, ngal, proc_error);
+
+        genStarCandidateDirect(PREFIX, nx, ny, array, weight, nstar, proc_error);
 
         if (proc_error != 0) {
             std::cout << "Error / proc_source " << imageFiles[ichip - 1] << " " << proc_error << " " << nstar << " " << ngal << std::endl;
@@ -315,7 +174,8 @@ namespace SourceExtractor {
 
     // ==========================================
     // Function: Deblend external-catalog sources by redshift consistency
-    // Method: Mirror F77 missing-file skip behavior and skip malformed catalog rows.
+    // Method: Skip the configured fields before ra, mirror F77 missing-file behavior, and reject
+    //         malformed rows while retaining the fixed post-dec photometry/redshift schema.
     // ==========================================
     void deBlending(const std::vector<std::string>& sortFile, int sortNum, int nx, int ny, std::vector<int>& weight,
                     const double cRPIX[2], const double cD[2][2], const double cRVAL[2],
@@ -347,12 +207,11 @@ namespace SourceExtractor {
                 if (line.empty()) continue;
 
                 std::stringstream ss(line);
-                double flags_ft, flags_fg, flags_gold, ext_mash;
                 double ra, dec;
                 double mag_g, magerr_g, mag_r, magerr_r, mag_i, magerr_i, mag_z, magerr_z, mag_y, magerr_y;
                 double zp, zperr;
-                if (!(ss >> flags_ft >> flags_fg >> flags_gold >> ext_mash
-                         >> ra >> dec >> mag_g >> magerr_g >> mag_r >> magerr_r
+                if (!skipExternalCatalogLeadingColumns(ss)
+                    || !(ss >> ra >> dec >> mag_g >> magerr_g >> mag_r >> magerr_r
                          >> mag_i >> magerr_i >> mag_z >> magerr_z >> mag_y >> magerr_y >> zp >> zperr)) {
                     continue;
                 }
@@ -571,91 +430,11 @@ namespace SourceExtractor {
         fout.close();
     }
 
-    void genSourceCatalog(const std::string& prefix, int nx, int ny, const std::vector<float>& array,
-                          std::vector<int>& weight, int& ngal, int& procError) {
-        ngal = 0;
-
-        std::vector<float> source_collect(LensingConfig::ngal_max * LensingConfig::ns * LensingConfig::ns, 0.0f);
-        std::vector<float> noise_collect(LensingConfig::ngal_max * LensingConfig::ns * LensingConfig::ns, 0.0f);
-        std::vector<std::vector<float>> source_para(LensingConfig::ngal_max, std::vector<float>(LensingConfig::npara, 0.0f));
-
-        if (procError != 1) {
-            std::string catname = prefix + ".cat";
-            std::ifstream fin(catname);
-            if (!fin.is_open()) {
-                std::cerr << catname << std::endl;
-                std::cerr << "Error / gen_source_catalog catalog file error!!" << std::endl;
-                std::exit(1);
-            }
-
-            std::string header;
-            std::getline(fin, header); // skip header line
-
-            double xp, yp, sig, total_flux, half_light_flux, peak, rf;
-            int total_area, half_light_area;
-
-            int ig = 0;
-            while (fin >> xp >> yp >> total_area >> half_light_area >> sig >> total_flux >> half_light_flux >> peak >> rf) {
-                ig++;
-                int flag = 0;
-                std::vector<float> noise(LensingConfig::ns * LensingConfig::ns, 0.0f);
-                int imax = 0, jmax = 0;
-                
-                findNoise(flag, noise, nx, ny, array, weight, xp, yp, sig, imax, jmax);
-                if (flag < 0) continue;
-
-                std::vector<float> source(LensingConfig::ns * LensingConfig::ns, 0.0f);
-                checkSource(flag, source, nx, ny, array, weight, xp, yp, sig, imax, jmax, peak, half_light_flux, half_light_area);
-                if (flag < 0) continue;
-
-                ngal++;
-                
-                int offset = (ngal - 1) * LensingConfig::ns * LensingConfig::ns;
-                std::copy(source.begin(), source.end(), source_collect.begin() + offset);
-                std::copy(noise.begin(), noise.end(), noise_collect.begin() + offset);
-
-                source_para[ngal - 1][0] = ig;
-                source_para[ngal - 1][1] = xp;
-                source_para[ngal - 1][2] = yp;
-                source_para[ngal - 1][3] = sig;
-                source_para[ngal - 1][4] = peak;
-                source_para[ngal - 1][5] = imax;
-                source_para[ngal - 1][6] = jmax;
-                source_para[ngal - 1][7] = half_light_flux;
-                source_para[ngal - 1][8] = half_light_area;
-                source_para[ngal - 1][9] = flag;
-
-                if (ngal >= LensingConfig::ngal_max) break;
-            }
-            fin.close();
-        }
-
-        int nn1 = LensingConfig::ns * LensingConfig::len_g;
-        int nn2 = LensingConfig::ns * (ngal / LensingConfig::len_g + 1);
-        
-        std::string filename_src = prefix + "_source.fits";
-        FitsIO::writeStamps(LensingConfig::ngal_max, 1, ngal, LensingConfig::ns, LensingConfig::ns, source_collect, nn1, nn2, filename_src);
-
-        std::string filename_noise = prefix + "_noise.fits";
-        FitsIO::writeStamps(LensingConfig::ngal_max, 1, ngal, LensingConfig::ns, LensingConfig::ns, noise_collect, nn1, nn2, filename_noise);
-
-        std::string filename_info = prefix + "_source_info.dat";
-        std::ofstream fout(filename_info);
-        if (fout.is_open()) {
-            fout << "ig xp yp sigma peak imax jmax half_light_flux half_light_area flag\n";
-            for (int i = 0; i < ngal; ++i) {
-                for (int j = 0; j < LensingConfig::iflag + 1; ++j) {
-                    fout << source_para[i][j] << (j == LensingConfig::iflag ? "" : " ");
-                }
-                fout << "\n";
-            }
-            fout.close();
-        }
-    }
 
     // ==========================================
     // Function: Extract source stamps from external catalog positions
-    // Method: Skip missing catalog tiles and malformed rows while preserving valid-row extraction.
+    // Method: Skip the configured fields before ra plus missing tiles and malformed rows while
+    //         preserving valid-row extraction and the original accepted catalog rows.
     // ==========================================
     void genSourceExtCatalog(const std::vector<std::string>& sortFile, int sortNum, const std::string& prefix,
                              int nx, int ny, const std::vector<float>& array, std::vector<int>& weight,
@@ -701,8 +480,8 @@ namespace SourceExtractor {
             while (std::getline(fin, line)) {
                 if (line.empty()) continue;
                 std::stringstream ss(line);
-                double dummy1, dummy2, dummy3, dummy4, ra, dec;
-                if (!(ss >> dummy1 >> dummy2 >> dummy3 >> dummy4 >> ra >> dec)) {
+                double ra, dec;
+                if (!skipExternalCatalogLeadingColumns(ss) || !(ss >> ra >> dec)) {
                     continue;
                 }
 
@@ -1009,108 +788,6 @@ namespace SourceExtractor {
         ImageProcessing::decorateStamp(LensingConfig::ns, sig, weights, stamps);
     }
 
-    void genStarCandidate(const std::string& prefix, int& nstar, int& procError) {
-        nstar = 0;
-
-        std::vector<std::vector<float>> source_para;
-        int ngal = 0;
-
-        if (procError != 1) {
-            std::string filename = prefix + "_source_info.dat";
-            std::ifstream fin(filename);
-            if (!fin.is_open()) {
-                std::cerr << filename << std::endl;
-                std::cerr << "Error / gen_star_candidate catalog file error!!" << std::endl;
-                std::exit(1);
-            }
-
-            std::string header;
-            std::getline(fin, header); // skip header
-
-            constexpr int source_info_fields = LensingConfig::iflag + 1;
-            std::vector<float> aa(source_info_fields, 0.0f);
-            while (true) {
-                bool read_ok = true;
-                for (int i = 0; i < source_info_fields; ++i) {
-                    if (!(fin >> aa[i])) {
-                        read_ok = false;
-                        break;
-                    }
-                }
-                if (!read_ok) break;
-
-                ngal++;
-                std::vector<float> row(12, 0.0f);
-                for (int i = 0; i < source_info_fields; ++i) {
-                    row[i] = aa[i];
-                }
-                double snr = row[LensingConfig::ih_flux] / std::sqrt(row[LensingConfig::ih_area]);
-                row[10] = snr;
-                source_para.push_back(row);
-                if (ngal >= LensingConfig::ngal_max) break;
-            }
-            fin.close();
-        }
-
-        std::vector<float> source_collect;
-        std::vector<float> noise_collect;
-        if (ngal > 0) {
-            int nn1 = LensingConfig::ns * LensingConfig::len_g;
-            int nn2 = LensingConfig::ns * (ngal / LensingConfig::len_g + 1);
-            source_collect.resize(LensingConfig::ngal_max * LensingConfig::ns * LensingConfig::ns, 0.0f);
-            noise_collect.resize(LensingConfig::ngal_max * LensingConfig::ns * LensingConfig::ns, 0.0f);
-
-            std::string filename_noise = prefix + "_noise.fits";
-            FitsIO::readStamps(LensingConfig::ngal_max, 1, ngal, LensingConfig::ns, LensingConfig::ns, noise_collect, nn1, nn2, filename_noise);
-
-            std::string filename_source = prefix + "_source.fits";
-            FitsIO::readStamps(LensingConfig::ngal_max, 1, ngal, LensingConfig::ns, LensingConfig::ns, source_collect, nn1, nn2, filename_source);
-        }
-
-        std::vector<float> star_source_collect(LensingConfig::nstar_max * LensingConfig::ns * LensingConfig::ns, 0.0f);
-        std::vector<float> star_noise_collect(LensingConfig::nstar_max * LensingConfig::ns * LensingConfig::ns, 0.0f);
-        std::vector<std::vector<float>> star_para;
-
-        for (int i = 0; i < ngal; ++i) {
-            if (source_para[i][10] < LensingConfig::SNR_PSF) continue;
-
-            nstar++;
-            int offset_src = i * LensingConfig::ns * LensingConfig::ns;
-            int offset_dest = (nstar - 1) * LensingConfig::ns * LensingConfig::ns;
-            std::copy(source_collect.begin() + offset_src, source_collect.begin() + offset_src + LensingConfig::ns * LensingConfig::ns, star_source_collect.begin() + offset_dest);
-            std::copy(noise_collect.begin() + offset_src, noise_collect.begin() + offset_src + LensingConfig::ns * LensingConfig::ns, star_noise_collect.begin() + offset_dest);
-
-            std::vector<float> row(4, 0.0f);
-            row[0] = source_para[i][0];
-            row[1] = source_para[i][1];
-            row[2] = source_para[i][2];
-            row[3] = source_para[i][10];
-            star_para.push_back(row);
-
-            if (nstar >= LensingConfig::nstar_max) break;
-        }
-
-        std::string filename_star_info = prefix + "_star_can_info.dat";
-        std::ofstream fout(filename_star_info);
-        if (fout.is_open()) {
-            fout << "ig xp yp SNR\n";
-            for (int i = 0; i < nstar; ++i) {
-                fout << star_para[i][0] << " " << star_para[i][1] << " " << star_para[i][2] << " " << star_para[i][3] << "\n";
-            }
-            fout.close();
-        }
-
-        if (nstar > 0) {
-            int nn1_s = LensingConfig::ns * LensingConfig::len_s;
-            int nn2_s = LensingConfig::ns * (nstar / LensingConfig::len_s + 1);
-
-            std::string filename_star_src = prefix + "_star_can.fits";
-            FitsIO::writeStamps(LensingConfig::ngal_max, 1, nstar, LensingConfig::ns, LensingConfig::ns, star_source_collect, nn1_s, nn2_s, filename_star_src);
-
-            std::string filename_star_noise = prefix + "_star_can_noise.fits";
-            FitsIO::writeStamps(LensingConfig::ngal_max, 1, nstar, LensingConfig::ns, LensingConfig::ns, star_noise_collect, nn1_s, nn2_s, filename_star_noise);
-        }
-    }
 
     void genStarCandidateDirect(const std::string& prefix, int nx, int ny, const std::vector<float>& array,
                                 const std::vector<int>& weight, int& nstar, int& procError) {

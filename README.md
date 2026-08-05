@@ -15,6 +15,7 @@ scripts.
 - [Repository Structure](#repository-structure)
 - [Pipeline Stages](#pipeline-stages)
 - [Configuration](#configuration)
+- [External Source Catalog](#external-source-catalog)
 - [Building from Source](#building-from-source)
 - [Docker Environments](#docker-environments)
 - [HPC Deployment](#hpc-deployment)
@@ -57,6 +58,7 @@ Fourier_Quad_Pipeline/
 ├── f77_Lite/             Simplified Fortran 77 pipeline (frozen branches)
 ├── cpp_Standard/         Full C++17 pipeline source
 ├── cpp_Lite/             Simplified C++17 pipeline (frozen branches)
+├── gen_src_cat/           DES Y6 GOLD external-catalog downloader
 ├── f77_docker/           Docker build environment for f77 pipeline
 ├── cpp_docker/           Docker build environment for C++ pipeline
 ├── .github/workflows/    CI/CD workflows (GHCR images + GitHub releases)
@@ -107,31 +109,33 @@ production values and dead-code branches are physically removed.
 
 | File | Description |
 |---|---|
-| `main.cpp` | Main program entry point. Mirrors `f77/main.f` in C++. |
-| `LensingConfig.hpp` | Configuration constants (equivalent to `para.inc` + `cust_para.inc` + `sig_para.inc`). |
-| `PreProcess.cpp/.hpp` | **Stage 1**: pre-processing. |
-| `Astrometry.cpp/.hpp` | **Stage 2**: astrometric calibration. |
-| `SourceExtractor.cpp/.hpp` | **Stage 3**: source detection and extraction. |
-| `FourierTransformSt1.cpp/.hpp` | **Stage 4**: first-stage Fourier transform. |
-| `PSFModel.cpp/.hpp` | **Stage 5**: PSF modeling. |
-| `PSFRecons.cpp/.hpp` | PSF PCA reconstruction (`PSF_Ms=1` only). |
-| `FourierTransformSt2.cpp/.hpp` | **Stage 6**: second-stage Fourier transform. |
-| `ShearMeasurement.cpp/.hpp` | **Stage 7**: Fourier\_Quad shear estimation. |
-| `ExposureInfo.cpp/.hpp` | **Stage 8**: per-exposure statistics. |
-| `CatalogCombiner.cpp/.hpp` | **Stage 9**: catalog combination and calibration. |
-| `FitsIO.cpp/.hpp` | FITS I/O routines. |
-| `LinearSolve.cpp/.hpp` | Linear algebra utilities. |
-| `UniversalUtils.cpp/.hpp` | General-purpose utilities. |
-| `ImageProcessing.cpp/.hpp` | Image processing utilities. |
-| `NumericalRecipes.cpp/.hpp` | Numerical Recipes port (RNG, sorting, interpolation). |
-| `MPIScheduler.cpp/.hpp` | MPI initialization and task distribution. |
-| `ExStar.cpp/.hpp` | Star extraction and classification. |
+| `main.cpp` | MPI entry point, workflow option parsing, and phase ordering. |
+| `include/ProcessConfig.hpp` | Initializer/main workflow defaults. |
+| `src/process_init/`, `include/process_init/` | Archive initializer implementation and headers. |
+| `src/process_main/process_main.cpp`, `include/process_main/process_main.hpp` | Exposure-list loading and Stage 1–9 orchestration. |
+| `include/process_main/LensingConfig.hpp` | Configuration constants (equivalent to `para.inc` + `cust_para.inc` + `sig_para.inc`). |
+| `src/process_main/PreProcess.cpp`, `include/process_main/PreProcess.hpp` | **Stage 1**: pre-processing. |
+| `src/process_main/Astrometry.cpp`, `include/process_main/Astrometry.hpp` | **Stage 2**: astrometric calibration. |
+| `src/process_main/SourceExtractor.cpp`, `include/process_main/SourceExtractor.hpp` | **Stage 3**: source detection and extraction. |
+| `src/process_main/FourierTransformSt1.cpp`, `include/process_main/FourierTransformSt1.hpp` | **Stage 4**: first-stage Fourier transform. |
+| `src/process_main/PSFModel.cpp`, `include/process_main/PSFModel.hpp` | **Stage 5**: PSF modeling. |
+| `src/process_main/PSFRecons.cpp`, `include/process_main/PSFRecons.hpp` | PSF PCA reconstruction (`PSF_Ms=1` only). |
+| `src/process_main/FourierTransformSt2.cpp`, `include/process_main/FourierTransformSt2.hpp` | **Stage 6**: second-stage Fourier transform. |
+| `src/process_main/ShearMeasurement.cpp`, `include/process_main/ShearMeasurement.hpp` | **Stage 7**: Fourier\_Quad shear estimation. |
+| `src/process_main/ExposureInfo.cpp`, `include/process_main/ExposureInfo.hpp` | **Stage 8**: per-exposure statistics. |
+| `src/process_main/CatalogCombiner.cpp`, `include/process_main/CatalogCombiner.hpp` | **Stage 9**: catalog combination and calibration. |
+| `src/process_main/` and `include/process_main/` support modules | FITS I/O, linear algebra, image processing, MPI scheduling, and shared numerical utilities. |
+| `src/process_main/NumericalRecipes.cpp`, `include/process_main/NumericalRecipes.hpp` | Numerical Recipes port (RNG, sorting, interpolation). |
+| `src/process_main/MPIScheduler.cpp`, `include/process_main/MPIScheduler.hpp` | MPI initialization and task distribution. |
+| `src/process_main/ExStar.cpp`, `include/process_main/ExStar.hpp` | Star extraction and classification. |
 | `Makefile` | Build file. Uses `mpicxx`, C++17, links against CFITSIO, FFTW, LAPACK. |
 
 #### `cpp_Lite/` — Simplified C++17 pipeline
 
-Same file set as `cpp_Standard/` except `PSFRecons.cpp/.hpp` is absent.
-See `cpp_Lite/REFACTOR_NOTES.md` for the detailed change log.
+Uses the same integrated `process_init` / `process_main` directory layout and
+runtime option contract as `cpp_Standard/`, but its scientific modules retain
+the frozen Lite branches and `PSFRecons.cpp/.hpp` is absent. See
+`cpp_Lite/REFACTOR_NOTES.md` for the detailed change log.
 
 ### Docker directories
 
@@ -215,9 +219,54 @@ All compile-time parameters live in three include files:
 
 ### C++ (`LensingConfig.hpp`)
 
-All parameters from the three Fortran include files are consolidated into a
-single `LensingConfig` namespace in `LensingConfig.hpp`. Catalog column indices
-are shifted to 0-based for C++.
+`cpp_Standard` consolidates all parameters from the three Fortran include files
+into `include/process_main/LensingConfig.hpp`. `cpp_Lite` uses the same relative
+path but retains only its frozen parameter subset; see
+`cpp_Lite/REFACTOR_NOTES.md`. Catalog column indices are shifted to 0-based for
+C++. See the complete
+[`C++ Pipeline External Inputs and Parameter Reference`](CPP_PIPELINE_PARAMETERS.md)
+for every runtime option, external input, `ProcessConfig.hpp` default,
+`LensingConfig.hpp` parameter, valid value, and Standard/Lite difference.
+
+---
+
+## External Source Catalog
+
+When `ext_cat = 1`, the C++ and Fortran pipelines read one-degree DES Y6 GOLD
+tiles from the directory configured as `SOURCE_CAT`. The
+[`gen_src_cat`](gen_src_cat/README.md) utilities download or repartition those
+tiles with the filename convention expected by the catalog readers. The Python
+downloader writes the DES Y6 GOLD 18-column schema. The C++ MPI repartitioner
+preserves every raw column by default or selects any ordered list when explicit
+projection is enabled; it is also integrated into `cpp_Standard` and `cpp_Lite`
+as `process_extcat`, the optional first phase before `process_init` and
+`process_main`.
+
+For C++ external catalogs, set `ext_cat_columns_before_ra` in the selected
+`LensingConfig.hpp` to the number of whitespace-delimited fields before `ra`.
+The default is `4` for the DES Y6 GOLD flag columns; use `0` when `ra` is the
+first field. The post-`dec` magnitude/error and redshift column order used by
+deblending remains unchanged. Thus variable-width output is valid for
+catalog-only jobs, but output consumed by `process_main` must retain that
+reader-compatible field order.
+
+```bash
+cd gen_src_cat
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install numpy pyvo
+python query_y6gold_sync_mp_v2.py
+```
+
+Review the sky bounds, row limit, output directory, and query concurrency in the
+script before running it. For C++, set the primary `SOURCE_CAT` path in
+`LensingConfig.hpp`, or pass `--extcat-output`; `EXTCAT_OUTPUT_DIRECTORY`
+follows that value so generation and numerical processing use the same path.
+Raw local catalogs can instead be tiled inside the pipeline with
+`--run-extcat true --extcat-input PATH`. Fortran still uses `SOURCE_CAT` in
+`para.inc`. See
+[`gen_src_cat/README.md`](gen_src_cat/README.md) for the Python schema, C++
+projection modes, and catalog-generation behavior.
 
 ---
 
@@ -248,26 +297,36 @@ LAPACK/BLAS, Eigen3.
 
 ```bash
 cd cpp_Standard   # or cpp_Lite
-# Optionally edit LensingConfig.hpp for your catalog paths
+# Edit include/process_main/LensingConfig.hpp for scientific parameters and
+# include/ProcessConfig.hpp for workflow defaults.
 make -j4
 # Executable: ./Fourier_Quad_Pipe
 ```
 
-The `cpp_Standard` Makefile supports an optional `STACK_PREFIX`:
+Both C++ Makefiles support optional `STACK_PREFIX` and
+`EIGEN_INCLUDE` overrides:
 
 ```bash
-make STACK_PREFIX=/opt/cppstack -j4
+make STACK_PREFIX=/opt/cppstack EIGEN_INCLUDE=/opt/eigen/include/eigen3 -j4
 ```
 
 ### Running the pipeline
 
 ```bash
-mpirun -np <N> ./Fourier_Quad_Pipe <EXPO_LIST>    # Fortran
-mpirun -np <N> ./Fourier_Quad_Pipe <EXPO_LIST>    # C++
+mpirun -np <N> ./Fourier_Quad_Pipe <EXPO_LIST>                 # Fortran
+mpirun -np <N> ./Fourier_Quad_Pipe --expo-list <EXPO_LIST>     # C++ Standard/Lite main only
 ```
 
-`EXPO_LIST` is a text file listing exposure names and chip counts. Each MPI rank
-is assigned a subset of exposures to process.
+Both C++ variants integrate the MPI archive initializer. Runtime
+`--run-init`/`--run-main` options select initializer-only, main-only, or chained
+execution; omitted options use `include/ProcessConfig.hpp`. Repeat
+`--dataset TARGET:PREFIX` for a sequential batch and repeat `--contains TOKEN`
+for OR-matched archive tokens; the same lists can be set as `DATASETS` and
+`CONTAINS` in `ProcessConfig.hpp`. In chained mode each generated absolute
+`expo_<target>.list` overrides external list input for that dataset.
+See [`cpp_Standard/README.md`](cpp_Standard/README.md) or
+[`cpp_Lite/README.md`](cpp_Lite/README.md) for the full option and output
+contract.
 
 ---
 
@@ -380,6 +439,13 @@ Pull a published image:
 docker pull ghcr.io/syoong-s/fourier_quad_pipeline/f77pipeline:latest
 docker pull ghcr.io/syoong-s/fourier_quad_pipeline/cpppipeline:latest
 ```
+
+### GitHub releases
+
+The [release workflow](.github/workflows/release.yml) runs for `v*` tags or by
+manual dispatch. It attaches one zip archive per top-level content directory;
+`gen_src_cat.zip` is required so the catalog generator can be downloaded and
+used independently of the pipeline source packages.
 
 ## Attribution
 This project implements the method proposed by Prof. Zhang in:

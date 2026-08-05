@@ -18,6 +18,14 @@ services:
         source: ${CPP_SOURCE_HOST}
         target: /workspace/src_pipe
       - type: bind
+        source: ${SCIENCE_ROOT_HOST}
+        target: ${SCIENCE_ROOT_CONTAINER:-/data/archive/science}
+        read_only: true
+      - type: bind
+        source: ${DQ_ROOT_HOST}
+        target: ${DQ_ROOT_CONTAINER:-/data/archive/dqmask}
+        read_only: true
+      - type: bind
         source: ${ASTROMETRY_CAT_HOST}
         target: ${ASTROMETRY_CAT_CONTAINER:-/data/catalogs/AstroDir}
         read_only: true
@@ -33,4 +41,6 @@ services:
         source: ${PROCESS_DATA_HOST}
         target: ${PROCESS_DATA_CONTAINER:-/data/DataProcess}
     environment:
+      SCIENCE_ROOT_CONTAINER: ${SCIENCE_ROOT_CONTAINER:-/data/archive/science}
+      DQ_ROOT_CONTAINER: ${DQ_ROOT_CONTAINER:-/data/archive/dqmask}
       PROCESS_DATA_CONTAINER: ${PROCESS_DATA_CONTAINER:-/data/DataProcess}

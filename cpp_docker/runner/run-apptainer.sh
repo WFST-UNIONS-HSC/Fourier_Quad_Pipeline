@@ -155,6 +155,10 @@ load_configuration() {
         CPP_SIF
         CPP_SOURCE_HOST
         CPP_SOURCE_CONTAINER
+        SCIENCE_ROOT_HOST
+        SCIENCE_ROOT_CONTAINER
+        DQ_ROOT_HOST
+        DQ_ROOT_CONTAINER
         ASTROMETRY_CAT_HOST
         ASTROMETRY_CAT_CONTAINER
         SOURCE_CAT_HOST
@@ -194,6 +198,8 @@ load_configuration() {
 
     for variable_name in \
         CPP_SOURCE_HOST \
+        SCIENCE_ROOT_HOST \
+        DQ_ROOT_HOST \
         ASTROMETRY_CAT_HOST \
         SOURCE_CAT_HOST \
         FLAT_PATH_HOST \
@@ -203,6 +209,8 @@ load_configuration() {
 
     for variable_name in \
         CPP_SOURCE_CONTAINER \
+        SCIENCE_ROOT_CONTAINER \
+        DQ_ROOT_CONTAINER \
         ASTROMETRY_CAT_CONTAINER \
         SOURCE_CAT_CONTAINER \
         FLAT_PATH_CONTAINER \
@@ -282,11 +290,15 @@ run_container() {
         --no-home
         --pwd "${CONTAINER_PWD}"
         --bind "${CPP_SOURCE_HOST}:${CPP_SOURCE_CONTAINER}:rw"
+        --bind "${SCIENCE_ROOT_HOST}:${SCIENCE_ROOT_CONTAINER}:ro"
+        --bind "${DQ_ROOT_HOST}:${DQ_ROOT_CONTAINER}:ro"
         --bind "${ASTROMETRY_CAT_HOST}:${ASTROMETRY_CAT_CONTAINER}:ro"
         --bind "${SOURCE_CAT_HOST}:${SOURCE_CAT_CONTAINER}:ro"
         --bind "${FLAT_PATH_HOST}:${FLAT_PATH_CONTAINER}:ro"
         --bind "${PROCESS_DATA_HOST}:${PROCESS_DATA_CONTAINER}:rw"
         --env "CPP_SOURCE_CONTAINER=${CPP_SOURCE_CONTAINER}"
+        --env "SCIENCE_ROOT_CONTAINER=${SCIENCE_ROOT_CONTAINER}"
+        --env "DQ_ROOT_CONTAINER=${DQ_ROOT_CONTAINER}"
         --env "PROCESS_DATA_CONTAINER=${PROCESS_DATA_CONTAINER}"
     )
 
@@ -313,6 +325,8 @@ run_container() {
              pkg-config --exact-version=3.3.11 fftw3
              test -r "${CPP_STACK_PREFIX}/include/eigen3/Eigen/Dense"
              test -d "${CPP_SOURCE_CONTAINER}"
+             test -d "${SCIENCE_ROOT_CONTAINER}"
+             test -d "${DQ_ROOT_CONTAINER}"
              test -d "${PROCESS_DATA_CONTAINER}"
              printf "Apptainer image and bind checks passed on %s.\n" "$(hostname)"'
         )

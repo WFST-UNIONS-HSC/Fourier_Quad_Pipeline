@@ -3,7 +3,8 @@ name: Publish release
 # ==========================================
 # Trigger: push a version tag (v*) or manual dispatch.
 # Creates a GitHub Release and attaches one zip file per
-# top-level content directory in the repository.
+# top-level content directory in the repository, including
+# gen_src_cat.zip for the external-catalog generator.
 # ==========================================
 on:
   workflow_dispatch:
@@ -29,17 +30,21 @@ jobs:
           mkdir -p artifacts
 
           # Zip every top-level content directory.
-          # Exclude .git, .planning, and .github (CI internals).
+          # Exclude CI internals and the artifact staging directory itself.
           find . -maxdepth 1 -mindepth 1 -type d \
               ! -name '.git' \
               ! -name '.planning' \
               ! -name '.github' \
+              ! -name 'artifacts' \
               -print0 | sort -z | while IFS= read -r -d '' dir; do
             dirname="$(basename "$dir")"
             echo "Zipping: $dirname"
             zip -r "artifacts/${dirname}.zip" "$dir" \
                 -x '*/.git/*' '*/.git'
           done
+
+          # gen_src_cat is a required standalone release asset.
+          test -f artifacts/gen_src_cat.zip
 
           echo "=== Artifact list ==="
           ls -lh artifacts/

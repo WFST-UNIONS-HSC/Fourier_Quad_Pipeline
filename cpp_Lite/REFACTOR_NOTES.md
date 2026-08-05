@@ -3,6 +3,10 @@
 本目录是 `../cppv2` 的精简重构版，与 `../f77_lite` 一一对应：把 8 个编译期分支
 开关固定为当前使用的取值，并**物理删除**所有未选中分支的代码和相应的 `if` 语句。
 
+当前集成结构中，数值实现统一位于 `src/process_main/`，对应头文件位于
+`include/process_main/`；初始化器独立位于 `src/process_init/` 与
+`include/process_init/`。下文未写目录的数值文件名均指这两个 `process_main` 目录。
+
 未修改的文件（`FitsIO.*`、`ImageProcessing.*`、`LinearSolve.*`、`NumericalRecipes.*`、
 `UniversalUtils.*`、`ExStar.*`、`ExposureInfo.*`、`FourierTransformSt2.*`、
 `FourierTransformSt1.hpp`、`CatalogCombiner.hpp`、`ShearMeasurement.hpp`）
@@ -24,7 +28,7 @@
 ## 二、仍然保留的可选分支
 
 `PROCESS_stage`、`CCD_split`、`gal_smooth`、`star_smooth` 的分支**原样保留**，
-常量仍在 `LensingConfig.hpp` 中。
+常量仍在 `include/process_main/LensingConfig.hpp` 中。
 
 ## 三、逐文件改动
 
@@ -44,7 +48,7 @@
 | `FourierTransformSt1.cpp` | 107 → 103 | 删 `if (ext_PSF == 1) return` |
 | `CatalogCombiner.cpp` | 216 → 166 | 两处 `ext_cat == 1` 分支展平，删 `else` 分支 |
 
-当前顶层 `.cpp/.hpp` 合计 **12347 → 10071 行**；新增 F6 mode-bar 核心在主树与 lite
+当前 `process_main` 数值 `.cpp/.hpp` 合计 **12347 → 10071 行**；新增 F6 mode-bar 核心在主树与 lite
 中逐字一致，不改变冻结分支的行为差异。
 
 另外，`PSFModel.cpp` 内部静态辅助函数 `fitPSFCoefficients` 的
@@ -86,7 +90,7 @@
 两行 shear 修正因此是恒等运算；`g1_c`/`g2_c` 常量只剩注释引用。这与原版
 `ext_cat=1` 路径完全一致（原版就是这样写的），保留以便随时恢复该修正。
 
-失去引用的常量（保留在 `LensingConfig.hpp`，供你决定是否清理）：
+失去引用的常量（保留在 `include/process_main/LensingConfig.hpp`，供你决定是否清理）：
 `Camera_ccd_num`、`psf_order`（原版就未使用）、`npox`（原版就未使用）、
 `g1_c`、`g2_c`（仍被 `CatalogCombiner.cpp` 中注释掉的代码引用）、`nplx`。
 
@@ -97,19 +101,21 @@
 
 `Makefile` 的 `SRCS` 里列了 `MPIScheduler.cpp`，但该文件此前不在 `cppv2/` 目录中，
 `MPIScheduler::init/finalize/barrier/distribute/my_id/num_procs` 全部无定义，原始树
-同样无法链接。现已补回：`cppv2/MPIScheduler.cpp` 重新上传后，按重构规则删去
+同样无法链接。现已补回：`src/process_main/MPIScheduler.cpp` 按重构规则删去
 `forcecov()` 定义（只被已删除的 `PSFRecons` 使用，与已重构的 `MPIScheduler.hpp`
 对齐），其余 `init/finalize/barrier/distribute` 原样保留。上述符号全部解析正常。
 
 ## 六、编译验证
 
 ```bash
-mpicxx -O1 -std=c++17 -Wall -I/usr/include/eigen3 -I<cfitsio/fftw3 include> -c *.cpp
-mpicxx -O1 -std=c++17 *.o -o Fourier_Quad_Pipe -lcfitsio -lfftw3 -lfftw3f -llapack -lblas -lm
+make CXX=mpicxx STACK_PREFIX=<scientific-stack-prefix> \
+  EIGEN_INCLUDE=<eigen3-include-directory> -j4
 ```
 
-17 个 `.cpp` 源文件全部通过编译，零错误；与原始 `cppv2`（18 个 `.cpp`）逐文件对照，
-精简树仅少了被删的 `PSFRecons.cpp`。`-Wall` 警告与原版相同且无新增（`Astrometry.cpp`
+16 个数值 `.cpp` 源文件以及统一入口、`process_main` wrapper 和三个
+`process_init` 目录实现
+全部通过编译，零错误；与原始 `cppv2` 数值树逐文件对照，精简树仅少了被删的
+`PSFRecons.cpp`。`-Wall` 警告与原版相同且无新增（`Astrometry.cpp`
 2 条、`PSFModel.cpp` 2 条，均为原版就有的 unused-variable；`MPIScheduler.cpp` 零警告）。
 完整链接成功，此前未解析的 `MPIScheduler::*` 已由补回的 `MPIScheduler.cpp` 提供。
 `.o` 层未定义符号集合（扣除 cfitsio / FFTW / LAPACK / BLAS / MPI 库符号）为原始树的

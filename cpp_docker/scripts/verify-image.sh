@@ -38,6 +38,8 @@ verify_runtime() {
         test -e \"\${CPP_STACK_PREFIX}/lib/liblapack.so\"
         test -e \"\${CPP_STACK_PREFIX}/lib/libblas.so\"
         test -d /workspace/src_pipe
+        test -d /data/archive/science
+        test -d /data/archive/dqmask
         test -d /data/catalogs/AstroDir
         test -d /data/catalogs/ExtSrcDir
         test -d /data/calib/FlatDir
