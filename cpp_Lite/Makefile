@@ -2,7 +2,7 @@ CXX = mpicxx
 STACK_PREFIX ?=
 EIGEN_INCLUDE ?=
 
-CPPFLAGS = -Iinclude -Iinclude/process_main
+CPPFLAGS = -Iinclude -Iinclude/process_extcat -Iinclude/process_main
 CXXFLAGS = -O3 -std=c++17 -Wall -Wextra -MMD -MP
 LDFLAGS =
 LDLIBS = -lcfitsio -lfftw3 -lfftw3f -llapack -lblas -lm
@@ -17,6 +17,7 @@ CPPFLAGS += -I$(EIGEN_INCLUDE)
 endif
 
 SRCS = main.cpp \
+       src/process_extcat/process_extcat.cpp \
        src/process_main/process_main.cpp \
        src/process_init/process_init.cpp \
        src/process_init/Initializer.cpp \

@@ -3,7 +3,6 @@
 #include <mpi.h>
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -133,11 +132,11 @@ bool parseExistingPolicy(const std::string& value,
 }
 
 // ==========================================
-// Function: Parse an explicit canonical column projection
-// Method: Convert exactly 18 comma-separated one-based indices to zero-based indices.
+// Function: Parse an explicit ordered column projection
+// Method: Convert one or more comma-separated one-based indices to zero-based indices.
 // ==========================================
 bool parseColumns(const std::string& value,
-                  std::array<std::size_t, ProcessExtcat::kCanonicalColumnCount>& columns) {
+                  std::vector<std::size_t>& columns) {
     std::istringstream input(value);
     std::string token;
     std::vector<std::size_t> parsed;
@@ -149,12 +148,25 @@ bool parseColumns(const std::string& value,
         }
         parsed.push_back(static_cast<std::size_t>(index - 1));
     }
-    if (parsed.size() != ProcessExtcat::kCanonicalColumnCount) {
+    if (parsed.empty()) {
         return false;
     }
-    for (std::size_t index = 0; index < parsed.size(); ++index) {
-        columns[index] = parsed[index];
+    columns = parsed;
+    return true;
+}
+
+// ==========================================
+// Function: Parse one raw coordinate column
+// Method: Convert one positive one-based CLI index to the zero-based library form.
+// ==========================================
+bool parseCoordinateColumn(const std::string& value, std::size_t& column) {
+    std::uint64_t one_based = 0;
+    if (!parsePositiveInteger(value, one_based)
+        || one_based - 1
+               > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+        return false;
     }
+    column = static_cast<std::size_t>(one_based - 1);
     return true;
 }
 
@@ -229,10 +241,22 @@ bool applyOption(const std::string& name,
         }
     } else if (name == "--columns") {
         if (!parseColumns(value, config.input_columns)) {
-            error = "--columns must contain exactly 18 positive one-based indices";
+            error = "--columns must contain one or more positive one-based indices";
             return false;
         }
         config.use_explicit_columns = true;
+    } else if (name == "--ra-column") {
+        if (!parseCoordinateColumn(value, config.ra_column)) {
+            error = "--ra-column must be a positive one-based index";
+            return false;
+        }
+        config.use_explicit_coordinate_columns = true;
+    } else if (name == "--dec-column") {
+        if (!parseCoordinateColumn(value, config.dec_column)) {
+            error = "--dec-column must be a positive one-based index";
+            return false;
+        }
+        config.use_explicit_coordinate_columns = true;
     } else if (name == "--chunk-mib") {
         std::uint64_t mebibytes = 0;
         if (!parsePositiveInteger(value, mebibytes)
@@ -290,7 +314,7 @@ bool parseCommandLine(int argc,
 
 // ==========================================
 // Function: Print standalone process_extcat usage
-// Method: Document the portable CLI and the fixed canonical output contract.
+// Method: Document pass-through, arbitrary projection, coordinate, and lifecycle controls.
 // ==========================================
 void printUsage(const char* executable) {
     std::cout
@@ -301,14 +325,17 @@ void printUsage(const char* executable) {
         << "  --recursive BOOL      Recurse below input directory (default: true)\n"
         << "  --delimiter MODE      auto, whitespace, comma, or tab (default: auto)\n"
         << "  --header MODE         auto, present, or absent (default: auto)\n"
-        << "  --columns LIST        18 comma-separated one-based input indices in canonical output order\n"
+        << "  --columns LIST        Ordered comma-separated one-based input indices\n"
+        << "  --ra-column N         One-based raw RA column; overrides header discovery\n"
+        << "  --dec-column N        One-based raw Dec column; overrides header discovery\n"
         << "  --chunk-mib N         Maximum nominal byte-range task size (default: 64)\n"
         << "  --malformed POLICY    fail or skip (default: fail)\n"
         << "  --existing POLICY     fail or overwrite generated tiles (default: fail)\n"
         << "  --help, -h            Show this help text\n"
         << "\n"
-        << "Output is always one-degree des_y6_RA_*_Dec_*.dat tiles with the canonical\n"
-        << "18-column commented-header schema consumed by the Fourier_Quad pipeline.\n";
+        << "Without --columns, all input columns keep their original order. With\n"
+        << "--columns, output width and order follow LIST exactly. Named ra/dec header\n"
+        << "fields drive sky tiling unless explicit coordinate columns are supplied.\n";
 }
 
 }  // namespace

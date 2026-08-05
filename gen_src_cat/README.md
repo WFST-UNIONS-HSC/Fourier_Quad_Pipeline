@@ -4,16 +4,20 @@ This directory provides two ways to create the one-degree external source
 catalog tiles consumed when the Fourier_Quad pipeline runs with `ext_cat = 1`:
 
 - `process_extcat`: a C++17/MPI program that discovers existing raw text
-  catalogs, projects their columns into the pipeline schema, and repartitions
-  them by sky position.
+  catalogs, optionally selects columns in a user-specified order, and
+  repartitions rows by sky position.
 - `query_y6gold_sync_mp_v2.py`: a Python program that queries the DES Y6 GOLD
   table through the NOIRLab Data Lab TAP service and writes the same tiles.
 
 Both tools produce basenames such as
-`des_y6_RA_299_300_Dec_m80_m79.dat` and the same 18-column commented-header
-format. The C++ module is intentionally organized for a later merge into the
-pipeline as `process_extcat`, alongside `process_init` and `process_main`; it is
-not wired into `cpp_Standard` or `cpp_Lite` yet.
+`des_y6_RA_299_300_Dec_m80_m79.dat`. The Python downloader always writes its
+DES Y6 GOLD 18-column query schema. The C++ repartitioner preserves the raw
+schema by default and writes an arbitrary ordered subset only when explicit
+column selection is enabled. It can reproduce the Python schema when the raw
+catalog or selected list already has that order. The same reusable C++ module
+is integrated into both `cpp_Standard` and `cpp_Lite` as the optional first
+phase, before `process_init` and `process_main`. This directory retains the
+independently buildable tool for catalog-only jobs and release packaging.
 
 ## C++ MPI catalog repartitioner
 
@@ -26,9 +30,12 @@ The C++ implementation:
 - accepts repeated, case-sensitive basename substring filters with OR
   semantics;
 - detects whitespace, comma, or tab input independently for each file;
-- recognizes canonical headers case-insensitively and reorders columns;
-- accepts an explicit 18-column index projection for alternative or headerless
-  schemas;
+- preserves every input field in its original order when column selection is
+  disabled;
+- accepts any non-empty ordered list of one-based input indices when column
+  selection is enabled, including repeated indices;
+- locates raw `ra` and `dec` header fields independently from the output list,
+  with explicit coordinate indices for headerless or nonstandard schemas;
 - splits even one large input file into newline-aligned byte-range MPI tasks;
 - writes one-degree sky tiles with deterministic row order independent of MPI
   rank count;
@@ -59,9 +66,9 @@ int process_extcat(ProcessExtcat::Config config,
 
 `process_extcat` assumes MPI is already initialized and never calls
 `MPI_Init` or `MPI_Finalize`. The standalone `main.cpp` owns those calls only
-for the separately built tool. This ownership boundary matches the current
-`process_init` and `process_main` execution model and must be preserved during
-the later pipeline integration.
+for the separately built tool. The copies under each C++ pipeline variant add a
+`ProcessConfig::RuntimeOptions` adapter, while pipeline `main.cpp` retains MPI
+lifecycle ownership.
 
 ### C++ build requirements
 
@@ -133,7 +140,9 @@ srun --ntasks=16 ./process_extcat \
 | `--recursive BOOL` | `true` | Scan below nested input directories |
 | `--delimiter MODE` | `auto` | `auto`, `whitespace`, `comma`, or `tab` |
 | `--header MODE` | `auto` | `auto`, `present`, or `absent` |
-| `--columns LIST` | header names or first 18 fields | Exactly 18 comma-separated, one-based input indices in canonical output order |
+| `--columns LIST` | disabled | One or more comma-separated, positive one-based input indices; output fields follow this exact order |
+| `--ra-column N` | named `ra`, otherwise `5` | Positive one-based raw RA index; overrides header-name discovery |
+| `--dec-column N` | named `dec`, otherwise `6` | Positive one-based raw Dec index; overrides header-name discovery |
 | `--chunk-mib N` | `64` | Maximum nominal byte-range task size |
 | `--malformed POLICY` | `fail` | `fail` or `skip` |
 | `--existing POLICY` | `fail` | `fail` or `overwrite` generated tiles |
@@ -143,30 +152,38 @@ accept both `--name value` and `--name=value` forms.
 
 ### C++ input schema handling
 
-With `--header auto`, each input file is inspected independently:
+With `--header auto`, each input file is inspected independently. A unique pair
+of case-insensitive `ra` and `dec` field names identifies a header immediately;
+a leading nonnumeric record can also be recognized as a header while locating
+the first valid coordinate row. Use `--header present` for a commented header
+that uses nonstandard coordinate names, and `--header absent` for headerless
+data.
 
-1. Leading blank lines and lines beginning with `#` are ignored as data.
-2. A commented or uncommented header containing all 18 canonical field names
-   is recognized case-insensitively.
-3. Canonical fields may appear in any input order; they are projected into the
-   fixed output order.
-4. Without a recognized header, the first 18 fields are assumed to already be
-   canonical.
-
-Use `--columns` when an input uses different field names, contains extra fields,
-or has no header. The list gives one-based input indices for the 18 canonical
-output fields. For example, an input with an unused ID in column 1 followed by
-the canonical values uses:
+Without `--columns`, every field is copied in its original order and each data
+row must have the inspected input width. With `--columns`, the output width is
+the list length and each item selects that one-based raw field. For example:
 
 ```bash
---header absent --columns 2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
+--columns 5,3,4,1
 ```
 
-All 18 projected tokens must be finite numbers because the downstream pipeline
-reads them numerically. Quoted comma- or tab-delimited fields are accepted, but
-embedded newlines are not. With `--malformed fail`, an invalid row stops the
-collective job and no final tile set is published. With `--malformed skip`, the
-row is counted and omitted.
+writes raw columns 5, 3, 4, and 1 as output columns 1, 2, 3, and 4. Indices may
+repeat, in which case the raw field is repeated. Named input fields become the
+output header in selected order; headerless fields use names such as
+`column_5` and `column_3`.
+
+Sky tiling always reads RA and Dec from the raw row, independently of the
+output list. A recognized `ra`/`dec` header pair is preferred. Otherwise raw
+columns 5 and 6 are the fallback. Use `--ra-column` and `--dec-column` together
+for headerless or nonstandard layouts; either option enables explicit
+coordinate indexing and therefore disables header-name discovery.
+
+Only the raw RA and Dec tokens must be finite numbers. Other copied fields may
+be strings. Quoted comma- or tab-delimited fields are accepted, but embedded
+newlines are not. All selected input files must produce the same effective
+output header; incompatible files fail before any final tile is published.
+With `--malformed fail`, an invalid row stops the collective job and no final
+tile set is published. With `--malformed skip`, the row is counted and omitted.
 
 Valid right ascension is `[0, 360]` degrees; exactly 360 degrees wraps to zero.
 Valid declination is `[-90, 90]` degrees; the exact north pole is placed in the
@@ -183,8 +200,8 @@ enough to expose work to all ranks when the data volume permits. Each rank seeks
 to assigned ranges and aligns to complete newline-delimited records.
 
 Workers write collision-free per-task shards. After all tasks succeed, rank zero
-merges shards in sorted input-file and original byte order, prepends one
-canonical header, and publishes the complete tile set. Changing the MPI rank
+merges shards in sorted input-file and original byte order, prepends the shared
+projected header, and publishes the complete tile set. Changing the MPI rank
 count therefore does not change output bytes.
 
 The default `--existing fail` refuses to start when the output directory already
@@ -202,9 +219,10 @@ make test
 ```
 
 The dependency-free integration test creates temporary CSV and whitespace
-catalogs and exercises one-, two-, and three-rank runs. It verifies canonical
-header projection, explicit index projection, nested discovery, basename
-filters, malformed-row skipping, RA/Dec boundaries, rank-count determinism,
+catalogs and exercises one-, two-, and three-rank runs. It verifies variable-
+width pass-through, exact ordered `{5,3,4,1}` projection, headerless coordinate
+indices, schema-mismatch rejection, nested discovery, basename filters,
+malformed-row skipping, RA/Dec boundaries, rank-count determinism,
 fail-on-malformed publication isolation, unsafe nested-output rejection,
 fail-on-existing behavior, overwrite cleanup, and preservation of unrelated
 files.
@@ -285,9 +303,9 @@ result.
 Network errors are reported per tile and do not stop the entire process pool.
 Rerun the script to retry tiles that were not written.
 
-## Shared output schema
+## DES Y6 GOLD schema and pipeline compatibility
 
-Every final tile contains one commented header followed by 18 whitespace-
+The Python downloader writes one commented header followed by 18 whitespace-
 delimited columns in this order:
 
 | Column | Field |
@@ -311,22 +329,30 @@ delimited columns in this order:
 | 17 | `dnf_z` |
 | 18 | `dnf_zsigma` |
 
-The pipeline reads `ra` and `dec` after skipping the number of leading fields
-configured by `ext_cat_columns_before_ra`. Its default value is `4`, matching
-the four flag fields above. External-catalog deblending expects the ten
-magnitude/error fields followed by `dnf_z` and `dnf_zsigma` after `dec`, so the
-generators always emit the complete canonical schema.
+The C++ repartitioner emits this schema only when its pass-through input or
+explicit selection has the same fields in the same order. Otherwise it emits
+the effective input width or selected-list width.
+
+`process_main` reads RA after skipping the number of leading fields configured
+by `ext_cat_columns_before_ra`. Its default value is `4`, matching the four flag
+fields above. It then expects Dec, the ten magnitude/error fields, `dnf_z`, and
+`dnf_zsigma` in that order. Therefore arbitrary-width or arbitrarily ordered
+C++ output is valid for catalog-only jobs, but it can feed `process_main` only
+when the selected order satisfies that reader contract.
 
 ## Connect generated tiles to Fourier_Quad
 
-Set `SOURCE_CAT` to the directory containing the generated `.dat` tiles, not to
-an individual file:
+For the C++ programs, configure `SOURCE_CAT` in the selected
+`include/process_main/LensingConfig.hpp`, or pass `--extcat-output`.
+`EXTCAT_OUTPUT_DIRECTORY` follows that primary path, and a command-line
+override updates the effective `SOURCE_CAT` before either phase starts. Enable
+`RUN_PROCESS_EXTCAT` or pass `--run-extcat true` to generate the tiles as the
+first phase. The Fortran programs still configure `SOURCE_CAT` directly:
 
-- C++ Standard: `cpp_Standard/include/process_main/LensingConfig.hpp`
-- C++ Lite: `cpp_Lite/include/process_main/LensingConfig.hpp`
 - Fortran Standard: `f77/para.inc`
 - Fortran Lite: `f77_Lite/para.inc`
 
-For example, if the tiles are stored under `/data/catalogs/des_y6_chunks`, use
-that directory as `SOURCE_CAT`, then rebuild the selected pipeline because this
-setting is currently compiled into the executable.
+The integrated C++ command-line interface uses the same policies as the
+standalone tool, prefixed with `--extcat-`; for example, standalone `--contains`
+becomes `--extcat-contains`. See the selected C++ README for the complete
+three-phase command contract.

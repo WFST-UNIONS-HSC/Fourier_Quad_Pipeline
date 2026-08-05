@@ -122,16 +122,16 @@ def read_tiles(directory):
 
 
 # ==========================================
-# Function: Write mixed canonical CSV and whitespace fixtures
-# Method: Reorder the CSV header, retain a commented whitespace header, add one malformed
-#         row, and place one selected file in a nested directory.
+# Function: Write mixed-delimiter inputs with one shared schema
+# Method: Keep identical column order across CSV and whitespace files, add one malformed row,
+#         and place one selected file in a nested directory.
 # ==========================================
 def write_mixed_inputs(input_directory):
     input_directory.mkdir(parents=True)
     nested = input_directory / "nested"
     nested.mkdir()
 
-    csv_order = [4, 5, 0, 1, 2, 3, *range(6, len(CANONICAL_COLUMNS))]
+    csv_order = list(range(len(CANONICAL_COLUMNS)))
     row_a = canonical_row(10, 299.2, -79.2)
     row_b = canonical_row(20, 359.9, 5.4)
     with (input_directory / "keep_a.csv").open("w", encoding="utf-8", newline="\n") as output:
@@ -175,9 +175,9 @@ def assert_mixed_outputs(output_directory, expected_rows):
 
 
 # ==========================================
-# Function: Test canonical header projection and MPI determinism
-# Method: Run identical mixed inputs with one and three ranks, compare bytes, and verify
-#         filename filtering, recursive discovery, malformed skipping, and pole boundaries.
+# Function: Test pass-through columns and MPI determinism
+# Method: Run identical mixed-delimiter schemas with one and three ranks, compare bytes, and
+#         verify filename filtering, recursion, malformed skipping, and pole boundaries.
 # ==========================================
 def test_parallel_projection(executable, workspace):
     input_directory = workspace / "mixed_input"
@@ -219,26 +219,24 @@ def test_parallel_projection(executable, workspace):
 
 
 # ==========================================
-# Function: Test explicit index projection and output lifecycle policies
-# Method: Split a table with an alternative commented header and one leading ID, confirm
-#         fail-on-existing behavior, then verify overwrite preserves unrelated files.
+# Function: Test arbitrary ordered projection and output lifecycle policies
+# Method: Apply the requested {5,3,4,1} selection to a seven-field table, retain a string
+#         payload, then verify nested-output rejection and transactional overwrite behavior.
 # ==========================================
 def test_explicit_columns_and_overwrite(executable, workspace):
     input_directory = workspace / "explicit_input"
     input_directory.mkdir()
-    row = canonical_row(50, 42.25, -10.75)
+    header = ["c1", "c2", "c3", "c4", "ra", "dec", "tail"]
+    row = ["source-1", "20", "30", "40", "42.25", "-10.75", "tail-value"]
     raw_path = input_directory / "projection_raw.txt"
-    alternative_header = "# source_id " + " ".join(
-        f"raw_field_{index}" for index in range(1, 19)
-    )
     raw_path.write_text(
-        alternative_header + "\nsource-1 " + " ".join(row) + "\n",
+        "# " + " ".join(header) + "\n" + " ".join(row) + "\n",
         encoding="utf-8",
         newline="\n",
     )
 
     output_directory = workspace / "explicit_output"
-    columns = ",".join(str(index) for index in range(2, 20))
+    columns = "5,3,4,1"
     arguments = [
         "--input-dir",
         str(input_directory),
@@ -271,7 +269,7 @@ def test_explicit_columns_and_overwrite(executable, workspace):
     run_process(executable, 2, arguments)
 
     expected_name = tile_name(42, -11)
-    expected_bytes = (canonical_header() + "\n" + " ".join(row) + "\n").encode()
+    expected_bytes = ("# ra c3 c4 c1\n42.25 30 40 source-1\n").encode()
     if read_tiles(output_directory) != {expected_name: expected_bytes}:
         raise AssertionError("explicit column projection produced unexpected output")
 
@@ -290,6 +288,107 @@ def test_explicit_columns_and_overwrite(executable, workspace):
 
 
 # ==========================================
+# Function: Test variable-width pass-through output
+# Method: Leave explicit projection disabled and verify that all six named input fields,
+#         including string payloads, retain their original order.
+# ==========================================
+def test_variable_width_pass_through(executable, workspace):
+    input_directory = workspace / "passthrough_input"
+    input_directory.mkdir()
+    raw_path = input_directory / "passthrough.cat"
+    header = "# object_id ra dec flux note extra"
+    row = "obj-A 81.25 1.75 99.5 keep-me final"
+    raw_path.write_text(header + "\n" + row + "\n", encoding="utf-8", newline="\n")
+
+    output_directory = workspace / "passthrough_output"
+    run_process(
+        executable,
+        2,
+        [
+            "--input-dir",
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--contains",
+            "passthrough",
+        ],
+    )
+    expected = (header + "\n" + row + "\n").encode()
+    if read_tiles(output_directory) != {tile_name(81, 1): expected}:
+        raise AssertionError("disabled projection did not preserve all input columns")
+
+
+# ==========================================
+# Function: Test headerless coordinate/output decoupling
+# Method: Supply raw RA/Dec indices independently from a two-column output projection and
+#         verify deterministic generic header names.
+# ==========================================
+def test_headerless_coordinate_columns(executable, workspace):
+    input_directory = workspace / "headerless_input"
+    input_directory.mkdir()
+    raw_path = input_directory / "headerless.cat"
+    raw_path.write_text(
+        "source-A 12.25 keep -1.25 9\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    output_directory = workspace / "headerless_output"
+    run_process(
+        executable,
+        3,
+        [
+            "--input-dir",
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--header",
+            "absent",
+            "--columns",
+            "5,1",
+            "--ra-column",
+            "2",
+            "--dec-column",
+            "4",
+        ],
+    )
+    expected = b"# column_5 column_1\n9 source-A\n"
+    if read_tiles(output_directory) != {tile_name(12, -2): expected}:
+        raise AssertionError("headerless coordinate columns were coupled to output order")
+
+
+# ==========================================
+# Function: Test incompatible pass-through schemas fail before publication
+# Method: Present two different output headers and ensure no mixed-schema tile is committed.
+# ==========================================
+def test_schema_mismatch_rejected(executable, workspace):
+    input_directory = workspace / "schema_mismatch_input"
+    input_directory.mkdir()
+    (input_directory / "schema_a.cat").write_text(
+        "# id ra dec\na 20.0 2.0\n", encoding="utf-8", newline="\n"
+    )
+    (input_directory / "schema_b.cat").write_text(
+        "# id ra dec flux\nb 20.1 2.1 5\n", encoding="utf-8", newline="\n"
+    )
+    output_directory = workspace / "schema_mismatch_output"
+    run_process(
+        executable,
+        2,
+        [
+            "--input-dir",
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--contains",
+            "schema_",
+        ],
+        expect_success=False,
+    )
+    if output_directory.exists() and read_tiles(output_directory):
+        raise AssertionError("incompatible schemas published output tiles")
+
+
+# ==========================================
 # Function: Run all dependency-free process_extcat integration tests
 # Method: Resolve the executable, isolate fixtures in a temporary directory, and fail fast.
 # ==========================================
@@ -304,6 +403,9 @@ def main():
         workspace = Path(temporary)
         test_parallel_projection(executable, workspace)
         test_explicit_columns_and_overwrite(executable, workspace)
+        test_variable_width_pass_through(executable, workspace)
+        test_headerless_coordinate_columns(executable, workspace)
+        test_schema_mismatch_rejected(executable, workspace)
     print("process_extcat integration tests: PASS")
 
 

@@ -1,15 +1,19 @@
 #include "process_main/MPIScheduler.hpp"
 #include "process_main/NumericalRecipes.hpp"
+#include "process_main/LensingConfig.hpp"
 #include "ProcessConfig.hpp"
+#include "process_extcat/process_extcat.hpp"
 #include "process_init/process_init.hpp"
 #include "process_main/process_main.hpp"
 
 #include <mpi.h>
 
+#include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <limits>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -17,6 +21,7 @@
 namespace {
 
 struct ParserState {
+    bool extcat_contains_option_seen = false;
     bool dataset_option_seen = false;
     bool legacy_dataset_option_seen = false;
     bool contains_option_seen = false;
@@ -55,6 +60,85 @@ bool parseNonNegativeInteger(const std::string& value, int& parsed) {
         return false;
     }
     parsed = static_cast<int>(number);
+    return true;
+}
+
+// ==========================================
+// Function: Parse one positive unsigned command-line integer
+// Method: Require full decimal consumption and guard the uint64 range.
+// ==========================================
+bool parsePositiveUnsigned(const std::string& value, std::uint64_t& parsed) {
+    if (value.empty() || value.front() == '-') {
+        return false;
+    }
+    std::size_t consumed = 0;
+    unsigned long long number = 0;
+    try {
+        number = std::stoull(value, &consumed);
+    } catch (const std::exception&) {
+        return false;
+    }
+    if (consumed != value.size() || number == 0
+        || number > std::numeric_limits<std::uint64_t>::max()) {
+        return false;
+    }
+    parsed = static_cast<std::uint64_t>(number);
+    return true;
+}
+
+// ==========================================
+// Function: Parse the external-catalog input column projection
+// Method: Read one or more comma-separated positive one-based indices in output order.
+// ==========================================
+bool parseExtcatColumns(const std::string& value,
+                        std::vector<std::size_t>& columns) {
+    std::stringstream stream(value);
+    std::string token;
+    std::vector<std::size_t> parsed;
+    while (std::getline(stream, token, ',')) {
+        if (token.empty() || token.front() == '-') {
+            return false;
+        }
+        std::size_t consumed = 0;
+        unsigned long long number = 0;
+        try {
+            number = std::stoull(token, &consumed);
+        } catch (const std::exception&) {
+            return false;
+        }
+        if (consumed != token.size() || number == 0
+            || number > std::numeric_limits<std::size_t>::max()) {
+            return false;
+        }
+        parsed.push_back(static_cast<std::size_t>(number));
+    }
+    if (parsed.empty()) {
+        return false;
+    }
+    columns = parsed;
+    return true;
+}
+
+// ==========================================
+// Function: Parse one external-catalog coordinate column
+// Method: Require one positive one-based index within the platform size_t range.
+// ==========================================
+bool parseExtcatCoordinateColumn(const std::string& value, std::size_t& column) {
+    if (value.empty() || value.front() == '-') {
+        return false;
+    }
+    std::size_t consumed = 0;
+    unsigned long long number = 0;
+    try {
+        number = std::stoull(value, &consumed);
+    } catch (const std::exception&) {
+        return false;
+    }
+    if (consumed != value.size() || number == 0
+        || number > std::numeric_limits<std::size_t>::max()) {
+        return false;
+    }
+    column = static_cast<std::size_t>(number);
     return true;
 }
 
@@ -109,7 +193,79 @@ bool applyNamedOption(const std::string& name,
                       ProcessConfig::RuntimeOptions& options,
                       ParserState& state,
                       std::string& error) {
-    if (name == "--run-init") {
+    if (name == "--run-extcat") {
+        if (!parseBoolean(value, options.run_process_extcat)) {
+            error = "--run-extcat must be true, false, 1, 0, on, or off";
+            return false;
+        }
+    } else if (name == "--extcat-input") {
+        options.extcat_input_directory = value;
+    } else if (name == "--extcat-output") {
+        options.extcat_output_directory = value;
+    } else if (name == "--extcat-contains") {
+        if (value.empty()) {
+            error = "--extcat-contains must not be empty";
+            return false;
+        }
+        if (!state.extcat_contains_option_seen) {
+            options.extcat_filename_tokens.clear();
+            state.extcat_contains_option_seen = true;
+        }
+        options.extcat_filename_tokens.push_back(value);
+    } else if (name == "--extcat-recursive") {
+        if (!parseBoolean(value, options.extcat_recursive)) {
+            error = "--extcat-recursive must be true, false, 1, 0, on, or off";
+            return false;
+        }
+    } else if (name == "--extcat-delimiter") {
+        if (value != "auto" && value != "whitespace" && value != "comma"
+            && value != "tab") {
+            error = "--extcat-delimiter must be auto, whitespace, comma, or tab";
+            return false;
+        }
+        options.extcat_delimiter = value;
+    } else if (name == "--extcat-header") {
+        if (value != "auto" && value != "present" && value != "absent") {
+            error = "--extcat-header must be auto, present, or absent";
+            return false;
+        }
+        options.extcat_header_mode = value;
+    } else if (name == "--extcat-columns") {
+        if (!parseExtcatColumns(value, options.extcat_input_columns_one_based)) {
+            error = "--extcat-columns must contain one or more positive one-based indices";
+            return false;
+        }
+        options.extcat_use_explicit_columns = true;
+    } else if (name == "--extcat-ra-column") {
+        if (!parseExtcatCoordinateColumn(value, options.extcat_ra_column_one_based)) {
+            error = "--extcat-ra-column must be a positive one-based index";
+            return false;
+        }
+        options.extcat_use_explicit_coordinate_columns = true;
+    } else if (name == "--extcat-dec-column") {
+        if (!parseExtcatCoordinateColumn(value, options.extcat_dec_column_one_based)) {
+            error = "--extcat-dec-column must be a positive one-based index";
+            return false;
+        }
+        options.extcat_use_explicit_coordinate_columns = true;
+    } else if (name == "--extcat-chunk-mib") {
+        if (!parsePositiveUnsigned(value, options.extcat_chunk_mib)) {
+            error = "--extcat-chunk-mib must be a positive integer";
+            return false;
+        }
+    } else if (name == "--extcat-malformed") {
+        if (value != "fail" && value != "skip") {
+            error = "--extcat-malformed must be fail or skip";
+            return false;
+        }
+        options.extcat_malformed_policy = value;
+    } else if (name == "--extcat-existing") {
+        if (value != "fail" && value != "overwrite") {
+            error = "--extcat-existing must be fail or overwrite";
+            return false;
+        }
+        options.extcat_existing_policy = value;
+    } else if (name == "--run-init") {
         if (!parseBoolean(value, options.run_process_init)) {
             error = "--run-init must be true, false, 1, 0, on, or off";
             return false;
@@ -189,36 +345,72 @@ bool validateOptions(const ProcessConfig::RuntimeOptions& options, std::string& 
     if (options.help_requested) {
         return true;
     }
-    if (!options.run_process_init && !options.run_process_main) {
-        error = "--run-init and --run-main cannot both be false";
+    if (!options.run_process_extcat && !options.run_process_init
+        && !options.run_process_main) {
+        error = "--run-extcat, --run-init, and --run-main cannot all be false";
         return false;
     }
-    if (options.datasets.empty()) {
+    if ((options.run_process_extcat || options.run_process_main)
+        && options.extcat_output_directory.empty()) {
+        error = "external source-catalog output directory must not be empty";
+        return false;
+    }
+    if (options.run_process_extcat && options.extcat_input_directory.empty()) {
+        error = "external source-catalog input directory must not be empty";
+        return false;
+    }
+    if ((options.run_process_init || options.run_process_main)
+        && options.datasets.empty()) {
         error = "at least one dataset must be configured or supplied with --dataset";
         return false;
     }
 
     std::set<std::string> targets;
-    for (const ProcessConfig::DatasetSpec& dataset : options.datasets) {
-        if (dataset.target.empty() || dataset.target == "." || dataset.target == ".."
-            || dataset.target.find('/') != std::string::npos
-            || dataset.target.find('\\') != std::string::npos) {
-            error = "each dataset target must be one non-empty directory name";
-            return false;
-        }
-        if (dataset.prefix.empty()) {
-            error = "each dataset prefix must be non-empty";
-            return false;
-        }
-        if (!targets.insert(dataset.target).second) {
-            error = "dataset target is duplicated: " + dataset.target;
-            return false;
+    if (options.run_process_init || options.run_process_main) {
+        for (const ProcessConfig::DatasetSpec& dataset : options.datasets) {
+            if (dataset.target.empty() || dataset.target == "." || dataset.target == ".."
+                || dataset.target.find('/') != std::string::npos
+                || dataset.target.find('\\') != std::string::npos) {
+                error = "each dataset target must be one non-empty directory name";
+                return false;
+            }
+            if (dataset.prefix.empty()) {
+                error = "each dataset prefix must be non-empty";
+                return false;
+            }
+            if (!targets.insert(dataset.target).second) {
+                error = "dataset target is duplicated: " + dataset.target;
+                return false;
+            }
         }
     }
 
-    for (const std::string& token : options.contains) {
-        if (token.empty()) {
-            error = "contains tokens must be non-empty";
+    if (options.run_process_init) {
+        for (const std::string& token : options.contains) {
+            if (token.empty()) {
+                error = "contains tokens must be non-empty";
+                return false;
+            }
+        }
+    }
+    if (options.run_process_extcat) {
+        for (const std::string& token : options.extcat_filename_tokens) {
+            if (token.empty()) {
+                error = "external-catalog contains tokens must be non-empty";
+                return false;
+            }
+        }
+        if (options.extcat_use_explicit_columns
+            && options.extcat_input_columns_one_based.empty()) {
+            error = "external-catalog explicit column list must not be empty";
+            return false;
+        }
+        if (options.extcat_use_explicit_coordinate_columns
+            && (options.extcat_ra_column_one_based == 0
+                || options.extcat_dec_column_one_based == 0
+                || options.extcat_ra_column_one_based
+                       == options.extcat_dec_column_one_based)) {
+            error = "external-catalog RA and Dec columns must be distinct positive indices";
             return false;
         }
     }
@@ -345,6 +537,24 @@ std::string configuredContainsText() {
 }
 
 // ==========================================
+// Function: Format external-catalog filename-token defaults
+// Method: Join OR-matched raw-catalog basename tokens or state that all files match.
+// ==========================================
+std::string configuredExtcatContainsText() {
+    if (ProcessConfig::EXTCAT_FILENAME_TOKENS.empty()) {
+        return "none (all files)";
+    }
+    std::string text;
+    for (const std::string& token : ProcessConfig::EXTCAT_FILENAME_TOKENS) {
+        if (!text.empty()) {
+            text += ", ";
+        }
+        text += token;
+    }
+    return text;
+}
+
+// ==========================================
 // Function: Print the unified workflow command-line contract
 // Method: Describe batch/list accumulation, initializer values, list precedence,
 //         compatibility input, and the configured defaults.
@@ -352,10 +562,27 @@ std::string configuredContainsText() {
 void printUsage(const char* program_name) {
     std::cout
         << "Usage: " << program_name << " [options] [LEGACY_EXPO_LIST]\n"
+        << "  --run-extcat BOOL     Repartition raw external catalogs first (default: "
+        << (ProcessConfig::RUN_PROCESS_EXTCAT ? "true" : "false") << ")\n"
         << "  --run-init BOOL       Run initializer (default: "
         << (ProcessConfig::RUN_PROCESS_INIT ? "true" : "false") << ")\n"
         << "  --run-main BOOL       Run numerical pipeline (default: "
         << (ProcessConfig::RUN_PROCESS_MAIN ? "true" : "false") << ")\n"
+        << "  --extcat-input PATH   Directory containing raw external catalogs\n"
+        << "  --extcat-output PATH  SOURCE_CAT tile directory used by process_main\n"
+        << "  --extcat-contains T   Repeatable raw basename token, matched with OR (default: "
+        << configuredExtcatContainsText() << ")\n"
+        << "  --extcat-recursive B  Recurse below extcat input (default: "
+        << (ProcessConfig::EXTCAT_RECURSIVE ? "true" : "false") << ")\n"
+        << "  --extcat-delimiter M  auto, whitespace, comma, or tab\n"
+        << "  --extcat-header M     auto, present, or absent\n"
+        << "  --extcat-columns LIST Ordered one-based input indices; output width follows LIST\n"
+        << "  --extcat-ra-column N  Raw one-based RA column; overrides header discovery\n"
+        << "  --extcat-dec-column N Raw one-based Dec column; overrides header discovery\n"
+        << "  --extcat-chunk-mib N  MPI byte-range task size in MiB (default: "
+        << ProcessConfig::EXTCAT_CHUNK_MIB << ")\n"
+        << "  --extcat-malformed P  fail or skip malformed rows\n"
+        << "  --extcat-existing P   fail or overwrite generated tiles\n"
         << "  --science-root PATH   Original Science FITS/FZ repository\n"
         << "  --dq-root PATH        Original DQ FITS/FZ repository\n"
         << "  --output-root PATH    Parent of targets and generated exposure lists\n"
@@ -372,19 +599,23 @@ void printUsage(const char* program_name) {
         << "  --expo-list PATH      Single exposure list for main-only mode\n"
         << "  --help                Show this help\n"
         << "Options accept both --name value and --name=value. The first explicit "
-           "--dataset or --contains replaces its configured list; repeats append.\n"
+           "--dataset, --contains, or --extcat-contains replaces its corresponding "
+           "configured list; repeats append.\n"
         << "Other duplicate scalar options use the last value. Main-only batches derive "
            "expo_<target>.list per dataset when --expo-list is omitted.\n"
-        << "When both processes run, each process_init-generated absolute exposure-list "
+        << "Without --extcat-columns, all raw catalog fields keep their original order; "
+           "otherwise output width and order follow LIST exactly.\n"
+        << "process_extcat runs once before the dataset loop. When later phases run, each "
+           "process_init-generated absolute exposure-list "
            "path overrides external input for its dataset.\n";
 }
 
 }  // namespace
 
 // ==========================================
-// Function: Dispatch the integrated initializer and Fourier_Quad pipeline
-// Method: Own MPI exactly once, parse one shared command line, process datasets
-//         sequentially, and force chained processing to consume generated lists.
+// Function: Dispatch external-catalog, initializer, and Fourier_Quad phases
+// Method: Own MPI exactly once, run process_extcat before the dataset loop, process
+//         datasets sequentially, and force chained processing to consume generated lists.
 // ==========================================
 int main(int argc, char* argv[]) {
     MPIScheduler::init(argc, argv);
@@ -410,8 +641,21 @@ int main(int argc, char* argv[]) {
             printUsage(argv[0]);
         }
     } else {
+        LensingConfig::SOURCE_CAT = options.extcat_output_directory;
+        if (options.run_process_extcat) {
+            if (rank == 0) {
+                std::cout << "Running process_extcat before all dataset phases" << std::endl;
+            }
+            return_code = process_extcat(options, MPI_COMM_WORLD);
+            if (return_code == 0) {
+                MPIScheduler::barrier();
+            }
+        }
+
         bool rng_initialized = false;
-        for (std::size_t index = 0; index < options.datasets.size() && return_code == 0;
+        for (std::size_t index = 0;
+             index < options.datasets.size() && return_code == 0
+                 && (options.run_process_init || options.run_process_main);
              ++index) {
             const ProcessConfig::DatasetSpec& dataset = options.datasets[index];
             if (rank == 0) {

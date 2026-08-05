@@ -223,7 +223,10 @@ All compile-time parameters live in three include files:
 into `include/process_main/LensingConfig.hpp`. `cpp_Lite` uses the same relative
 path but retains only its frozen parameter subset; see
 `cpp_Lite/REFACTOR_NOTES.md`. Catalog column indices are shifted to 0-based for
-C++.
+C++. See the complete
+[`C++ Pipeline External Inputs and Parameter Reference`](CPP_PIPELINE_PARAMETERS.md)
+for every runtime option, external input, `ProcessConfig.hpp` default,
+`LensingConfig.hpp` parameter, valid value, and Standard/Lite difference.
 
 ---
 
@@ -231,15 +234,21 @@ C++.
 
 When `ext_cat = 1`, the C++ and Fortran pipelines read one-degree DES Y6 GOLD
 tiles from the directory configured as `SOURCE_CAT`. The
-[`gen_src_cat`](gen_src_cat/README.md) utility downloads and formats those tiles
-with the filename convention and 18-column schema expected by the catalog
-readers.
+[`gen_src_cat`](gen_src_cat/README.md) utilities download or repartition those
+tiles with the filename convention expected by the catalog readers. The Python
+downloader writes the DES Y6 GOLD 18-column schema. The C++ MPI repartitioner
+preserves every raw column by default or selects any ordered list when explicit
+projection is enabled; it is also integrated into `cpp_Standard` and `cpp_Lite`
+as `process_extcat`, the optional first phase before `process_init` and
+`process_main`.
 
 For C++ external catalogs, set `ext_cat_columns_before_ra` in the selected
 `LensingConfig.hpp` to the number of whitespace-delimited fields before `ra`.
 The default is `4` for the DES Y6 GOLD flag columns; use `0` when `ra` is the
 first field. The post-`dec` magnitude/error and redshift column order used by
-deblending remains unchanged.
+deblending remains unchanged. Thus variable-width output is valid for
+catalog-only jobs, but output consumed by `process_main` must retain that
+reader-compatible field order.
 
 ```bash
 cd gen_src_cat
@@ -250,10 +259,14 @@ python query_y6gold_sync_mp_v2.py
 ```
 
 Review the sky bounds, row limit, output directory, and query concurrency in the
-script before running it. Then set `SOURCE_CAT` in the selected pipeline's
-`LensingConfig.hpp` or `para.inc` to the generated `des_y6_chunks` directory and
-rebuild. See [`gen_src_cat/README.md`](gen_src_cat/README.md) for the output
-schema, resume behavior, service-throttling guidance, and row-limit warning.
+script before running it. For C++, set the primary `SOURCE_CAT` path in
+`LensingConfig.hpp`, or pass `--extcat-output`; `EXTCAT_OUTPUT_DIRECTORY`
+follows that value so generation and numerical processing use the same path.
+Raw local catalogs can instead be tiled inside the pipeline with
+`--run-extcat true --extcat-input PATH`. Fortran still uses `SOURCE_CAT` in
+`para.inc`. See
+[`gen_src_cat/README.md`](gen_src_cat/README.md) for the Python schema, C++
+projection modes, and catalog-generation behavior.
 
 ---
 

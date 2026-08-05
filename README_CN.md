@@ -216,7 +216,9 @@ Fourier_Quad_Pipeline/
 `cpp_Standard` 将三个 Fortran include 文件中的全部参数整合到
 `include/process_main/LensingConfig.hpp`。`cpp_Lite` 使用相同的相对路径，但只保留
 冻结后的参数子集，详见 `cpp_Lite/REFACTOR_NOTES.md`。星表列索引已调整为 C++ 的
-0 基。
+0 基。全部运行参数、外部输入、`ProcessConfig.hpp` 默认值、
+`LensingConfig.hpp` 参数、可选值及 Standard/Lite 差异见
+[`C++ Pipeline External Inputs and Parameter Reference`](CPP_PIPELINE_PARAMETERS.md)。
 
 ---
 
@@ -224,13 +226,18 @@ Fourier_Quad_Pipeline/
 
 当 `ext_cat = 1` 时，C++ 和 Fortran 流水线会从 `SOURCE_CAT` 指定的
 目录读取 1° 网格的 DES Y6 GOLD 星表。
-[`gen_src_cat`](gen_src_cat/README.md) 工具可下载并格式化这些数据，生成
-符合流水线文件名约定与 18 列格式的分块文件。
+[`gen_src_cat`](gen_src_cat/README.md) 工具可下载或重新分区这些数据，生成
+符合流水线文件名约定的分块文件。Python 下载器固定写出 DES Y6 GOLD 的
+18 列格式；C++ MPI 重分区器默认保留原始星表的全部列，也可在开启显式列选择后
+按任意给定顺序抽取字段。该重分区器也已作为 `process_extcat` 集成进
+`cpp_Standard` 与 `cpp_Lite`，并作为 `process_init`、`process_main` 之前的
+可选第一阶段。
 
 对于 C++ 外部星表，请在所选流水线的 `LensingConfig.hpp` 中将
 `ext_cat_columns_before_ra` 设为 `ra` 前以空白分隔的字段数量。默认值为 `4`，
 对应 DES Y6 GOLD 的四个标志列；若 `ra` 是首列则设为 `0`。deblending 所用的
-`dec` 后星等/误差及红移列顺序仍保持不变。
+`dec` 后星等/误差及红移列顺序仍保持不变。因此，可变列宽输出可用于只生成
+星表的任务；若继续交给 `process_main`，所选字段顺序仍须符合该读取约定。
 
 ```bash
 cd gen_src_cat
@@ -240,10 +247,14 @@ python -m pip install numpy pyvo
 python query_y6gold_sync_mp_v2.py
 ```
 
-运行前请在脚本中检查天区范围、行数上限、输出目录和并发数。完成后，
-将所选流水线 `LensingConfig.hpp` 或 `para.inc` 中的 `SOURCE_CAT` 设为
-生成的 `des_y6_chunks` 目录，然后重新编译。输出列、断点续跑、服务器
-限流与行数截断警告详见 [`gen_src_cat/README.md`](gen_src_cat/README.md)。
+运行前请在脚本中检查天区范围、行数上限、输出目录和并发数。C++ 程序应在
+`LensingConfig.hpp` 中设置主路径 `SOURCE_CAT`，也可通过
+`--extcat-output` 覆盖；`EXTCAT_OUTPUT_DIRECTORY` 会跟随该路径，使生成阶段与
+数值流水线读取同一目录。已有的任意数量原始星表也可通过
+`--run-extcat true --extcat-input PATH` 在流水线内并行分块。Fortran 仍在
+`para.inc` 中设置 `SOURCE_CAT`。Python 列格式、
+C++ 投影模式、并行行为及下载脚本限流说明详见
+[`gen_src_cat/README.md`](gen_src_cat/README.md)。
 
 ---
 

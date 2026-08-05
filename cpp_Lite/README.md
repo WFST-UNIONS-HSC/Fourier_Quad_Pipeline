@@ -1,15 +1,21 @@
 # cpp_Lite integrated workflow
 
-`Fourier_Quad_Pipe` can prepare compressed Science/DQ archives, run the numerical
-Fourier_Quad stages, or run both phases in one MPI allocation. The initializer
-and numerical pipeline retain separate source/header trees; root `main.cpp` owns
-MPI initialization, option parsing, phase ordering, and finalization. This Lite
-build preserves its frozen scientific branches and intentionally omits PCA
-`PSFRecons` support.
+`Fourier_Quad_Pipe` can repartition raw external source catalogs, prepare
+compressed Science/DQ archives, and run the numerical Fourier_Quad stages in one
+MPI allocation. Each phase can also run independently. Root `main.cpp` owns MPI
+initialization, option parsing, phase ordering, and finalization. This Lite build
+preserves its frozen scientific branches and intentionally omits PCA `PSFRecons`
+support.
+
+For the complete command-line, external-input, `ProcessConfig.hpp`, and
+`LensingConfig.hpp` reference, see
+[`CPP_PIPELINE_PARAMETERS.md`](../CPP_PIPELINE_PARAMETERS.md).
 
 ## Source layout
 
 - `include/ProcessConfig.hpp`: workflow defaults and default phase switches.
+- `include/process_extcat/`, `src/process_extcat/`: external-catalog schema,
+  parsing, MPI byte-range partitioning, and deterministic tile publication.
 - `include/process_init/`, `src/process_init/`: initializer wrapper plus the
   preserved `Initializer` and `FitsExtractor` modules.
 - `include/process_main/`, `src/process_main/`: `LensingConfig`, all numerical
@@ -58,9 +64,19 @@ Makefile after loading the site's compiler, MPI, and scientific-library modules.
 ## Defaults and option syntax
 
 Edit `include/ProcessConfig.hpp` to set the normal dataset and default execution
-mode. `RUN_PROCESS_INIT` defaults to `false`; `RUN_PROCESS_MAIN` defaults to
-`true`. Every command-line option is optional and overrides its configured
-default. Both `--name value` and `--name=value` are accepted in any order.
+mode. `RUN_PROCESS_EXTCAT` and `RUN_PROCESS_INIT` default to `false`;
+`RUN_PROCESS_MAIN` defaults to `true`. Every command-line option is optional and
+overrides its configured default. Both `--name value` and `--name=value` are
+accepted in any order.
+
+The `EXTCAT_*` values configure raw-catalog discovery, the output directory,
+parsing policies, MPI task size, optional ordered column selection, and raw
+RA/Dec coordinate columns. With explicit selection disabled, every raw input
+field is preserved in place.
+Set the primary catalog path with `SOURCE_CAT` in
+`include/process_main/LensingConfig.hpp`. `EXTCAT_OUTPUT_DIRECTORY` is a
+read-only reference to that value, so `process_extcat` writes where
+`process_main` reads. `--extcat-output` overrides both for one invocation.
 
 `DATASETS` stores paired target/prefix values, and `CONTAINS` stores the archive
 basename tokens accepted with OR semantics. For example:
@@ -76,8 +92,21 @@ inline const std::vector<std::string> CONTAINS = {"v1", "v2"};
 
 | Option | Purpose |
 |:---|:---|
+| `--run-extcat BOOL` | Enable or disable external-catalog repartitioning. |
 | `--run-init BOOL` | Enable or disable archive initialization at runtime. |
 | `--run-main BOOL` | Enable or disable the numerical pipeline at runtime. |
+| `--extcat-input PATH` | Directory containing any number of raw text catalogs. |
+| `--extcat-output PATH` | Destination tile directory and effective C++ `SOURCE_CAT`. |
+| `--extcat-contains TEXT` | Repeatable case-sensitive basename token; repeats use OR. |
+| `--extcat-recursive BOOL` | Enable or disable recursive input discovery. |
+| `--extcat-delimiter MODE` | `auto`, `whitespace`, `comma`, or `tab`. |
+| `--extcat-header MODE` | `auto`, `present`, or `absent`. |
+| `--extcat-columns LIST` | One or more one-based raw indices; output fields follow this exact order and width. |
+| `--extcat-ra-column N` | Raw one-based RA index; overrides `ra` header discovery. |
+| `--extcat-dec-column N` | Raw one-based Dec index; overrides `dec` header discovery. |
+| `--extcat-chunk-mib N` | Positive MPI byte-range task size in MiB. |
+| `--extcat-malformed POLICY` | `fail` or `skip` malformed rows. |
+| `--extcat-existing POLICY` | `fail` or transactionally `overwrite` generated tiles. |
 | `--science-root PATH` | Original read-only Science `.fits.fz` repository. |
 | `--dq-root PATH` | Original read-only DQ `.fits.fz` repository. |
 | `--output-root PATH` | Parent of the target directory and generated lists. |
@@ -95,9 +124,30 @@ positional exposure-list path is retained as a compatibility alias, but new jobs
 should use `--expo-list`. The first explicit `--dataset` replaces configured
 `DATASETS`, and subsequent occurrences append. `--contains` follows the same
 replacement/append rule for `CONTAINS`. Other duplicate scalar options use the
-last value. Dataset target names must be unique within one invocation.
+last value. The first explicit `--extcat-contains` similarly replaces
+`EXTCAT_FILENAME_TOKENS`; later occurrences append. Dataset target names must be
+unique within one invocation.
 
 ## Run modes
+
+External-catalog-only execution accepts any number of matching input files and
+does not require a configured dataset:
+
+```bash
+mpirun -np 4 ./Fourier_Quad_Pipe \
+  --run-extcat true --run-init false --run-main false \
+  --extcat-input /data/raw_catalogs \
+  --extcat-output /data/catalogs/des_y6_chunks \
+  --extcat-contains .csv --extcat-contains y6_gold
+```
+
+`process_extcat` runs collectively once before the dataset loop. It writes the
+same one-degree filenames as `gen_src_cat/query_y6gold_sync_mp_v2.py`. Its
+default output preserves the complete raw schema; `--extcat-columns 5,3,4,1`,
+for example, writes raw columns 5, 3, 4, and 1 as output columns 1–4. If it
+fails, neither `process_init` nor `process_main` starts. Output passed onward to
+`process_main` must still satisfy that reader's `ext_cat_columns_before_ra` and
+post-Dec magnitude/redshift layout.
 
 Main-only local execution:
 
@@ -145,6 +195,10 @@ mpirun -np 4 ./Fourier_Quad_Pipe \
   --output-root /data/work --dataset g2019:c4d_19 \
   --existing resume
 ```
+
+Enable all three switches to build the external catalog first, then initialize
+and process every configured dataset. The effective `--extcat-output` path is
+also used by the numerical source extractor.
 
 Datasets execute sequentially on the same MPI communicator and stop at the first
 failure. In main-only batch mode, omit `--expo-list`; the driver derives one

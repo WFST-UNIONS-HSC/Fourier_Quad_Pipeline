@@ -20,9 +20,15 @@ namespace LensingConfig {
     constexpr int include_FLAT = 0;
     constexpr int include_Mask = 2;
 
-    // Hardcoded catalog/flat paths (originally from para.inc)
+    // Catalog/flat paths (originally from para.inc).
     const std::string ASTROMETRY_CAT = "/lustre/home/acct-phyzj/phyzj/jzhang/gaia/gaia_cat_sorted";
-    const std::string SOURCE_CAT = "/lustre/home/acct-phyzj/share/DES/testy/des_y6_cat";
+
+    // ==========================================
+    // Configuration: Primary external source-catalog directory
+    // Method: Seed process_extcat output and process_main input from one mutable path so a
+    //         command-line override can update both phases before processing starts.
+    // ==========================================
+    inline std::string SOURCE_CAT = "/lustre/home/acct-phyzj/share/DES/testy/des_y6_cat";
     const std::string FLAT_PATH = "/lustre/home/acct-phyzj/share/DES/testy/DES_super_flat/i2014";
     const std::string PSF_PATH = "hahahaha";
 
@@ -50,7 +56,6 @@ namespace LensingConfig {
    constexpr int npl = 10;
    constexpr int nplx = 2;
    constexpr int nstar_min_local = 16;
- 
 
     constexpr int step_psf = 100;
     constexpr int deblending = 1;
