@@ -5,7 +5,7 @@
 本实现沿用 `f77_docker` 的制品边界：
 
 - 镜像只包含编译器、MPI、科学库和运行所需系统文件；
-- `cpp_Standard` 源码、星表、平场、FITS 数据和输出位于镜像外；
+- `cpp_Standard` 源码、压缩 Science/DQ 归档、星表、平场、FITS 数据和输出位于镜像外；
 - 本地使用 Docker bind，集群使用一个预编译 Apptainer SIF；
 - 编译发生在挂载的源码副本中，产物保留在共享文件系统；
 - 真实 pipeline 前必须依次通过镜像、完整编译、单节点 MPI 和多节点 MPI

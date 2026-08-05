@@ -36,6 +36,15 @@ namespace LensingConfig {
     const std::string ASTROMETRY_CAT = "/lustre/home/acct-phyzj/phyzj/jzhang/gaia/gaia_cat_sorted";
     const std::string SOURCE_CAT = "/lustre/home/acct-phyzj/share/DES/testy/des_y6_cat";
 
+    // ==========================================
+    // Configuration: External source-catalog columns before right ascension
+    // Method: Skip this many whitespace-delimited fields before reading ra and dec. The DES Y6
+    //         catalog starts with four flag fields; set this to zero when ra is the first column.
+    // ==========================================
+    constexpr int ext_cat_columns_before_ra = 4;
+    static_assert(ext_cat_columns_before_ra >= 0,
+                  "ext_cat_columns_before_ra must not be negative");
+
     // Split parameters
     constexpr int CCD_split = 2;
     constexpr int nct = 12;

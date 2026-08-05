@@ -170,6 +170,8 @@ RUN dnf install -y \
        fi \
     && mkdir -p \
         /workspace/src_pipe \
+        /data/archive/science \
+        /data/archive/dqmask \
         /data/catalogs/AstroDir \
         /data/catalogs/ExtSrcDir \
         /data/calib/FlatDir \

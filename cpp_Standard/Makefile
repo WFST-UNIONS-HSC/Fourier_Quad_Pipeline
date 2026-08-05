@@ -1,7 +1,8 @@
 CXX = mpicxx
 STACK_PREFIX ?=
+EIGEN_INCLUDE ?=
 
-CPPFLAGS =
+CPPFLAGS = -Iinclude -Iinclude/process_main
 CXXFLAGS = -O3 -std=c++17 -Wall -Wextra -MMD -MP
 LDFLAGS =
 LDLIBS = -lcfitsio -lfftw3 -lfftw3f -llapack -lblas -lm
@@ -11,24 +12,32 @@ CPPFLAGS += -I$(STACK_PREFIX)/include -I$(STACK_PREFIX)/include/eigen3
 LDFLAGS += -L$(STACK_PREFIX)/lib -Wl,-rpath,$(STACK_PREFIX)/lib
 endif
 
+ifneq ($(strip $(EIGEN_INCLUDE)),)
+CPPFLAGS += -I$(EIGEN_INCLUDE)
+endif
+
 SRCS = main.cpp \
-       PreProcess.cpp \
-       Astrometry.cpp \
-       SourceExtractor.cpp \
-       FourierTransformSt1.cpp \
-       FourierTransformSt2.cpp \
-       PSFModel.cpp \
-       PSFRecons.cpp \
-       ShearMeasurement.cpp \
-       ExposureInfo.cpp \
-       CatalogCombiner.cpp \
-       FitsIO.cpp \
-       LinearSolve.cpp \
-       UniversalUtils.cpp \
-       ImageProcessing.cpp \
-       NumericalRecipes.cpp \
-       MPIScheduler.cpp \
-       ExStar.cpp
+       src/process_main/process_main.cpp \
+       src/process_init/process_init.cpp \
+       src/process_init/Initializer.cpp \
+       src/process_init/FitsExtractor.cpp \
+       src/process_main/PreProcess.cpp \
+       src/process_main/Astrometry.cpp \
+       src/process_main/SourceExtractor.cpp \
+       src/process_main/FourierTransformSt1.cpp \
+       src/process_main/FourierTransformSt2.cpp \
+       src/process_main/PSFModel.cpp \
+       src/process_main/PSFRecons.cpp \
+       src/process_main/ShearMeasurement.cpp \
+       src/process_main/ExposureInfo.cpp \
+       src/process_main/CatalogCombiner.cpp \
+       src/process_main/FitsIO.cpp \
+       src/process_main/LinearSolve.cpp \
+       src/process_main/UniversalUtils.cpp \
+       src/process_main/ImageProcessing.cpp \
+       src/process_main/NumericalRecipes.cpp \
+       src/process_main/MPIScheduler.cpp \
+       src/process_main/ExStar.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 DEPS = $(OBJS:.o=.d)

@@ -14,6 +14,7 @@
 - [仓库结构](#仓库结构)
 - [流水线阶段](#流水线阶段)
 - [参数配置](#参数配置)
+- [外部源星表](#外部源星表)
 - [源码编译](#源码编译)
 - [Docker 环境](#docker-环境)
 - [HPC 部署](#hpc-部署)
@@ -53,6 +54,7 @@ Fourier_Quad_Pipeline/
 ├── f77_Lite/             精简 Fortran 77 流水线（冻结分支）
 ├── cpp_Standard/         完整 C++17 流水线源码
 ├── cpp_Lite/             精简 C++17 流水线（冻结分支）
+├── gen_src_cat/           DES Y6 GOLD 外部源星表下载器
 ├── f77_docker/           f77 流水线的 Docker 构建环境
 ├── cpp_docker/           C++ 流水线的 Docker 构建环境
 ├── .github/workflows/    CI/CD 工作流（GHCR 镜像 + GitHub Release）
@@ -102,31 +104,34 @@ Fourier_Quad_Pipeline/
 
 | 文件 | 说明 |
 |---|---|
-| `main.cpp` | 主程序入口，与 `f77/main.f` 一一对应。 |
-| `LensingConfig.hpp` | 配置常量（等价于 `para.inc` + `cust_para.inc` + `sig_para.inc`）。 |
-| `PreProcess.cpp/.hpp` | **阶段 1**：预处理。 |
-| `Astrometry.cpp/.hpp` | **阶段 2**：天体测量校准。 |
-| `SourceExtractor.cpp/.hpp` | **阶段 3**：源检测与提取。 |
-| `FourierTransformSt1.cpp/.hpp` | **阶段 4**：第一阶段傅里叶变换。 |
-| `PSFModel.cpp/.hpp` | **阶段 5**：PSF 建模。 |
-| `PSFRecons.cpp/.hpp` | PSF PCA 重建（仅 `PSF_Ms=1` 时启用）。 |
-| `FourierTransformSt2.cpp/.hpp` | **阶段 6**：第二阶段傅里叶变换。 |
-| `ShearMeasurement.cpp/.hpp` | **阶段 7**：Fourier\_Quad 剪切估计。 |
-| `ExposureInfo.cpp/.hpp` | **阶段 8**：单次曝光统计。 |
-| `CatalogCombiner.cpp/.hpp` | **阶段 9**：星表合并与标定。 |
-| `FitsIO.cpp/.hpp` | FITS 读写例程。 |
-| `LinearSolve.cpp/.hpp` | 线性代数工具。 |
-| `UniversalUtils.cpp/.hpp` | 通用工具函数。 |
-| `ImageProcessing.cpp/.hpp` | 图像处理工具。 |
-| `NumericalRecipes.cpp/.hpp` | Numerical Recipes 移植（随机数、排序、插值）。 |
-| `MPIScheduler.cpp/.hpp` | MPI 初始化与任务分发。 |
-| `ExStar.cpp/.hpp` | 恒星提取与分类。 |
+| `main.cpp` | MPI 入口、工作流参数解析与两个阶段的执行顺序。 |
+| `include/ProcessConfig.hpp` | 初始化器与主流程的工作流默认值。 |
+| `src/process_init/`、`include/process_init/` | 归档初始化器源码与头文件。 |
+| `src/process_main/process_main.cpp`、`include/process_main/process_main.hpp` | 曝光列表读取与阶段 1–9 调度。 |
+| `include/process_main/LensingConfig.hpp` | 配置常量（等价于 `para.inc` + `cust_para.inc` + `sig_para.inc`）。 |
+| `src/process_main/PreProcess.cpp`、`include/process_main/PreProcess.hpp` | **阶段 1**：预处理。 |
+| `src/process_main/Astrometry.cpp`、`include/process_main/Astrometry.hpp` | **阶段 2**：天体测量校准。 |
+| `src/process_main/SourceExtractor.cpp`、`include/process_main/SourceExtractor.hpp` | **阶段 3**：源检测与提取。 |
+| `src/process_main/FourierTransformSt1.cpp`、`include/process_main/FourierTransformSt1.hpp` | **阶段 4**：第一阶段傅里叶变换。 |
+| `src/process_main/PSFModel.cpp`、`include/process_main/PSFModel.hpp` | **阶段 5**：PSF 建模。 |
+| `src/process_main/PSFRecons.cpp`、`include/process_main/PSFRecons.hpp` | PSF PCA 重建（仅 `PSF_Ms=1` 时启用）。 |
+| `src/process_main/FourierTransformSt2.cpp`、`include/process_main/FourierTransformSt2.hpp` | **阶段 6**：第二阶段傅里叶变换。 |
+| `src/process_main/ShearMeasurement.cpp`、`include/process_main/ShearMeasurement.hpp` | **阶段 7**：Fourier\_Quad 剪切估计。 |
+| `src/process_main/ExposureInfo.cpp`、`include/process_main/ExposureInfo.hpp` | **阶段 8**：单次曝光统计。 |
+| `src/process_main/CatalogCombiner.cpp`、`include/process_main/CatalogCombiner.hpp` | **阶段 9**：星表合并与标定。 |
+| `src/process_main/` 与 `include/process_main/` 中的支撑模块 | FITS 读写、线性代数、图像处理、MPI 调度与通用数值工具。 |
+| `src/process_main/UniversalUtils.cpp`、`include/process_main/UniversalUtils.hpp` | 通用工具函数。 |
+| `src/process_main/ImageProcessing.cpp`、`include/process_main/ImageProcessing.hpp` | 图像处理工具。 |
+| `src/process_main/NumericalRecipes.cpp`、`include/process_main/NumericalRecipes.hpp` | Numerical Recipes 移植（随机数、排序、插值）。 |
+| `src/process_main/MPIScheduler.cpp`、`include/process_main/MPIScheduler.hpp` | MPI 初始化与任务分发。 |
+| `src/process_main/ExStar.cpp`、`include/process_main/ExStar.hpp` | 恒星提取与分类。 |
 | `Makefile` | 构建文件。使用 `mpicxx`，C++17，链接 CFITSIO、FFTW、LAPACK。 |
 
 #### `cpp_Lite/` - 精简 C++17 流水线
 
-文件集与 `cpp_Standard/` 相同，但不含 `PSFRecons.cpp/.hpp`。详见
-`cpp_Lite/REFACTOR_NOTES.md` 了解完整变更记录。
+采用与 `cpp_Standard/` 相同的 `process_init` / `process_main` 集成目录结构和
+运行参数接口，但科学模块仍保留冻结后的 Lite 分支，且不含
+`PSFRecons.cpp/.hpp`。详见 `cpp_Lite/REFACTOR_NOTES.md`。
 
 ### Docker 目录
 
@@ -208,8 +213,37 @@ Fourier_Quad_Pipeline/
 
 ### C++（`LensingConfig.hpp`）
 
-三个 Fortran include 文件中的全部参数整合到 `LensingConfig.hpp` 的单一
-`LensingConfig` 命名空间中。星表列索引已调整为 C++ 的 0 基。
+`cpp_Standard` 将三个 Fortran include 文件中的全部参数整合到
+`include/process_main/LensingConfig.hpp`。`cpp_Lite` 使用相同的相对路径，但只保留
+冻结后的参数子集，详见 `cpp_Lite/REFACTOR_NOTES.md`。星表列索引已调整为 C++ 的
+0 基。
+
+---
+
+## 外部源星表
+
+当 `ext_cat = 1` 时，C++ 和 Fortran 流水线会从 `SOURCE_CAT` 指定的
+目录读取 1° 网格的 DES Y6 GOLD 星表。
+[`gen_src_cat`](gen_src_cat/README.md) 工具可下载并格式化这些数据，生成
+符合流水线文件名约定与 18 列格式的分块文件。
+
+对于 C++ 外部星表，请在所选流水线的 `LensingConfig.hpp` 中将
+`ext_cat_columns_before_ra` 设为 `ra` 前以空白分隔的字段数量。默认值为 `4`，
+对应 DES Y6 GOLD 的四个标志列；若 `ra` 是首列则设为 `0`。deblending 所用的
+`dec` 后星等/误差及红移列顺序仍保持不变。
+
+```bash
+cd gen_src_cat
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install numpy pyvo
+python query_y6gold_sync_mp_v2.py
+```
+
+运行前请在脚本中检查天区范围、行数上限、输出目录和并发数。完成后，
+将所选流水线 `LensingConfig.hpp` 或 `para.inc` 中的 `SOURCE_CAT` 设为
+生成的 `des_y6_chunks` 目录，然后重新编译。输出列、断点续跑、服务器
+限流与行数截断警告详见 [`gen_src_cat/README.md`](gen_src_cat/README.md)。
 
 ---
 
@@ -240,26 +274,34 @@ LAPACK/BLAS、Eigen3。
 
 ```bash
 cd cpp_Standard   # 或 cpp_Lite
-# 如需修改星表路径，编辑 LensingConfig.hpp
+# 编辑 include/process_main/LensingConfig.hpp 设置科学参数，
+# 并在 include/ProcessConfig.hpp 设置工作流默认值。
 make -j4
 # 可执行文件：./Fourier_Quad_Pipe
 ```
 
-`cpp_Standard` 的 Makefile 支持可选的 `STACK_PREFIX`：
+两个 C++ Makefile 都支持可选的 `STACK_PREFIX` 和 `EIGEN_INCLUDE`：
 
 ```bash
-make STACK_PREFIX=/opt/cppstack -j4
+make STACK_PREFIX=/opt/cppstack EIGEN_INCLUDE=/opt/eigen/include/eigen3 -j4
 ```
 
 ### 运行流水线
 
 ```bash
-mpirun -np <N> ./Fourier_Quad_Pipe <EXPO_LIST>    # Fortran
-mpirun -np <N> ./Fourier_Quad_Pipe <EXPO_LIST>    # C++
+mpirun -np <N> ./Fourier_Quad_Pipe <EXPO_LIST>                 # Fortran
+mpirun -np <N> ./Fourier_Quad_Pipe --expo-list <EXPO_LIST>     # C++ Standard/Lite 仅主流程
 ```
 
-`EXPO_LIST` 是一个文本文件，列出曝光名称和芯片数。每个 MPI 进程被分配一部分
-曝光进行处理。
+两个 C++ 版本均已集成 MPI 初始化器。运行时通过 `--run-init` 和 `--run-main`
+选择仅初始化、仅主流程或串联运行；省略参数时读取
+`include/ProcessConfig.hpp` 的默认值。重复传入 `--dataset TARGET:PREFIX`
+可顺序处理多个数据集，重复传入 `--contains TOKEN` 会按 OR 规则匹配归档；
+相同列表也可在 `ProcessConfig.hpp` 的 `DATASETS`、`CONTAINS` 中配置。
+串联模式会为每个数据集使用初始化器成功生成的 `expo_<target>.list`
+绝对路径，并覆盖外部列表参数。完整参数与输出约定见
+[`cpp_Standard/README.md`](cpp_Standard/README.md) 或
+[`cpp_Lite/README.md`](cpp_Lite/README.md)。
 
 ---
 
@@ -375,6 +417,12 @@ HPC runner 详细文档请参见：
 docker pull ghcr.io/syoong-s/fourier_quad_pipeline/f77pipeline:latest
 docker pull ghcr.io/syoong-s/fourier_quad_pipeline/cpppipeline:latest
 ```
+
+### GitHub Release
+
+[release 工作流](.github/workflows/release.yml) 会在推送 `v*` 标签时或手动触发，
+并为每个顶层内容目录附加一个 zip 压缩包。其中 `gen_src_cat.zip` 为必需
+发布资产，便于脱离流水线源码包独立下载星表生成工具。
 
 ## 贡献
 这个项目是张骏教授一系列Fourier Quad方法的开源实现：

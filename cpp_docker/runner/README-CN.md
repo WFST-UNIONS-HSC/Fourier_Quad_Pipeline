@@ -31,6 +31,8 @@ SIF 内链接的 `Fourier_Quad_Pipe`。
 ├── apptainer-tmp/
 ├── scratch/               # 所有计算节点可写
 └── data/
+    ├── Science/               # 原始压缩 Science 归档，只读
+    ├── DQMask/                # 原始压缩 DQMask 归档，只读
     ├── AstroDir/
     ├── ExtSrcDir/
     ├── FlatDir/
@@ -67,7 +69,13 @@ cp cpppipeline.env.example cpppipeline.env
 `MPI_LAUNCH_MODE=srun`、`SLURM_MPI_TYPE=pmi2` 和
 `HPC_SCRUB_MPI_ENV=1`。
 
-三个 catalogue/flat 容器路径必须与 `LensingConfig.hpp` 编译期常量一致。
+`SCIENCE_ROOT_HOST` 和 `DQ_ROOT_HOST` 是固定的只读归档挂载源，对应容器路径为
+`SCIENCE_ROOT_CONTAINER` 和 `DQ_ROOT_CONTAINER`。运行初始化器时，必须将这两个
+容器路径分别传给 `--science-root`、`--dq-root`；生成结果继续写入可写的
+`PROCESS_DATA_CONTAINER`。
+
+三个 catalogue/flat 容器路径必须与
+`/workspace/src_pipe/include/process_main/LensingConfig.hpp` 编译期常量一致。
 
 ## 4. 获得 SIF
 
@@ -104,7 +112,7 @@ sbatch compile-pipeline.slurm
 ```
 
 此作业只有一个 task，在 SIF 中按 `CPP_MAKE_CLEAN` 执行清理，再使用
-`CPP_BUILD_JOBS` 并行编译 18 个 translation unit，最终确认
+`CPP_BUILD_JOBS` 并行编译 22 个 translation unit，最终确认
 `Fourier_Quad_Pipe` 可执行。`CPP_BUILD_JOBS` 不得超过申请的
 `SLURM_CPUS_PER_TASK`。
 
@@ -143,6 +151,12 @@ sbatch cpppipeline.slurm
 `${PROCESS_DATA_CONTAINER}/expo_list.list`。脚本名后的参数会传给
 `Fourier_Quad_Pipe`。真实数据运行与无数据 smoke 分开，runner 不会自行
 修改科学路径或 exposure 内容。
+
+串联运行时，在脚本名后传入 `--run-init true --run-main true`、
+`--science-root /data/archive/science`、`--dq-root /data/archive/dqmask`、
+`--output-root /data/DataProcess`，并可重复传入例如
+`--dataset g2013:c4d_13 --dataset g2014:c4d_14`。多个 `--dataset` 会顺序
+执行；多个 `--contains` 按 OR 规则匹配，runner 会原样转发这些参数。
 
 ## 9. Slurm 模板与日志
 

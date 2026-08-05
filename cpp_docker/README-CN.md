@@ -1,9 +1,9 @@
 # cpp_Standard 单 SIF 可移植 HPC 环境
 
 本目录参考 `f77_docker` 已验证的制品边界：镜像只保存工具链与依赖，
-`cpp_Standard` 源码、星表、平场、处理数据和输出始终在镜像外，通过 bind
-挂载。区别在于这里不再为本地和某个集群分别构建镜像，而是只构建一个
-x86_64 Linux OCI 镜像，并转换成一个预编译 SIF。
+`cpp_Standard` 源码、压缩 Science/DQ 归档、星表、平场、处理数据和输出始终
+在镜像外，通过 bind 挂载。区别在于这里不再为本地和某个集群分别构建镜像，
+而是只构建一个 x86_64 Linux OCI 镜像，并转换成一个预编译 SIF。
 
 ## 1. 唯一运行时契约
 
@@ -80,12 +80,20 @@ Makefile 使用 `mpicxx`、C++17、CFITSIO、FFTW、Eigen、LAPACK 和 BLAS。
 固定容器路径为：
 
 - 源码：`/workspace/src_pipe`
+- Science 原始归档：`/data/archive/science`（只读）
+- DQMask 原始归档：`/data/archive/dqmask`（只读）
 - 测天星表：`/data/catalogs/AstroDir`
 - 源星表：`/data/catalogs/ExtSrcDir`
 - 平场：`/data/calib/FlatDir`
 - 处理数据：`/data/DataProcess`
 
-三个 catalogue/flat 路径必须与 `LensingConfig.hpp` 的编译期科学配置一致。
+三个 catalogue/flat 路径必须与
+`cpp_Standard/include/process_main/LensingConfig.hpp` 的编译期科学配置一致。
+初始化时，将 `SCIENCE_ROOT_CONTAINER`、`DQ_ROOT_CONTAINER` 分别传给
+`--science-root`、`--dq-root`，并将可写的 `PROCESS_DATA_CONTAINER` 传给
+`--output-root`。容器挂载接口无需为批处理增加变量：重复传入
+`--dataset TARGET:PREFIX` 即可批量运行，重复传入 `--contains TOKEN` 即按
+OR 规则匹配。
 
 ## 4. 生成唯一 SIF
 

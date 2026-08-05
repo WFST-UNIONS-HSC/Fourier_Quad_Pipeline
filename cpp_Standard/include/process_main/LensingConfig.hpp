@@ -26,6 +26,15 @@ namespace LensingConfig {
     const std::string FLAT_PATH = "/lustre/home/acct-phyzj/share/DES/testy/DES_super_flat/i2014";
     const std::string PSF_PATH = "hahahaha";
 
+    // ==========================================
+    // Configuration: External source-catalog columns before right ascension
+    // Method: Skip this many whitespace-delimited fields before reading ra and dec. The DES Y6
+    //         catalog starts with four flag fields; set this to zero when ra is the first column.
+    // ==========================================
+    constexpr int ext_cat_columns_before_ra = 4;
+    static_assert(ext_cat_columns_before_ra >= 0,
+                  "ext_cat_columns_before_ra must not be negative");
+
     // Split parameters
     constexpr int ext_cat = 1;
     constexpr int ext_PSF = 0;
@@ -79,7 +88,7 @@ namespace LensingConfig {
     constexpr double flat_thresh = 0.01;
 
     // ==========================================
-    // Configuration: numerical_fix F6 mode-bar noise-plane estimator
+    // Configuration: Function Set_Sig mode-bar noise-plane estimator
     // Method: Keep these constants identical to f77/sig_para.inc. The estimator obtains robust
     //         block seeds, finds the sky mode and lower-side width, performs two symmetric clipped
     //         plane fits, validates the final plane, then normalizes the amplifier immediately.
@@ -114,7 +123,7 @@ namespace LensingConfig {
     constexpr int area_max = ns * ns;
    constexpr int area_thresh = 6;
 
-    constexpr int gal_smooth = 2;
+    constexpr int gal_smooth = 0;
     constexpr int star_smooth = 2;
 
     constexpr double SNR_PSF = 100.0;

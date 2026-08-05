@@ -34,6 +34,8 @@ A typical shared layout is:
 ├── apptainer-tmp/
 ├── scratch/
 └── data/
+    ├── Science/
+    ├── DQMask/
     ├── AstroDir/
     ├── ExtSrcDir/
     ├── FlatDir/
@@ -48,7 +50,13 @@ cp cpppipeline.env.example cpppipeline.env
 
 Edit every host path. `CPP_SIF`, source, data, scratch, and the runner must be
 visible from every allocated node. Container catalogue destinations must match
-the strings compiled into `LensingConfig.hpp`.
+the strings compiled into
+`/workspace/src_pipe/include/process_main/LensingConfig.hpp`.
+
+`SCIENCE_ROOT_HOST` and `DQ_ROOT_HOST` are fixed read-only archive binds. Their
+container destinations are `SCIENCE_ROOT_CONTAINER` and `DQ_ROOT_CONTAINER`;
+use exactly those values for the executable's `--science-root` and `--dq-root`
+arguments. Generated files remain under the writable `PROCESS_DATA_CONTAINER`.
 
 `HPC_MODULES`, `HPC_EXTRA_BINDS`, `HPC_PASSTHROUGH_ENV`,
 `HPC_CONTAINER_ENV`, and `SRUN_ARGS` are Bash indexed arrays. Modules may make
@@ -116,6 +124,12 @@ Without script arguments, the executable receives
 `${PROCESS_DATA_CONTAINER}/expo_list.list`. Additional arguments after the
 script name are passed to `Fourier_Quad_Pipe`.
 
+For a chained initialization and numerical run, pass the named workflow options,
+for example `--run-init true --run-main true --science-root
+/data/archive/science --dq-root /data/archive/dqmask --output-root
+/data/DataProcess --dataset g2013:c4d_13 --dataset g2014:c4d_14 --contains v1`.
+Repeated datasets run sequentially; repeated contains tokens use OR matching.
+
 ## Scheduler templates
 
 The `#SBATCH` resources are conservative templates. Override node, task,
@@ -124,4 +138,4 @@ policy. If a site requires centralized logs, pass absolute `--output` and
 `--error` paths to every `sbatch` command.
 
 Do not compile the same source copy concurrently. Source and processing binds
-are writable; catalogue and calibration binds are read-only.
+are writable; Science, DQMask, catalogue, and calibration binds are read-only.

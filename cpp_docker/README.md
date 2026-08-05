@@ -3,8 +3,8 @@
 This directory builds one x86_64 Linux runtime for `cpp_Standard`. The same
 OCI image is converted once to an Apptainer SIF and used on every Slurm site
 that provides Apptainer or Singularity and the Slurm PMI2 launch plugin.
-Pipeline source, catalogues, calibration data, processing data, and outputs
-remain on bind-mounted host storage.
+Pipeline source, compressed Science/DQ archives, catalogues, calibration data,
+processing data, and outputs remain on bind-mounted host storage.
 
 ## Runtime contract
 
@@ -63,7 +63,20 @@ make -C /workspace/src_pipe -j4
 The Makefile uses `mpicxx`, C++17, and the image search paths. Its optional
 `STACK_PREFIX` remains available outside the container. Catalogue and
 flat-field destinations must match the compile-time strings in
-`cpp_Standard/LensingConfig.hpp`.
+`cpp_Standard/include/process_main/LensingConfig.hpp`.
+
+The fixed local bind interface is:
+
+- source: `CPP_SOURCE_HOST` → `/workspace/src_pipe` (read/write);
+- Science archive: `SCIENCE_ROOT_HOST` → `SCIENCE_ROOT_CONTAINER` (read-only);
+- DQMask archive: `DQ_ROOT_HOST` → `DQ_ROOT_CONTAINER` (read-only);
+- astrometry/source catalogues and flat calibration (read-only);
+- processing data and generated initializer output (read/write).
+
+Pass `SCIENCE_ROOT_CONTAINER` and `DQ_ROOT_CONTAINER` to `--science-root` and
+`--dq-root`. Use `PROCESS_DATA_CONTAINER` for `--output-root`. Pipeline arguments
+need no container-interface change: repeat `--dataset TARGET:PREFIX` for a batch
+and repeat `--contains TOKEN` for OR matching.
 
 ## HPC deployment
 
