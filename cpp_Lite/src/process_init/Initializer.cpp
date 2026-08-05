@@ -371,8 +371,7 @@ std::vector<ExposureRecord> buildExposureRecords(const Config& config,
     for (std::size_t source_index = 0; source_index < science_sources.size(); ++source_index) {
         const int image_count = image_counts[source_index];
         if (image_count <= 0) {
-            throw std::runtime_error("successful science task returned no images: "
-                                     + science_sources[source_index].string());
+            continue;
         }
         ExposureRecord record;
         record.exposure = archiveStem(science_sources[source_index]);
@@ -453,6 +452,7 @@ std::string makeManifest(const Config& config,
                          const std::vector<int>& statuses,
                          const std::vector<int>& image_counts,
                          const std::vector<int>& resumed_flags,
+                         const std::vector<int>& skipped_hdus,
                          bool lists_published,
                          const std::string& final_error) {
     int science_sources = 0;
@@ -460,7 +460,9 @@ std::string makeManifest(const Config& config,
     int science_images = 0;
     int dq_images = 0;
     int resumed_sources = 0;
+    int skipped_hdus_total = 0;
     std::vector<std::string> failed_sources;
+    std::vector<std::string> partial_sources;
     for (std::size_t index = 0; index < tasks.size(); ++index) {
         if (tasks[index].kind == ProductKind::Science) {
             ++science_sources;
@@ -470,16 +472,22 @@ std::string makeManifest(const Config& config,
             dq_images += std::max(0, image_counts[index]);
         }
         resumed_sources += resumed_flags[index] > 0 ? 1 : 0;
+        skipped_hdus_total += skipped_hdus[index];
         if (statuses[index] <= 0) {
             failed_sources.push_back(tasks[index].source.string());
+        } else if (skipped_hdus[index] > 0) {
+            partial_sources.push_back(tasks[index].source.string());
         }
     }
 
-    const bool success = failed_sources.empty() && lists_published && final_error.empty();
+    const bool has_failures = !failed_sources.empty() || !partial_sources.empty();
+    const std::string status_text = !lists_published ? "failed"
+                                    : has_failures ? "partial"
+                                                   : "success";
     std::ostringstream manifest;
     manifest << "{\n"
              << "  \"schema_version\": 2,\n"
-             << "  \"status\": \"" << (success ? "success" : "failed") << "\",\n"
+             << "  \"status\": \"" << status_text << "\",\n"
              << "  \"direct_source_read\": true,\n"
              << "  \"copy_staging\": false,\n"
              << "  \"exposure_order\": \"corrected_lexical_no_rotation\",\n"
@@ -513,6 +521,15 @@ std::string makeManifest(const Config& config,
             manifest << ", ";
         }
         manifest << '"' << jsonEscape(failed_sources[index]) << '"';
+    }
+    manifest << "],\n"
+             << "  \"skipped_hdus\": " << skipped_hdus_total << ",\n"
+             << "  \"partial_sources\": [";
+    for (std::size_t index = 0; index < partial_sources.size(); ++index) {
+        if (index != 0) {
+            manifest << ", ";
+        }
+        manifest << '"' << jsonEscape(partial_sources[index]) << '"';
     }
     manifest << "]\n}\n";
     return manifest.str();
@@ -695,6 +712,7 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
     std::vector<int> local_status(tasks.size(), 0);
     std::vector<int> local_counts(tasks.size(), 0);
     std::vector<int> local_resumed(tasks.size(), 0);
+    std::vector<int> local_skipped(tasks.size(), 0);
     const fs::path staging_root = target_root / ".fq_init_tmp" / run_token;
 
     for (std::size_t task_index = static_cast<std::size_t>(rank);
@@ -712,6 +730,7 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
                                        ? static_cast<int>(result.output_paths.size())
                                        : 0;
         local_resumed[task_index] = result.resumed ? 1 : 0;
+        local_skipped[task_index] = result.skipped_hdus;
         if (!result.success) {
             std::cerr << "[rank " << rank << "] failed " << task.source << ": "
                       << result.error << std::endl;
@@ -721,6 +740,7 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
     std::vector<int> global_status(tasks.size(), 0);
     std::vector<int> global_counts(tasks.size(), 0);
     std::vector<int> global_resumed(tasks.size(), 0);
+    std::vector<int> global_skipped(tasks.size(), 0);
     if (!tasks.empty()) {
         const int mpi_count = static_cast<int>(tasks.size());
         MPI_Allreduce(local_status.data(), global_status.data(), mpi_count,
@@ -729,6 +749,8 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
                       MPI_INT, MPI_SUM, communicator);
         MPI_Allreduce(local_resumed.data(), global_resumed.data(), mpi_count,
                       MPI_INT, MPI_SUM, communicator);
+        MPI_Allreduce(local_skipped.data(), global_skipped.data(), mpi_count,
+                      MPI_INT, MPI_SUM, communicator);
     }
     MPI_Barrier(communicator);
 
@@ -736,21 +758,19 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
     std::string final_error;
     int final_status = 0;
     if (rank == 0) {
-        const bool extraction_failed = std::any_of(
-            global_status.begin(), global_status.end(), [](int value) { return value != 1; });
-        if (extraction_failed) {
-            final_status = 1;
-            final_error = "one or more source archives failed; pipeline lists were not published";
-        } else {
-            try {
-                const std::vector<ExposureRecord> records = buildExposureRecords(
-                    config, target_root, science_sources, global_counts);
-                writePipelineLists(config, records);
-                lists_published = true;
-            } catch (const std::exception& exception) {
-                final_status = 1;
-                final_error = exception.what();
+        const bool any_failed = std::any_of(
+            global_status.begin(), global_status.end(), [](int value) { return value < 0; });
+        try {
+            const std::vector<ExposureRecord> records = buildExposureRecords(
+                config, target_root, science_sources, global_counts);
+            writePipelineLists(config, records);
+            lists_published = true;
+            if (any_failed) {
+                final_error = "some source archives failed; pipeline lists published with available data";
             }
+        } catch (const std::exception& exception) {
+            final_status = 1;
+            final_error = exception.what();
         }
 
         try {
@@ -758,7 +778,7 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
                                            / ("init_" + config.target + "_manifest.json");
             writeAtomic(manifest_path, makeManifest(
                 config, tasks, global_status, global_counts, global_resumed,
-                lists_published, final_error));
+                global_skipped, lists_published, final_error));
         } catch (const std::exception& exception) {
             final_status = 1;
             if (!final_error.empty()) {
@@ -779,6 +799,9 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
                       << " science archives, " << dq_sources.size()
                       << " DQ archives, corrected exposure order, no source copy staging."
                       << std::endl;
+            if (!final_error.empty()) {
+                std::cerr << "Initialization warning: " << final_error << std::endl;
+            }
         } else {
             std::cerr << "Initialization failed: " << final_error << std::endl;
         }

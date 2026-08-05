@@ -3,6 +3,7 @@
 #include "UniversalUtils.hpp"
 #include "FitsIO.hpp"
 #include "Astrometry.hpp"
+#include "ExternalCatalogReader.hpp"
 #include "ImageProcessing.hpp"
 #include <iostream>
 #include <vector>
@@ -32,20 +33,6 @@ namespace SourceExtractor {
             return std::filesystem::exists(path, ec) && !ec;
         }
 
-        // ==========================================
-        // Function: Skip catalog fields that precede right ascension
-        // Method: Discard the configured number of whitespace-delimited tokens so external
-        //         catalog metadata may use arbitrary token types without named dummy variables.
-        // ==========================================
-        bool skipExternalCatalogLeadingColumns(std::istream& input) {
-            std::string ignored;
-            for (int column = 0; column < LensingConfig::ext_cat_columns_before_ra; ++column) {
-                if (!(input >> ignored)) {
-                    return false;
-                }
-            }
-            return true;
-        }
     }
 
     void procSource(int iexpo) {
@@ -330,8 +317,8 @@ namespace SourceExtractor {
 
     // ==========================================
     // Function: Deblend external-catalog sources by redshift consistency
-    // Method: Skip the configured fields before ra, mirror F77 missing-file behavior, and reject
-    //         malformed rows while retaining the fixed post-dec photometry/redshift schema.
+    // Method: Read only configured RA, Dec, and ZP fields, mirror F77 missing-file behavior,
+    //         and reject malformed or out-of-range photometric-redshift rows.
     // ==========================================
     void deBlending(const std::vector<std::string>& sortFile, int sortNum, int nx, int ny, std::vector<int>& weight,
                     const double cRPIX[2], const double cD[2][2], const double cRVAL[2],
@@ -362,16 +349,14 @@ namespace SourceExtractor {
             while (std::getline(fin, line)) {
                 if (line.empty()) continue;
 
-                std::stringstream ss(line);
-                double ra, dec;
-                double mag_g, magerr_g, mag_r, magerr_r, mag_i, magerr_i, mag_z, magerr_z, mag_y, magerr_y;
-                double zp, zperr;
-                if (!skipExternalCatalogLeadingColumns(ss)
-                    || !(ss >> ra >> dec >> mag_g >> magerr_g >> mag_r >> magerr_r
-                         >> mag_i >> magerr_i >> mag_z >> magerr_z >> mag_y >> magerr_y >> zp >> zperr)) {
+                ExternalCatalogReader::Record record;
+                if (!ExternalCatalogReader::parseRecord(line, record)) {
                     continue;
                 }
-                
+
+                double ra = record.ra;
+                double dec = record.dec;
+                const double zp = record.zp;
                 if (zp < 0.0 || zp > 5.0) continue;
 
                 double z = zp;
@@ -670,8 +655,8 @@ namespace SourceExtractor {
 
     // ==========================================
     // Function: Extract source stamps from external catalog positions
-    // Method: Skip the configured fields before ra plus missing tiles and malformed rows while
-    //         preserving valid-row extraction and the original accepted catalog rows.
+    // Method: Read configured RA, Dec, and ZP fields while skipping missing tiles and malformed
+    //         rows, preserving valid-row extraction and each accepted original catalog row.
     // ==========================================
     void genSourceExtCatalog(const std::vector<std::string>& sortFile, int sortNum, const std::string& prefix,
                              int nx, int ny, const std::vector<float>& array, std::vector<int>& weight,
@@ -716,11 +701,13 @@ namespace SourceExtractor {
 
             while (std::getline(fin, line)) {
                 if (line.empty()) continue;
-                std::stringstream ss(line);
-                double ra, dec;
-                if (!skipExternalCatalogLeadingColumns(ss) || !(ss >> ra >> dec)) {
+                ExternalCatalogReader::Record record;
+                if (!ExternalCatalogReader::parseRecord(line, record)) {
                     continue;
                 }
+
+                double ra = record.ra;
+                double dec = record.dec;
 
                 ig++;
 

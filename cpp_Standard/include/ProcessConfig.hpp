@@ -17,8 +17,9 @@ struct DatasetSpec {
 
 // Workflow defaults. Command-line phase switches override these values.
 inline constexpr bool RUN_PROCESS_EXTCAT = false;
-inline constexpr bool RUN_PROCESS_INIT = false;
+inline constexpr bool RUN_PROCESS_INIT = true;
 inline constexpr bool RUN_PROCESS_MAIN = true;
+inline constexpr bool RUN_PROCESS_REARR = false;
 
 // ==========================================
 // Configuration: External source-catalog repartitioning defaults
@@ -34,13 +35,15 @@ inline constexpr const char* EXTCAT_HEADER_MODE = "auto";
 inline constexpr const char* EXTCAT_MALFORMED_POLICY = "fail";
 inline constexpr const char* EXTCAT_EXISTING_POLICY = "fail";
 inline constexpr std::uint64_t EXTCAT_CHUNK_MIB = 64;
+inline constexpr std::size_t EXTCAT_TOTAL_COLUMNS = 18;
 inline constexpr bool EXTCAT_USE_EXPLICIT_COLUMNS = false;
 inline const std::vector<std::size_t> EXTCAT_INPUT_COLUMNS_ONE_BASED = {
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 };
 inline constexpr bool EXTCAT_USE_EXPLICIT_COORDINATE_COLUMNS = false;
-inline constexpr std::size_t EXTCAT_RA_COLUMN_ONE_BASED = 1;
-inline constexpr std::size_t EXTCAT_DEC_COLUMN_ONE_BASED = 2;
+inline constexpr std::size_t EXTCAT_RA_COLUMN_ONE_BASED = 5;
+inline constexpr std::size_t EXTCAT_DEC_COLUMN_ONE_BASED = 6;
+inline constexpr std::size_t EXTCAT_ZP_COLUMN_ONE_BASED = 17;
 
 // Initializer and exposure-list defaults. Edit this file for one site's usual dataset.
 inline constexpr const char* SCIENCE_ROOT = "/lustre/home/acct-phyzj/share/DES/g";
@@ -65,6 +68,7 @@ struct RuntimeOptions {
     bool run_process_extcat = RUN_PROCESS_EXTCAT;
     bool run_process_init = RUN_PROCESS_INIT;
     bool run_process_main = RUN_PROCESS_MAIN;
+    bool run_process_rearr = RUN_PROCESS_REARR;
     std::string extcat_input_directory = EXTCAT_INPUT_DIRECTORY;
     std::string extcat_output_directory = EXTCAT_OUTPUT_DIRECTORY;
     std::vector<std::string> extcat_filename_tokens = EXTCAT_FILENAME_TOKENS;
@@ -81,6 +85,7 @@ struct RuntimeOptions {
         EXTCAT_USE_EXPLICIT_COORDINATE_COLUMNS;
     std::size_t extcat_ra_column_one_based = EXTCAT_RA_COLUMN_ONE_BASED;
     std::size_t extcat_dec_column_one_based = EXTCAT_DEC_COLUMN_ONE_BASED;
+    std::size_t extcat_zp_column_one_based = EXTCAT_ZP_COLUMN_ONE_BASED;
     std::string science_root = SCIENCE_ROOT;
     std::string dq_root = DQ_ROOT;
     std::string output_root = OUTPUT_ROOT;

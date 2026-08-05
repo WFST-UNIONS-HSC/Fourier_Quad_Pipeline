@@ -1,10 +1,13 @@
 #include "process_main/MPIScheduler.hpp"
 #include "process_main/NumericalRecipes.hpp"
+#include "process_main/ExternalCatalogReader.hpp"
 #include "process_main/LensingConfig.hpp"
 #include "ProcessConfig.hpp"
 #include "process_extcat/process_extcat.hpp"
 #include "process_init/process_init.hpp"
 #include "process_main/process_main.hpp"
+#include "process_rearr/CatalogRearranger.hpp"
+#include "process_rearr/process_rearr.hpp"
 
 #include <mpi.h>
 
@@ -120,10 +123,10 @@ bool parseExtcatColumns(const std::string& value,
 }
 
 // ==========================================
-// Function: Parse one external-catalog coordinate column
-// Method: Require one positive one-based index within the platform size_t range.
+// Function: Parse one external-catalog field column
+// Method: Require one positive one-based RA, Dec, or ZP index within the platform size_t range.
 // ==========================================
-bool parseExtcatCoordinateColumn(const std::string& value, std::size_t& column) {
+bool parseExtcatFieldColumn(const std::string& value, std::size_t& column) {
     if (value.empty() || value.front() == '-') {
         return false;
     }
@@ -237,17 +240,22 @@ bool applyNamedOption(const std::string& name,
         }
         options.extcat_use_explicit_columns = true;
     } else if (name == "--extcat-ra-column") {
-        if (!parseExtcatCoordinateColumn(value, options.extcat_ra_column_one_based)) {
+        if (!parseExtcatFieldColumn(value, options.extcat_ra_column_one_based)) {
             error = "--extcat-ra-column must be a positive one-based index";
             return false;
         }
         options.extcat_use_explicit_coordinate_columns = true;
     } else if (name == "--extcat-dec-column") {
-        if (!parseExtcatCoordinateColumn(value, options.extcat_dec_column_one_based)) {
+        if (!parseExtcatFieldColumn(value, options.extcat_dec_column_one_based)) {
             error = "--extcat-dec-column must be a positive one-based index";
             return false;
         }
         options.extcat_use_explicit_coordinate_columns = true;
+    } else if (name == "--extcat-zp-column") {
+        if (!parseExtcatFieldColumn(value, options.extcat_zp_column_one_based)) {
+            error = "--extcat-zp-column must be a positive one-based index";
+            return false;
+        }
     } else if (name == "--extcat-chunk-mib") {
         if (!parsePositiveUnsigned(value, options.extcat_chunk_mib)) {
             error = "--extcat-chunk-mib must be a positive integer";
@@ -273,6 +281,11 @@ bool applyNamedOption(const std::string& name,
     } else if (name == "--run-main") {
         if (!parseBoolean(value, options.run_process_main)) {
             error = "--run-main must be true, false, 1, 0, on, or off";
+            return false;
+        }
+    } else if (name == "--run-rearr") {
+        if (!parseBoolean(value, options.run_process_rearr)) {
+            error = "--run-rearr must be true, false, 1, 0, on, or off";
             return false;
         }
     } else if (name == "--science-root") {
@@ -339,15 +352,15 @@ bool applyNamedOption(const std::string& name,
 // ==========================================
 // Function: Validate the effective workflow configuration
 // Method: Enforce executable modes, unique safe targets, paired prefixes, valid
-//         token lists, and unambiguous exposure-list input for batch main-only runs.
+//         token lists, and unambiguous exposure-list input for downstream-only runs.
 // ==========================================
 bool validateOptions(const ProcessConfig::RuntimeOptions& options, std::string& error) {
     if (options.help_requested) {
         return true;
     }
     if (!options.run_process_extcat && !options.run_process_init
-        && !options.run_process_main) {
-        error = "--run-extcat, --run-init, and --run-main cannot all be false";
+        && !options.run_process_main && !options.run_process_rearr) {
+        error = "--run-extcat, --run-init, --run-main, and --run-rearr cannot all be false";
         return false;
     }
     if ((options.run_process_extcat || options.run_process_main)
@@ -359,14 +372,16 @@ bool validateOptions(const ProcessConfig::RuntimeOptions& options, std::string& 
         error = "external source-catalog input directory must not be empty";
         return false;
     }
-    if ((options.run_process_init || options.run_process_main)
+    if ((options.run_process_init || options.run_process_main
+         || options.run_process_rearr)
         && options.datasets.empty()) {
         error = "at least one dataset must be configured or supplied with --dataset";
         return false;
     }
 
     std::set<std::string> targets;
-    if (options.run_process_init || options.run_process_main) {
+    if (options.run_process_init || options.run_process_main
+        || options.run_process_rearr) {
         for (const ProcessConfig::DatasetSpec& dataset : options.datasets) {
             if (dataset.target.empty() || dataset.target == "." || dataset.target == ".."
                 || dataset.target.find('/') != std::string::npos
@@ -414,10 +429,23 @@ bool validateOptions(const ProcessConfig::RuntimeOptions& options, std::string& 
             return false;
         }
     }
+    if (options.run_process_main) {
+        ExternalCatalogReader::ColumnSelection selection;
+        if (!ExternalCatalogReader::resolveColumnSelection(options, selection, error)) {
+            return false;
+        }
+    }
+    if (options.run_process_rearr) {
+        ProcessRearr::CatalogLayout layout;
+        if (!ProcessRearr::resolveCatalogLayout(options, layout, error)) {
+            return false;
+        }
+    }
 
-    if (options.run_process_main && !options.run_process_init
+    if ((options.run_process_main || options.run_process_rearr)
+        && !options.run_process_init
         && options.datasets.size() > 1 && !options.expo_list.empty()) {
-        error = "one --expo-list cannot serve multiple datasets in main-only mode; "
+        error = "one --expo-list cannot serve multiple datasets in downstream-only mode; "
                 "omit it to derive expo_<target>.list for each dataset";
         return false;
     }
@@ -480,7 +508,7 @@ bool parseCommandLine(int argc,
 }
 
 // ==========================================
-// Function: Resolve one dataset exposure list used by main-only mode
+// Function: Resolve one dataset exposure list used by downstream-only mode
 // Method: Prefer the single external/default list, otherwise derive the current
 //         dataset's expo_<target>.list and normalize it to an absolute path.
 // ==========================================
@@ -568,6 +596,8 @@ void printUsage(const char* program_name) {
         << (ProcessConfig::RUN_PROCESS_INIT ? "true" : "false") << ")\n"
         << "  --run-main BOOL       Run numerical pipeline (default: "
         << (ProcessConfig::RUN_PROCESS_MAIN ? "true" : "false") << ")\n"
+        << "  --run-rearr BOOL      Rearrange _all.cat; follows process_main if both run (default: "
+        << (ProcessConfig::RUN_PROCESS_REARR ? "true" : "false") << ")\n"
         << "  --extcat-input PATH   Directory containing raw external catalogs\n"
         << "  --extcat-output PATH  SOURCE_CAT tile directory used by process_main\n"
         << "  --extcat-contains T   Repeatable raw basename token, matched with OR (default: "
@@ -579,6 +609,7 @@ void printUsage(const char* program_name) {
         << "  --extcat-columns LIST Ordered one-based input indices; output width follows LIST\n"
         << "  --extcat-ra-column N  Raw one-based RA column; overrides header discovery\n"
         << "  --extcat-dec-column N Raw one-based Dec column; overrides header discovery\n"
+        << "  --extcat-zp-column N  Raw one-based ZP column consumed by process_main\n"
         << "  --extcat-chunk-mib N  MPI byte-range task size in MiB (default: "
         << ProcessConfig::EXTCAT_CHUNK_MIB << ")\n"
         << "  --extcat-malformed P  fail or skip malformed rows\n"
@@ -596,15 +627,18 @@ void printUsage(const char* program_name) {
         << ProcessConfig::EXISTING << ")\n"
         << "  --f77-max-path N      Generated path limit; zero disables (default: "
         << ProcessConfig::F77_MAX_PATH << ")\n"
-        << "  --expo-list PATH      Single exposure list for main-only mode\n"
+        << "  --expo-list PATH      Single exposure list for main/rearr-only mode\n"
         << "  --help                Show this help\n"
         << "Options accept both --name value and --name=value. The first explicit "
            "--dataset, --contains, or --extcat-contains replaces its corresponding "
            "configured list; repeats append.\n"
-        << "Other duplicate scalar options use the last value. Main-only batches derive "
+        << "Other duplicate scalar options use the last value. Downstream-only batches derive "
            "expo_<target>.list per dataset when --expo-list is omitted.\n"
         << "Without --extcat-columns, all raw catalog fields keep their original order; "
            "otherwise output width and order follow LIST exactly.\n"
+        << "When process_main runs, LIST must contain the configured RA, Dec, and ZP "
+           "raw columns. A rearr-only run requires RA and Dec but not ZP; output "
+           "positions follow LIST order.\n"
         << "process_extcat runs once before the dataset loop. When later phases run, each "
            "process_init-generated absolute exposure-list "
            "path overrides external input for its dataset.\n";
@@ -613,13 +647,16 @@ void printUsage(const char* program_name) {
 }  // namespace
 
 // ==========================================
-// Function: Dispatch external-catalog, initializer, and Fourier_Quad phases
-// Method: Own MPI exactly once, run process_extcat before the dataset loop, process
-//         datasets sequentially, and force chained processing to consume generated lists.
+// Function: Dispatch all four external-catalog, initializer, Fourier_Quad, and rearrangement phases
+// Method: Own MPI exactly once, run process_extcat before the dataset loop, process datasets
+//         sequentially, and invoke process_rearr only after any enabled process_main call.
 // ==========================================
 int main(int argc, char* argv[]) {
     MPIScheduler::init(argc, argv);
     const int rank = MPIScheduler::my_id;
+    if (rank == 0){
+        std::cout << "MPI Init Done..." << std::endl;
+    }
     int return_code = 0;
 
     ProcessConfig::RuntimeOptions options;
@@ -655,7 +692,8 @@ int main(int argc, char* argv[]) {
         bool rng_initialized = false;
         for (std::size_t index = 0;
              index < options.datasets.size() && return_code == 0
-                 && (options.run_process_init || options.run_process_main);
+                 && (options.run_process_init || options.run_process_main
+                     || options.run_process_rearr);
              ++index) {
             const ProcessConfig::DatasetSpec& dataset = options.datasets[index];
             if (rank == 0) {
@@ -669,15 +707,16 @@ int main(int argc, char* argv[]) {
                 return_code = process_init(options, dataset, generated_exposure_list);
             }
 
-            if (return_code == 0 && options.run_process_main) {
-                std::string selected_exposure_list;
+            std::string selected_exposure_list;
+            if (return_code == 0
+                && (options.run_process_main || options.run_process_rearr)) {
                 if (options.run_process_init) {
                     selected_exposure_list = generated_exposure_list;
                     if (rank == 0) {
                         if (!options.expo_list.empty()) {
                             std::cout << "External exposure list overridden by process_init output: ";
                         } else {
-                            std::cout << "process_main will use process_init output: ";
+                            std::cout << "Downstream phases will use process_init output: ";
                         }
                         std::cout << selected_exposure_list << std::endl;
                     }
@@ -706,7 +745,10 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
-                if (return_code == 0 && !rng_initialized) {
+            }
+
+            if (return_code == 0 && options.run_process_main) {
+                if (!rng_initialized) {
                     const unsigned int rng_seed = NumericalRecipes::initializeRan1Seed(
                         rank, MPIScheduler::num_procs);
                     std::cout << "RNG_SEED rank seed: " << rank << " " << rng_seed << std::endl;
@@ -714,8 +756,19 @@ int main(int argc, char* argv[]) {
                     rng_initialized = true;
                 }
                 if (return_code == 0) {
-                    return_code = process_main(selected_exposure_list);
+                    return_code = process_main(selected_exposure_list, options);
                 }
+            }
+
+            if (return_code == 0 && options.run_process_rearr) {
+                MPIScheduler::barrier();
+                if (rank == 0) {
+                    std::cout << "Running process_rearr"
+                              << (options.run_process_main ? " after process_main" : "")
+                              << std::endl;
+                }
+                return_code = process_rearr(selected_exposure_list, options,
+                                            MPI_COMM_WORLD);
             }
 
             if (return_code == 0 && index + 1 < options.datasets.size()) {

@@ -257,19 +257,21 @@ std::vector<PlannedImage> planImages(fitsfile* input,
 
     for (int hdu_number = 1; hdu_number <= hdu_count; ++hdu_number) {
         int hdu_type = 0;
-        fits_movabs_hdu(input, hdu_number, &hdu_type, &status);
-        if (status != 0) {
-            throw std::runtime_error("cannot move to FITS HDU " + std::to_string(hdu_number)
-                                     + ": " + fitsDiagnostic(status));
+        int hdu_status = 0;
+        fits_movabs_hdu(input, hdu_number, &hdu_type, &hdu_status);
+        if (hdu_status != 0) {
+            fits_clear_errmsg();
+            continue;
         }
         if (hdu_type != IMAGE_HDU) {
             continue;
         }
         int naxis = 0;
-        fits_get_img_dim(input, &naxis, &status);
-        if (status != 0) {
-            throw std::runtime_error("cannot read FITS image dimensionality: "
-                                     + fitsDiagnostic(status));
+        int dim_status = 0;
+        fits_get_img_dim(input, &naxis, &dim_status);
+        if (dim_status != 0) {
+            fits_clear_errmsg();
+            continue;
         }
         if (naxis != 2) {
             continue;
@@ -282,20 +284,16 @@ std::vector<PlannedImage> planImages(fitsfile* input,
         } else {
             int key_status = 0;
             fits_read_key(input, TINT, "CCDNUM", &output_number, nullptr, &key_status);
-            if (key_status == KEY_NO_EXIST) {
-                continue;
-            }
             if (key_status != 0) {
-                throw std::runtime_error("cannot read DQ CCDNUM in HDU "
-                                         + std::to_string(hdu_number) + ": "
-                                         + fitsDiagnostic(key_status));
+                fits_clear_errmsg();
+                continue;
             }
             check_ccdnum = true;
         }
 
         const std::string filename = output_stem + "_" + std::to_string(output_number) + ".fits";
         if (!unique_outputs.insert(filename).second) {
-            throw std::runtime_error("archive produces duplicate output name: " + filename);
+            continue;
         }
         plans.push_back({hdu_number, output_number, check_ccdnum,
                          final_directory / filename, staging_directory / filename});
@@ -307,44 +305,9 @@ std::vector<PlannedImage> planImages(fitsfile* input,
 }
 
 // ==========================================
-// Function: Decide whether existing output files can be reused
-// Method: Reject partial sets, validate complete resume sets, and leave overwrite
-//         sets for staged replacement only after extraction succeeds.
-// ==========================================
-bool handleExistingOutputs(const std::vector<PlannedImage>& plans,
-                           ExistingPolicy policy,
-                           bool& resumed,
-                           std::string& error) {
-    std::size_t existing_count = 0;
-    for (const PlannedImage& plan : plans) {
-        if (std::filesystem::exists(plan.final_path)) {
-            ++existing_count;
-        }
-    }
-    if (existing_count == 0 || policy == ExistingPolicy::Overwrite) {
-        return true;
-    }
-    if (policy == ExistingPolicy::Fail) {
-        error = "output already exists: " + plans.front().final_path.parent_path().string();
-        return false;
-    }
-    if (existing_count != plans.size()) {
-        error = "resume refused because only part of the expected output set exists";
-        return false;
-    }
-    for (const PlannedImage& plan : plans) {
-        if (!validateOutput(plan, error)) {
-            return false;
-        }
-    }
-    resumed = true;
-    return true;
-}
-
-// ==========================================
 // Function: Commit all staged images for one source archive
 // Method: Use same-filesystem POSIX rename so each published chip file appears
-//         atomically; lists are not published until every archive succeeds.
+//         atomically.
 // ==========================================
 void commitImages(const std::vector<PlannedImage>& plans) {
     for (const PlannedImage& plan : plans) {
@@ -385,6 +348,7 @@ std::string dqOutputStem(const std::filesystem::path& source) {
 // Function: Extract one multi-HDU FITS/FZ archive into pipeline chip images
 // Method: Read the source archive in place with CFITSIO, stage uncompressed
 //         two-dimensional HDUs, then commit the completed output set.
+//         Skip individual HDUs that fail extraction and continue with the rest.
 // ==========================================
 ExtractionResult extractArchive(const std::filesystem::path& source,
                                 ProductKind kind,
@@ -402,15 +366,32 @@ ExtractionResult extractArchive(const std::filesystem::path& source,
 
         const std::vector<PlannedImage> plans = planImages(
             input, source, kind, final_directory, staging_directory);
-        bool resumed = false;
-        if (!handleExistingOutputs(plans, policy, resumed, result.error)) {
+
+        // Partition plans into existing (resumable) and to-extract.
+        std::vector<PlannedImage> to_extract;
+        bool any_existing = false;
+        for (const PlannedImage& plan : plans) {
+            if (std::filesystem::exists(plan.final_path)) {
+                any_existing = true;
+            }
+        }
+        if (any_existing && policy == ExistingPolicy::Fail) {
+            result.error = "output already exists: "
+                           + plans.front().final_path.parent_path().string();
             closeFits(input);
             return result;
         }
         for (const PlannedImage& plan : plans) {
-            result.output_paths.push_back(plan.final_path);
+            if (std::filesystem::exists(plan.final_path) && policy == ExistingPolicy::Resume) {
+                std::string validation_error;
+                if (validateOutput(plan, validation_error)) {
+                    result.output_paths.push_back(plan.final_path);
+                    continue;
+                }
+            }
+            to_extract.push_back(plan);
         }
-        if (resumed) {
+        if (to_extract.empty()) {
             result.success = true;
             result.resumed = true;
             closeFits(input);
@@ -418,19 +399,41 @@ ExtractionResult extractArchive(const std::filesystem::path& source,
         }
 
         std::filesystem::create_directories(staging_directory);
-        for (const PlannedImage& plan : plans) {
-            int hdu_type = 0;
-            fits_movabs_hdu(input, plan.hdu_number, &hdu_type, &status);
-            if (status != 0 || hdu_type != IMAGE_HDU) {
-                throw std::runtime_error("cannot revisit planned FITS image HDU: "
-                                         + fitsDiagnostic(status));
+        std::vector<PlannedImage> successful_plans;
+        int skipped = 0;
+        for (const PlannedImage& plan : to_extract) {
+            try {
+                int hdu_type = 0;
+                int hdu_status = 0;
+                fits_movabs_hdu(input, plan.hdu_number, &hdu_type, &hdu_status);
+                if (hdu_status != 0 || hdu_type != IMAGE_HDU) {
+                    throw std::runtime_error("cannot revisit planned FITS image HDU: "
+                                             + fitsDiagnostic(hdu_status));
+                }
+                copyCurrentImage(input, plan.staged_path);
+                successful_plans.push_back(plan);
+            } catch (const std::exception& exception) {
+                ++skipped;
+                fits_clear_errmsg();
+                std::error_code remove_error;
+                std::filesystem::remove(plan.staged_path, remove_error);
             }
-            copyCurrentImage(input, plan.staged_path);
         }
         closeFits(input);
 
-        commitImages(plans);
+        if (successful_plans.empty()) {
+            result.error = "all planned HDUs failed extraction";
+            std::error_code cleanup_error;
+            std::filesystem::remove_all(staging_directory, cleanup_error);
+            return result;
+        }
+
+        commitImages(successful_plans);
+        for (const PlannedImage& plan : successful_plans) {
+            result.output_paths.push_back(plan.final_path);
+        }
         result.success = true;
+        result.skipped_hdus = skipped;
         std::error_code cleanup_error;
         std::filesystem::remove_all(staging_directory, cleanup_error);
         return result;

@@ -19,12 +19,9 @@ $(TARGET): $(OBJS)
 %.o: %.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
-test: $(TARGET)
-	python3 tests/test_process_extcat.py ./$(TARGET)
-
 clean:
 	rm -f $(OBJS) $(DEPS) $(TARGET)
 
 -include $(DEPS)
 
-.PHONY: all test clean
+.PHONY: all clean

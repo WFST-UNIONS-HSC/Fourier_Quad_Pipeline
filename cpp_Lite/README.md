@@ -1,11 +1,11 @@
 # cpp_Lite integrated workflow
 
 `Fourier_Quad_Pipe` can repartition raw external source catalogs, prepare
-compressed Science/DQ archives, and run the numerical Fourier_Quad stages in one
-MPI allocation. Each phase can also run independently. Root `main.cpp` owns MPI
-initialization, option parsing, phase ordering, and finalization. This Lite build
-preserves its frozen scientific branches and intentionally omits PCA `PSFRecons`
-support.
+compressed Science/DQ archives, run the numerical Fourier_Quad stages, and
+spatially rearrange the generated `_all.cat` files in one MPI allocation. Each
+phase can also run independently. Root `main.cpp` owns MPI initialization,
+option parsing, phase ordering, and finalization. This Lite build preserves its
+frozen scientific branches and intentionally omits PCA `PSFRecons` support.
 
 For the complete command-line, external-input, `ProcessConfig.hpp`, and
 `LensingConfig.hpp` reference, see
@@ -20,8 +20,11 @@ For the complete command-line, external-input, `ProcessConfig.hpp`, and
   preserved `Initializer` and `FitsExtractor` modules.
 - `include/process_main/`, `src/process_main/`: `LensingConfig`, all numerical
   modules, exposure-list loading, and the complete Stage 1–9 orchestration.
+- `include/process_rearr/`, `src/process_rearr/`: self-contained `_all.cat`
+  schema validation, full-sky weighted k-d partitioning, MPI redistribution,
+  sorted subcatalog publication, and summary output.
 - The `cpp_Lite` root contains only the executable entry point, build file,
-  documentation, and the two implementation trees.
+  documentation, and phase implementation trees.
 
 ## Compiler and libraries
 
@@ -61,18 +64,33 @@ make CXX="${MPI_PREFIX}/bin/mpicxx" \
 No Windows-native compiler or wrapper is required. Cluster builds use the same
 Makefile after loading the site's compiler, MPI, and scientific-library modules.
 
+Run the focused external-catalog column reader test with:
+
+```bash
+make test-extcat-reader
+```
+
+Run the self-contained rearrangement unit and MPI integration tests with:
+
+```bash
+make test-rearr
+```
+
 ## Defaults and option syntax
 
 Edit `include/ProcessConfig.hpp` to set the normal dataset and default execution
-mode. `RUN_PROCESS_EXTCAT` and `RUN_PROCESS_INIT` default to `false`;
-`RUN_PROCESS_MAIN` defaults to `true`. Every command-line option is optional and
-overrides its configured default. Both `--name value` and `--name=value` are
-accepted in any order.
+mode. `RUN_PROCESS_EXTCAT`, `RUN_PROCESS_INIT`, and `RUN_PROCESS_REARR` default
+to `false`; `RUN_PROCESS_MAIN` defaults to `true`. Every command-line option is
+optional and overrides its configured default. Both `--name value` and
+`--name=value` are accepted in any order.
 
 The `EXTCAT_*` values configure raw-catalog discovery, the output directory,
 parsing policies, MPI task size, optional ordered column selection, and raw
-RA/Dec coordinate columns. With explicit selection disabled, every raw input
-field is preserved in place.
+RA/Dec/ZP columns. With explicit selection disabled, every raw input field is
+preserved in place. `process_main` reads only these three configured fields;
+unselected catalog fields need not be numeric. `EXTCAT_TOTAL_COLUMNS` gives
+`process_rearr` the pass-through external width; explicit projection instead
+uses the projection-list length because that is the emitted external schema.
 Set the primary catalog path with `SOURCE_CAT` in
 `include/process_main/LensingConfig.hpp`. `EXTCAT_OUTPUT_DIRECTORY` is a
 read-only reference to that value, so `process_extcat` writes where
@@ -95,6 +113,7 @@ inline const std::vector<std::string> CONTAINS = {"v1", "v2"};
 | `--run-extcat BOOL` | Enable or disable external-catalog repartitioning. |
 | `--run-init BOOL` | Enable or disable archive initialization at runtime. |
 | `--run-main BOOL` | Enable or disable the numerical pipeline at runtime. |
+| `--run-rearr BOOL` | Enable or disable `_all.cat` spatial rearrangement; it follows `process_main` when both run. |
 | `--extcat-input PATH` | Directory containing any number of raw text catalogs. |
 | `--extcat-output PATH` | Destination tile directory and effective C++ `SOURCE_CAT`. |
 | `--extcat-contains TEXT` | Repeatable case-sensitive basename token; repeats use OR. |
@@ -104,6 +123,7 @@ inline const std::vector<std::string> CONTAINS = {"v1", "v2"};
 | `--extcat-columns LIST` | One or more one-based raw indices; output fields follow this exact order and width. |
 | `--extcat-ra-column N` | Raw one-based RA index; overrides `ra` header discovery. |
 | `--extcat-dec-column N` | Raw one-based Dec index; overrides `dec` header discovery. |
+| `--extcat-zp-column N` | Raw one-based photometric-redshift (`dnf_z`) index used by `process_main`. |
 | `--extcat-chunk-mib N` | Positive MPI byte-range task size in MiB. |
 | `--extcat-malformed POLICY` | `fail` or `skip` malformed rows. |
 | `--extcat-existing POLICY` | `fail` or transactionally `overwrite` generated tiles. |
@@ -116,7 +136,7 @@ inline const std::vector<std::string> CONTAINS = {"v1", "v2"};
 | `--contains TEXT` | Accepted basename token; repeat for OR matching. |
 | `--existing MODE` | `fail`, `resume`, or `overwrite`; default is `fail`. |
 | `--f77-max-path N` | Maximum generated path length; `0` disables the check. |
-| `--expo-list PATH` | Exposure list used in main-only mode. |
+| `--expo-list PATH` | Exposure list used in main/rearr-only mode. |
 | `--help` | Print the effective command contract. |
 
 Boolean values accept `true`/`false`, `1`/`0`, and `on`/`off`. One legacy
@@ -145,9 +165,13 @@ mpirun -np 4 ./Fourier_Quad_Pipe \
 same one-degree filenames as `gen_src_cat/query_y6gold_sync_mp_v2.py`. Its
 default output preserves the complete raw schema; `--extcat-columns 5,3,4,1`,
 for example, writes raw columns 5, 3, 4, and 1 as output columns 1–4. If it
-fails, neither `process_init` nor `process_main` starts. Output passed onward to
-`process_main` must still satisfy that reader's `ext_cat_columns_before_ra` and
-post-Dec magnitude/redshift layout.
+fails, no later phase starts. Output passed onward to `process_main` must
+include the raw columns configured by `EXTCAT_RA_COLUMN_ONE_BASED`,
+`EXTCAT_DEC_COLUMN_ONE_BASED`, and `EXTCAT_ZP_COLUMN_ONE_BASED`; a
+rearrangement-only run requires RA and Dec but does not require ZP. In
+pass-through mode the required fields are read at their configured positions.
+With explicit projection, the reader automatically maps each raw index to its
+position in the ordered projection list.
 
 Main-only local execution:
 
@@ -156,6 +180,25 @@ mpirun -np 4 ./Fourier_Quad_Pipe \
   --run-init false --run-main true \
   --expo-list /data/work/expo_g2019.list
 ```
+
+Rearrangement-only local execution consumes existing per-exposure `_all.cat`
+files referenced by the same exposure list:
+
+```bash
+mpirun -np 4 ./Fourier_Quad_Pipe \
+  --run-init false --run-main false --run-rearr true \
+  --expo-list /data/work/expo_g2019.list
+```
+
+All rearrangement-specific parameters are in
+`include/process_rearr/ProcessRearrConfig.hpp`. With the default 18-field
+external catalog, `ichi2=25` and the complete row width is calculated there as
+`18 + 1 + 25 = 44`. The default 0.1-degree grid targets about 500,000 rows per
+weighted k-d partition. Outputs are written below each dataset root in
+`rearranged_catalog/` as `subcat_NNNNNN.cat` plus
+`catalog_summary.txt`. Every data row must have the exact numeric width and
+finite values; configured missing catalogs and malformed rows are skipped and
+reported.
 
 Initializer-only local execution:
 
@@ -181,29 +224,30 @@ mpirun -np 4 ./Fourier_Quad_Pipe \
   --contains v1 --contains v2
 ```
 
-Chained local execution uses the same initializer options with both phase
-switches enabled. After successful initialization, `process_main` always receives
+Chained local execution uses the same initializer options with downstream phase
+switches enabled. After successful initialization, `process_main` and
+`process_rearr` receive
 the normalized absolute `output_root/expo_<target>.list` path returned by
 `process_init`. That generated path overrides `--expo-list`, the legacy positional
 argument, and every configured exposure-list default.
 
 ```bash
 mpirun -np 4 ./Fourier_Quad_Pipe \
-  --run-init true --run-main true \
+  --run-init true --run-main true --run-rearr true \
   --science-root /data/archive/science \
   --dq-root /data/archive/dq \
   --output-root /data/work --dataset g2019:c4d_19 \
   --existing resume
 ```
 
-Enable all three switches to build the external catalog first, then initialize
-and process every configured dataset. The effective `--extcat-output` path is
-also used by the numerical source extractor.
+Enable all four switches to build the external catalog first, then initialize,
+process, and rearrange every configured dataset. The effective
+`--extcat-output` path is also used by the numerical source extractor.
 
 Datasets execute sequentially on the same MPI communicator and stop at the first
-failure. In main-only batch mode, omit `--expo-list`; the driver derives one
+failure. In main/rearr-only batch mode, omit `--expo-list`; the driver derives one
 `output_root/expo_<target>.list` path per dataset. A single external exposure list
-is accepted only for a single main-only dataset. In chained batch mode, every
+is accepted only for a single downstream-only dataset. In chained batch mode, every
 initializer-generated absolute list overrides external exposure-list input for
 its corresponding dataset.
 

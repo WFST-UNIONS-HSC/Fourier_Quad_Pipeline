@@ -23,6 +23,7 @@ struct ExtractionResult {
     bool resumed = false;
     std::vector<std::filesystem::path> output_paths;
     std::string error;
+    int skipped_hdus = 0;
 };
 
 // ==========================================

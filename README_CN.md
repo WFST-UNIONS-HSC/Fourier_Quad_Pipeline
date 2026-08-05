@@ -104,10 +104,12 @@ Fourier_Quad_Pipeline/
 
 | 文件 | 说明 |
 |---|---|
-| `main.cpp` | MPI 入口、工作流参数解析与两个阶段的执行顺序。 |
-| `include/ProcessConfig.hpp` | 初始化器与主流程的工作流默认值。 |
+| `main.cpp` | MPI 入口、工作流参数解析与四个函数的执行顺序。 |
+| `include/ProcessConfig.hpp` | 共享工作流默认值与函数开关。 |
 | `src/process_init/`、`include/process_init/` | 归档初始化器源码与头文件。 |
 | `src/process_main/process_main.cpp`、`include/process_main/process_main.hpp` | 曝光列表读取与阶段 1–9 调度。 |
+| `src/process_rearr/`、`include/process_rearr/` | 自包含的 `_all.cat` 天区切分、MPI 重分配、排序子星表与汇总输出。 |
+| `include/process_rearr/ProcessRearrConfig.hpp` | 重排专属参数，以及 `外部列数 + 1 + ichi2` 派生行宽。 |
 | `include/process_main/LensingConfig.hpp` | 配置常量（等价于 `para.inc` + `cust_para.inc` + `sig_para.inc`）。 |
 | `src/process_main/PreProcess.cpp`、`include/process_main/PreProcess.hpp` | **阶段 1**：预处理。 |
 | `src/process_main/Astrometry.cpp`、`include/process_main/Astrometry.hpp` | **阶段 2**：天体测量校准。 |
@@ -129,8 +131,9 @@ Fourier_Quad_Pipeline/
 
 #### `cpp_Lite/` - 精简 C++17 流水线
 
-采用与 `cpp_Standard/` 相同的 `process_init` / `process_main` 集成目录结构和
-运行参数接口，但科学模块仍保留冻结后的 Lite 分支，且不含
+采用与 `cpp_Standard/` 相同的 `process_extcat` / `process_init` /
+`process_main` / `process_rearr` 集成目录结构和运行参数接口，但科学模块仍保留
+冻结后的 Lite 分支，且不含
 `PSFRecons.cpp/.hpp`。详见 `cpp_Lite/REFACTOR_NOTES.md`。
 
 ### Docker 目录
@@ -233,11 +236,21 @@ Fourier_Quad_Pipeline/
 `cpp_Standard` 与 `cpp_Lite`，并作为 `process_init`、`process_main` 之前的
 可选第一阶段。
 
-对于 C++ 外部星表，请在所选流水线的 `LensingConfig.hpp` 中将
-`ext_cat_columns_before_ra` 设为 `ra` 前以空白分隔的字段数量。默认值为 `4`，
-对应 DES Y6 GOLD 的四个标志列；若 `ra` 是首列则设为 `0`。deblending 所用的
-`dec` 后星等/误差及红移列顺序仍保持不变。因此，可变列宽输出可用于只生成
-星表的任务；若继续交给 `process_main`，所选字段顺序仍须符合该读取约定。
+流水线生成的曝光级 `_all.cat` 还可由自包含的第四个函数 `process_rearr` 按天区
+重新切分。直通模式的外部列宽来自 `EXTCAT_TOTAL_COLUMNS`（默认 18）；专属配置头
+按 `18 + 1 + ichi2(25) = 44` 派生默认总列数。关闭显式投影时直接使用配置的一基
+RA/Dec 原始列号，开启后会按投影列表自动换算位置。输出默认位于每个数据集的
+`rearranged_catalog/` 目录。
+
+对于 C++ 外部星表，请在所选流水线的 `ProcessConfig.hpp` 中设置一基原始列号
+`EXTCAT_RA_COLUMN_ONE_BASED`、`EXTCAT_DEC_COLUMN_ONE_BASED` 和
+`EXTCAT_ZP_COLUMN_ONE_BASED`。默认值分别为 `5`、`6`、`17`，对应 DES Y6 GOLD
+中的 `ra`、`dec`、`dnf_z`。`process_main` 只将这三列转换为数值，其他字段可为
+任意字符串，也不再要求固定 18 列格式。开启显式投影时必须选入这三列，读取器会
+根据投影列表顺序自动换算它们在输出星表中的位置。运行时也可分别使用
+`--extcat-ra-column`、`--extcat-dec-column`、`--extcat-zp-column` 覆盖。
+`process_rearr` 使用相同的 RA/Dec 规则，但要求完整 `_all.cat` 行的所有字段均为
+有限数值。
 
 ```bash
 cd gen_src_cat
@@ -286,7 +299,8 @@ LAPACK/BLAS、Eigen3。
 ```bash
 cd cpp_Standard   # 或 cpp_Lite
 # 编辑 include/process_main/LensingConfig.hpp 设置科学参数，
-# 并在 include/ProcessConfig.hpp 设置工作流默认值。
+# 在 include/ProcessConfig.hpp 设置共享工作流默认值；重排专属参数位于
+# include/process_rearr/ProcessRearrConfig.hpp。
 make -j4
 # 可执行文件：./Fourier_Quad_Pipe
 ```
@@ -302,10 +316,11 @@ make STACK_PREFIX=/opt/cppstack EIGEN_INCLUDE=/opt/eigen/include/eigen3 -j4
 ```bash
 mpirun -np <N> ./Fourier_Quad_Pipe <EXPO_LIST>                 # Fortran
 mpirun -np <N> ./Fourier_Quad_Pipe --expo-list <EXPO_LIST>     # C++ Standard/Lite 仅主流程
+mpirun -np <N> ./Fourier_Quad_Pipe --run-main false --run-rearr true --expo-list <EXPO_LIST>
 ```
 
-两个 C++ 版本均已集成 MPI 初始化器。运行时通过 `--run-init` 和 `--run-main`
-选择仅初始化、仅主流程或串联运行；省略参数时读取
+两个 C++ 版本均已集成四个函数。运行时通过 `--run-extcat`、`--run-init`、
+`--run-main` 和 `--run-rearr` 选择独立或串联运行；省略参数时读取
 `include/ProcessConfig.hpp` 的默认值。重复传入 `--dataset TARGET:PREFIX`
 可顺序处理多个数据集，重复传入 `--contains TOKEN` 会按 OR 规则匹配归档；
 相同列表也可在 `ProcessConfig.hpp` 的 `DATASETS`、`CONTAINS` 中配置。

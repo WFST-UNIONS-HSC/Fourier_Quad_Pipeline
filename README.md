@@ -109,10 +109,12 @@ production values and dead-code branches are physically removed.
 
 | File | Description |
 |---|---|
-| `main.cpp` | MPI entry point, workflow option parsing, and phase ordering. |
-| `include/ProcessConfig.hpp` | Initializer/main workflow defaults. |
+| `main.cpp` | MPI entry point, workflow option parsing, and four-phase ordering. |
+| `include/ProcessConfig.hpp` | Shared workflow defaults and phase switches. |
 | `src/process_init/`, `include/process_init/` | Archive initializer implementation and headers. |
 | `src/process_main/process_main.cpp`, `include/process_main/process_main.hpp` | Exposure-list loading and Stage 1–9 orchestration. |
+| `src/process_rearr/`, `include/process_rearr/` | Self-contained `_all.cat` sky partitioning, MPI redistribution, sorted subcatalogs, and summary output. |
+| `include/process_rearr/ProcessRearrConfig.hpp` | Rearrangement-only parameters and derived `external columns + 1 + ichi2` row width. |
 | `include/process_main/LensingConfig.hpp` | Configuration constants (equivalent to `para.inc` + `cust_para.inc` + `sig_para.inc`). |
 | `src/process_main/PreProcess.cpp`, `include/process_main/PreProcess.hpp` | **Stage 1**: pre-processing. |
 | `src/process_main/Astrometry.cpp`, `include/process_main/Astrometry.hpp` | **Stage 2**: astrometric calibration. |
@@ -132,8 +134,9 @@ production values and dead-code branches are physically removed.
 
 #### `cpp_Lite/` — Simplified C++17 pipeline
 
-Uses the same integrated `process_init` / `process_main` directory layout and
-runtime option contract as `cpp_Standard/`, but its scientific modules retain
+Uses the same integrated `process_extcat` / `process_init` / `process_main` /
+`process_rearr` directory layout and runtime option contract as
+`cpp_Standard/`, but its scientific modules retain
 the frozen Lite branches and `PSFRecons.cpp/.hpp` is absent. See
 `cpp_Lite/REFACTOR_NOTES.md` for the detailed change log.
 
@@ -242,13 +245,25 @@ projection is enabled; it is also integrated into `cpp_Standard` and `cpp_Lite`
 as `process_extcat`, the optional first phase before `process_init` and
 `process_main`.
 
-For C++ external catalogs, set `ext_cat_columns_before_ra` in the selected
-`LensingConfig.hpp` to the number of whitespace-delimited fields before `ra`.
-The default is `4` for the DES Y6 GOLD flag columns; use `0` when `ra` is the
-first field. The post-`dec` magnitude/error and redshift column order used by
-deblending remains unchanged. Thus variable-width output is valid for
-catalog-only jobs, but output consumed by `process_main` must retain that
-reader-compatible field order.
+The generated exposure `_all.cat` files can then be repartitioned by celestial
+region with the self-contained fourth phase `process_rearr`. Its pass-through
+width uses `EXTCAT_TOTAL_COLUMNS` (default 18); its dedicated config derives the
+complete default width as `18 + 1 + ichi2(25) = 44`. RA/Dec remain configured
+raw one-based positions when explicit projection is disabled and are converted
+automatically to projection positions when it is enabled. Outputs default to
+each dataset's `rearranged_catalog/` directory.
+
+For C++ external catalogs, set the one-based raw positions
+`EXTCAT_RA_COLUMN_ONE_BASED`, `EXTCAT_DEC_COLUMN_ONE_BASED`, and
+`EXTCAT_ZP_COLUMN_ONE_BASED` in the selected `ProcessConfig.hpp`. Their defaults
+are `5`, `6`, and `17`, matching DES Y6 GOLD `ra`, `dec`, and `dnf_z`.
+`process_main` converts only these three fields; other external catalog columns may be
+arbitrary strings and no fixed 18-column layout is required. When explicit
+projection is enabled, all three raw fields must be selected and their output
+positions are derived automatically from the projection order. Runtime jobs may
+override the positions with `--extcat-ra-column`, `--extcat-dec-column`, and
+`--extcat-zp-column`. `process_rearr` uses the same RA/Dec mapping rule but
+requires every complete `_all.cat` field to be finite numeric data.
 
 ```bash
 cd gen_src_cat
@@ -298,7 +313,8 @@ LAPACK/BLAS, Eigen3.
 ```bash
 cd cpp_Standard   # or cpp_Lite
 # Edit include/process_main/LensingConfig.hpp for scientific parameters and
-# include/ProcessConfig.hpp for workflow defaults.
+# include/ProcessConfig.hpp for shared workflow defaults. Rearrangement-only
+# parameters live in include/process_rearr/ProcessRearrConfig.hpp.
 make -j4
 # Executable: ./Fourier_Quad_Pipe
 ```
@@ -315,11 +331,12 @@ make STACK_PREFIX=/opt/cppstack EIGEN_INCLUDE=/opt/eigen/include/eigen3 -j4
 ```bash
 mpirun -np <N> ./Fourier_Quad_Pipe <EXPO_LIST>                 # Fortran
 mpirun -np <N> ./Fourier_Quad_Pipe --expo-list <EXPO_LIST>     # C++ Standard/Lite main only
+mpirun -np <N> ./Fourier_Quad_Pipe --run-main false --run-rearr true --expo-list <EXPO_LIST>
 ```
 
-Both C++ variants integrate the MPI archive initializer. Runtime
-`--run-init`/`--run-main` options select initializer-only, main-only, or chained
-execution; omitted options use `include/ProcessConfig.hpp`. Repeat
+Both C++ variants integrate all four functions. Runtime `--run-extcat`,
+`--run-init`, `--run-main`, and `--run-rearr` options select independent or
+chained execution; omitted options use `include/ProcessConfig.hpp`. Repeat
 `--dataset TARGET:PREFIX` for a sequential batch and repeat `--contains TOKEN`
 for OR-matched archive tokens; the same lists can be set as `DATASETS` and
 `CONTAINS` in `ProcessConfig.hpp`. In chained mode each generated absolute
