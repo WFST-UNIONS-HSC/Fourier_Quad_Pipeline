@@ -8,6 +8,9 @@
 #include "process_main/process_main.hpp"
 #include "process_rearr/CatalogRearranger.hpp"
 #include "process_rearr/process_rearr.hpp"
+#include "process_fd/process_fd.hpp"
+#include "process_fd/FDConfig.hpp"
+#include "process_rearr/ProcessRearrConfig.hpp"
 
 #include <mpi.h>
 
@@ -288,6 +291,11 @@ bool applyNamedOption(const std::string& name,
             error = "--run-rearr must be true, false, 1, 0, on, or off";
             return false;
         }
+    } else if (name == "--run-fd") {
+        if (!parseBoolean(value, options.run_process_fd)) {
+            error = "--run-fd must be true, false, 1, 0, on, or off";
+            return false;
+        }
     } else if (name == "--science-root") {
         options.science_root = value;
     } else if (name == "--dq-root") {
@@ -359,8 +367,9 @@ bool validateOptions(const ProcessConfig::RuntimeOptions& options, std::string& 
         return true;
     }
     if (!options.run_process_extcat && !options.run_process_init
+        && !options.run_process_fd
         && !options.run_process_main && !options.run_process_rearr) {
-        error = "--run-extcat, --run-init, --run-main, and --run-rearr cannot all be false";
+        error = "--run-extcat, --run-init, --run-main, --run-rearr, and --run-fd cannot all be false";
         return false;
     }
     if ((options.run_process_extcat || options.run_process_main)
@@ -372,7 +381,7 @@ bool validateOptions(const ProcessConfig::RuntimeOptions& options, std::string& 
         error = "external source-catalog input directory must not be empty";
         return false;
     }
-    if ((options.run_process_init || options.run_process_main
+    if ((options.run_process_init || options.run_process_main || options.run_process_fd
          || options.run_process_rearr)
         && options.datasets.empty()) {
         error = "at least one dataset must be configured or supplied with --dataset";
@@ -380,7 +389,7 @@ bool validateOptions(const ProcessConfig::RuntimeOptions& options, std::string& 
     }
 
     std::set<std::string> targets;
-    if (options.run_process_init || options.run_process_main
+    if (options.run_process_init || options.run_process_main || options.run_process_fd
         || options.run_process_rearr) {
         for (const ProcessConfig::DatasetSpec& dataset : options.datasets) {
             if (dataset.target.empty() || dataset.target == "." || dataset.target == ".."
@@ -598,6 +607,8 @@ void printUsage(const char* program_name) {
         << (ProcessConfig::RUN_PROCESS_MAIN ? "true" : "false") << ")\n"
         << "  --run-rearr BOOL      Rearrange _all.cat; follows process_main if both run (default: "
         << (ProcessConfig::RUN_PROCESS_REARR ? "true" : "false") << ")\n"
+        << "  --run-fd BOOL         Run FD (field-distortion) shear test; follows process_main (default: "
+        << (ProcessConfig::RUN_PROCESS_FD ? "true" : "false") << ")\n"
         << "  --extcat-input PATH   Directory containing raw external catalogs\n"
         << "  --extcat-output PATH  SOURCE_CAT tile directory used by process_main\n"
         << "  --extcat-contains T   Repeatable raw basename token, matched with OR (default: "
@@ -692,7 +703,7 @@ int main(int argc, char* argv[]) {
         bool rng_initialized = false;
         for (std::size_t index = 0;
              index < options.datasets.size() && return_code == 0
-                 && (options.run_process_init || options.run_process_main
+                 && (options.run_process_init || options.run_process_main || options.run_process_fd
                      || options.run_process_rearr);
              ++index) {
             const ProcessConfig::DatasetSpec& dataset = options.datasets[index];
@@ -709,7 +720,7 @@ int main(int argc, char* argv[]) {
 
             std::string selected_exposure_list;
             if (return_code == 0
-                && (options.run_process_main || options.run_process_rearr)) {
+                && (options.run_process_main || options.run_process_rearr || options.run_process_fd)) {
                 if (options.run_process_init) {
                     selected_exposure_list = generated_exposure_list;
                     if (rank == 0) {
@@ -769,6 +780,48 @@ int main(int argc, char* argv[]) {
                 }
                 return_code = process_rearr(selected_exposure_list, options,
                                             MPI_COMM_WORLD);
+            }
+
+            if (return_code == 0 && options.run_process_fd) {
+                MPIScheduler::barrier();
+                if (rank == 0) {
+                    std::cout << "Running process_fd" << std::endl;
+                }
+                if (!rng_initialized) {
+                    NumericalRecipes::initializeRan1Seed(rank, MPIScheduler::num_procs);
+                    MPIScheduler::barrier();
+                    rng_initialized = true;
+                }
+                std::string fd_expo_list;
+                if (std::string(FDConfig::FD_EXPO_LIST).empty()) {
+                    const std::string rearr_dir(
+                        ProcessRearrConfig::REARRANGED_EXPO_LIST_DIRECTORY);
+                    const std::filesystem::path list_dir =
+                        rearr_dir.empty()
+                            ? std::filesystem::path(selected_exposure_list)
+                                  .parent_path()
+                            : std::filesystem::path(rearr_dir);
+                    fd_expo_list =
+                        std::filesystem::absolute(
+                            list_dir / std::string(
+                                ProcessRearrConfig::REARRANGED_EXPO_LIST_FILENAME))
+                            .lexically_normal()
+                            .string();
+                } else {
+                    fd_expo_list = FDConfig::FD_EXPO_LIST;
+                }
+                const std::string fd_dataset_root =
+                    std::filesystem::absolute(
+                        std::filesystem::path(options.output_root)
+                        / dataset.target)
+                        .lexically_normal()
+                        .string();
+                if (rank == 0) {
+                    std::cout << "FD expo list: " << fd_expo_list
+                              << "  dataset_root: " << fd_dataset_root << std::endl;
+                }
+                return_code = process_fd(fd_expo_list, options,
+                                         fd_dataset_root, MPI_COMM_WORLD);
             }
 
             if (return_code == 0 && index + 1 < options.datasets.size()) {
