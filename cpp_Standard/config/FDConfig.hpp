@@ -43,7 +43,7 @@ inline constexpr bool FD_PER_EXPOSURE_STAR_BAR = false;
 inline constexpr int nmax_per_core = 20000000;
 inline constexpr int fd_num = 21;          // spatial bins by field distortion
 inline constexpr int PDF_BINS = 4;         // equal-probability inner bins
-inline constexpr int gf_lim = 0.0015;      // spatial bin range ±gf_lim
+inline constexpr float gf_lim = 0.0015;      // spatial bin range ±gf_lim
 inline constexpr int NMAX = 200;           // fine grid sampling points
 inline constexpr int MAX_DUP = 5;          // max duplicate measurements
 
@@ -152,12 +152,6 @@ inline constexpr int chip_xmin = 50;
 inline constexpr int chip_xmax = 1990;
 inline constexpr int chip_ymin = 100;
 inline constexpr int chip_ymax = 3990;
-
-// ==================== Convenience aliases ====================
-inline constexpr double pixel_size = LensingConfig::pixel_size;  // 0.2628 arcsec
-inline constexpr double pi = LensingConfig::pi;
-inline constexpr double arc_convert = LensingConfig::arc_convert;  // pi/180
-inline constexpr int NMAX_EXPO = LensingConfig::NMAX_EXPO;       // max exposures
 
 }  // namespace FDConfig
 

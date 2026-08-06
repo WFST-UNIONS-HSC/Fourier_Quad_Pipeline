@@ -26,8 +26,6 @@ inline const std::vector<DatasetSpec> DATASETS = {
 // "Contains1", "Contains2" ...
 inline const std::vector<std::string> CONTAINS = {"v1"};
 inline constexpr const char* EXISTING = "fail";
-// Maximum chip number to search; must match LensingConfig::NMAX_CHIP.
-inline constexpr int MAX_CHIP = 62;
 inline constexpr int F77_MAX_PATH = 150;
 
 }  // namespace InitConfig

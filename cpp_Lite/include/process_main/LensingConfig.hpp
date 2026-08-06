@@ -166,7 +166,6 @@ namespace LensingConfig {
     // ==================== From cust_para.inc ===============================
     constexpr int chipnx = 2046;
     constexpr int chipny = 4094;
-    constexpr int Camera_ccd_num = 62;
 
     // cpp_lite: the PCA-decomposition parameters (rescale_size, procs_pn, work_pn, nblocks,
     // n_pcs, npp6th, pca_negative_eigenvalue_threshold, nmax_star_pchip) belonged exclusively

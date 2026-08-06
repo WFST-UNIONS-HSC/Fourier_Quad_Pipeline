@@ -9,9 +9,9 @@
 
 namespace PSFModel {
     // Global PSF PCA components and coefficients loaded from disk (replacing psf_storage_mod)
-    extern std::vector<double> global_components; // [Camera_ccd_num][nsns][n_pcs]
-    extern std::vector<double> global_mean_psf;   // [Camera_ccd_num][nsns]
-    extern std::vector<float> global_poly_coefs;  // [Camera_ccd_num][2][2][n_pcs][npp6th]
+    extern std::vector<double> global_components; // [NMAX_CHIP][nsns][n_pcs]
+    extern std::vector<double> global_mean_psf;   // [NMAX_CHIP][nsns]
+    extern std::vector<float> global_poly_coefs;  // [NMAX_CHIP][2][2][n_pcs][npp6th]
     extern bool is_data_loaded;
 
     // Load and broadcast PSF PCA components

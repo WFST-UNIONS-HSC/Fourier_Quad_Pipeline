@@ -140,8 +140,8 @@ void KMeansClusterer::runMPI(int ng, const std::vector<float>& ra,
         std::vector<float> pos(3 * n_end);
         for (int i = 0; i < n_end; ++i) {
             int src = i + n_select;
-            float ra_rad = ra_tot[src] * fc::pi / 180.0;
-            float dec_rad = dec_tot[src] * fc::pi / 180.0;
+            float ra_rad = ra_tot[src] * LensingConfig::pi / 180.0;
+            float dec_rad = dec_tot[src] * LensingConfig::pi / 180.0;
             pos[0 * n_end + i] = std::cos(dec_rad) * std::cos(ra_rad);
             pos[1 * n_end + i] = std::cos(dec_rad) * std::sin(ra_rad);
             pos[2 * n_end + i] = std::sin(dec_rad);

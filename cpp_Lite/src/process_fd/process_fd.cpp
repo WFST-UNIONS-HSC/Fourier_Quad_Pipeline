@@ -46,7 +46,7 @@ bool loadExposureList(const std::string& path, std::vector<std::string>& files,
             std::cerr << "EXPO_LIST contains no exposures: " << path << std::endl;
             return false;
         }
-        if (static_cast<int>(files.size()) > fc::NMAX_EXPO) {
+        if (static_cast<int>(files.size()) > LensingConfig::NMAX_EXPO) {
             std::cerr << "EXPO_LIST exceeds NMAX_EXPO: " << path << std::endl;
             return false;
         }
@@ -144,8 +144,8 @@ int process_fd(const std::string& exposure_list,
         MPIScheduler::barrier();
 
         for (int idx = 0; idx < data.ng; ++idx) {
-            float ra_rad = data.rra[idx] * fc::arc_convert;
-            float dec_rad = data.ddec[idx] * fc::arc_convert;
+            float ra_rad = data.rra[idx] * LensingConfig::arc_convert;
+            float dec_rad = data.ddec[idx] * LensingConfig::arc_convert;
             float pos[3] = {
                 std::cos(dec_rad) * std::cos(ra_rad),
                 std::cos(dec_rad) * std::sin(ra_rad),

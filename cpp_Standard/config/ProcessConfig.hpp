@@ -18,16 +18,15 @@ inline constexpr bool RUN_PROCESS_MAIN = true;
 inline constexpr bool RUN_PROCESS_REARR = true;
 inline constexpr bool RUN_PROCESS_FD = true;
 
-inline constexpr const char* EXPO_LIST = "";
-
 // ==========================================
 // Configuration: Path interface defaults for process_rearr and process_fd
 // Method: These I/O path constants are the compile-time defaults seeded into
 //         RuntimeOptions below.  CLI options override them at runtime without rebuild.
 // ==========================================
+inline constexpr const char* EXPO_LIST = "";
 inline constexpr const char* REARR_OUTPUT_DIRECTORY = "baked";
 inline constexpr const char* REARR_OUTPUT_BASE_DIRECTORY = "";
-inline constexpr const char* REARRANGED_EXPO_LIST_FILENAME = "expo_rearranged.list";
+inline constexpr const char* REARRANGED_EXPO_LIST_FILENAME = "cat_gband_ori.list";
 inline constexpr const char* REARRANGED_EXPO_LIST_DIRECTORY = "";
 inline constexpr const char* FD_EXPO_LIST = "";
 inline constexpr const char* FD_OUTPUT_DIRECTORY = "fdout";

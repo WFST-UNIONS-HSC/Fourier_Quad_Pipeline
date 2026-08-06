@@ -136,7 +136,7 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
     std::vector<float>& S_std_arr,
     std::vector<float>& S_cut_arr) {
 
-    const int NMAX_E = fc::NMAX_EXPO;
+    const int NMAX_E = LensingConfig::NMAX_EXPO;
     S_mean_arr.assign(NMAX_E, 0.0);
     S_std_arr.assign(NMAX_E, 0.0);
     S_cut_arr.assign(NMAX_E, 0.0);
@@ -437,7 +437,7 @@ void StarCutCalculator::applySingleStarCut(FDData& data, float S_cut) {
 // ------------------------------------------------------------------
 void StarCutCalculator::applyAdvancedCuts(FDData& data,
                                           const std::vector<float>& S_cut_arr) {
-    const int NMAX_E = fc::NMAX_EXPO;
+    const int NMAX_E = LensingConfig::NMAX_EXPO;
     int write_idx = 0;
     float max_scut = 0.0;
     for (int i = 0; i < NMAX_E; ++i)

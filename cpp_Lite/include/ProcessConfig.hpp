@@ -58,8 +58,6 @@ inline const std::vector<DatasetSpec> DATASETS = {
 inline const std::vector<std::string> CONTAINS = {"v1"};
 inline constexpr const char* EXISTING = "fail";
 inline constexpr int F77_MAX_PATH = 150;
-// Maximum chip number to search; must match LensingConfig::NMAX_CHIP.
-inline constexpr int MAX_CHIP = 62;
 inline constexpr const char* EXPO_LIST = "";
 
 // ==========================================

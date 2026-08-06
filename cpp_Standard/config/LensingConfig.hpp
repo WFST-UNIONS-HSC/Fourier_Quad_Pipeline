@@ -166,7 +166,6 @@ namespace LensingConfig {
     // ==================== From cust_para.inc ===============================
     constexpr int chipnx = 2046;
     constexpr int chipny = 4094;
-    constexpr int Camera_ccd_num = 62;
 
     constexpr double rescale_size = 1.2;
 

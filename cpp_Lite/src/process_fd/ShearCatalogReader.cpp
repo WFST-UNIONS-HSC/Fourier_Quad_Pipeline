@@ -97,7 +97,7 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
 
         // Half-light radius cut
         if (fc::r_half_thresh > 0.0) {
-            float r_half = std::sqrt(item[fc::col_h_area] / fc::pi) * fc::pixel_size * 2.0;
+            float r_half = std::sqrt(item[fc::col_h_area] / LensingConfig::pi) * LensingConfig::pixel_size * 2.0;
             if (r_half <= fc::r_half_thresh * item[fc::col_PSF]) continue;
         }
 
@@ -169,7 +169,7 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
                 data.magg[idx]    = dup_buf[i][fc::col_mag_g];
                 data.magi[idx]    = dup_buf[i][fc::col_mag_i];
                 data.sizerel[idx] =
-                    ((std::sqrt(dup_buf[i][fc::col_h_area] / fc::pi) * fc::pixel_size * 2.0)
+                    ((std::sqrt(dup_buf[i][fc::col_h_area] / LensingConfig::pi) * LensingConfig::pixel_size * 2.0)
                      - dup_buf[i][fc::col_PSF]) / dup_buf[i][fc::col_PSF];
                 data.src_snr[idx] = dup_buf[i][fc::col_h_flux] /
                                      std::sqrt(dup_buf[i][fc::col_h_area]);
@@ -222,7 +222,7 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
             data.magg[idx]    = dup_buf[i][fc::col_mag_g];
             data.magi[idx]    = dup_buf[i][fc::col_mag_i];
             data.sizerel[idx] =
-                ((std::sqrt(dup_buf[i][fc::col_h_area] / fc::pi) * fc::pixel_size * 2.0)
+                ((std::sqrt(dup_buf[i][fc::col_h_area] / LensingConfig::pi) * LensingConfig::pixel_size * 2.0)
                  - dup_buf[i][fc::col_PSF]) / dup_buf[i][fc::col_PSF];
             data.src_snr[idx] = dup_buf[i][fc::col_h_flux] /
                                  std::sqrt(dup_buf[i][fc::col_h_area]);

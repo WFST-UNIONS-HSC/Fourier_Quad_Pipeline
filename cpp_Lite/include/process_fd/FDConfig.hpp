@@ -153,12 +153,6 @@ inline constexpr int chip_xmax = 1990;
 inline constexpr int chip_ymin = 100;
 inline constexpr int chip_ymax = 3990;
 
-// ==================== Convenience aliases ====================
-inline constexpr double pixel_size = LensingConfig::pixel_size;  // 0.2628 arcsec
-inline constexpr double pi = LensingConfig::pi;
-inline constexpr double arc_convert = LensingConfig::arc_convert;  // pi/180
-inline constexpr int NMAX_EXPO = LensingConfig::NMAX_EXPO;       // max exposures
-
 }  // namespace FDConfig
 
 #endif  // FD_CONFIG_HPP

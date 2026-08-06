@@ -109,14 +109,14 @@ namespace PSFModel {
             std::cout << "Allocating memory on all ranks..." << std::endl;
         }
 
-        global_components.assign(static_cast<size_t>(LensingConfig::Camera_ccd_num) * LensingConfig::nsns * LensingConfig::n_pcs, 0.0);
-        global_mean_psf.assign(static_cast<size_t>(LensingConfig::Camera_ccd_num) * LensingConfig::nsns, 0.0);
-        global_poly_coefs.assign(static_cast<size_t>(LensingConfig::Camera_ccd_num) * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th, 0.0f);
+        global_components.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * LensingConfig::nsns * LensingConfig::n_pcs, 0.0);
+        global_mean_psf.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * LensingConfig::nsns, 0.0);
+        global_poly_coefs.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th, 0.0f);
 
         if (myRank == 0) {
             std::cout << "Rank 0 is reading files from disk..." << std::endl;
 
-            for (int i_ccd = 1; i_ccd <= LensingConfig::Camera_ccd_num; ++i_ccd) {
+            for (int i_ccd = 1; i_ccd <= LensingConfig::NMAX_CHIP; ++i_ccd) {
                 if (i_ccd == 2 || i_ccd == 61) continue;
 
                 std::ostringstream ss_ccd;
@@ -171,13 +171,13 @@ namespace PSFModel {
             std::cout << "Rank 0 finished reading. Starting Broadcast..." << std::endl;
         }
 
-        int total_count = LensingConfig::Camera_ccd_num * LensingConfig::nsns * LensingConfig::n_pcs;
+        int total_count = LensingConfig::NMAX_CHIP * LensingConfig::nsns * LensingConfig::n_pcs;
         MPI_Bcast(global_components.data(), total_count, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-        total_count = LensingConfig::Camera_ccd_num * LensingConfig::nsns;
+        total_count = LensingConfig::NMAX_CHIP * LensingConfig::nsns;
         MPI_Bcast(global_mean_psf.data(), total_count, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-        total_count = LensingConfig::Camera_ccd_num * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th;
+        total_count = LensingConfig::NMAX_CHIP * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th;
         MPI_Bcast(global_poly_coefs.data(), total_count, MPI_FLOAT, 0, MPI_COMM_WORLD);
 
         is_data_loaded = true;
