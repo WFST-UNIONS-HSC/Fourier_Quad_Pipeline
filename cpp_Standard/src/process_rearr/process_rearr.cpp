@@ -211,11 +211,14 @@ bool prepareInputs(const std::string& exposure_list,
         prepared.catalog_paths.push_back(catalog_path.string());
     }
 
+    const std::string base_dir_str(ProcessRearrConfig::OUTPUT_BASE_DIRECTORY);
+    const fs::path base_dir =
+        base_dir_str.empty() ? common_root : fs::path(base_dir_str);
     fs::path configured_output(std::string(ProcessRearrConfig::OUTPUT_DIRECTORY));
     if (configured_output.empty()) {
-        configured_output = common_root;
+        configured_output = base_dir;
     } else if (configured_output.is_relative()) {
-        configured_output = common_root / configured_output;
+        configured_output = base_dir / configured_output;
     }
     prepared.dataset_root = common_root.string();
     prepared.output_directory = fs::absolute(configured_output).lexically_normal().string();
@@ -888,13 +891,13 @@ bool reduceAndWriteSummary(const PreparedInputs& prepared,
 // Function: Generate a new expo list from the rearranged output directory
 // Method: Walk the output directory recursively, skip the configured skip
 //         directory (Large_Field), collect every .cat file, and write their
-//         absolute paths as quoted lines to the rearranged expo list file.
+//         absolute paths as quoted lines to the caller-supplied list file path.
 // ==========================================
 bool generateRearrangedExpoList(const std::string& output_directory,
+                                const std::string& list_file_path,
                                 std::string& error) {
     const fs::path output_dir(output_directory);
-    const fs::path list_path =
-        output_dir / std::string(ProcessRearrConfig::REARRANGED_EXPO_LIST_FILENAME);
+    const fs::path list_path(list_file_path);
 
     std::vector<std::string> catalog_paths;
     const std::string skip_dir(ProcessRearrConfig::SKIP_DIRECTORY_NAME);
@@ -1166,8 +1169,19 @@ int process_rearr(const std::string& exposure_list,
 
     // Generate the rearranged expo list for downstream processing.
     local_success = true;
+    std::string rearranged_list_path;
     if (rank == 0) {
+        const std::string configured_list_dir(
+            ProcessRearrConfig::REARRANGED_EXPO_LIST_DIRECTORY);
+        const fs::path list_dir = configured_list_dir.empty()
+            ? fs::path(exposure_list).parent_path()
+            : fs::path(configured_list_dir);
+        rearranged_list_path =
+            fs::absolute(list_dir
+                         / std::string(ProcessRearrConfig::REARRANGED_EXPO_LIST_FILENAME))
+                .lexically_normal().string();
         if (!generateRearrangedExpoList(prepared.output_directory,
+                                        rearranged_list_path,
                                         local_error)) {
             local_success = false;
         }
@@ -1178,10 +1192,6 @@ int process_rearr(const std::string& exposure_list,
     }
 
     if (rank == 0) {
-        const std::string rearranged_list_path =
-            (fs::path(prepared.output_directory)
-             / std::string(ProcessRearrConfig::REARRANGED_EXPO_LIST_FILENAME))
-                .string();
         std::cout << "process_rearr completed: rows=" << total_rows
                   << " partitions=" << partition_count
                   << " missing_catalogs=" << global_missing
