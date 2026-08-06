@@ -84,8 +84,6 @@ check_environment_contract() {
         [[ "${SCIENCE_ROOT_CONTAINER}" == "/data/archive/science" ]]
         [[ "${DQ_ROOT_CONTAINER}" == "/data/archive/dqmask" ]]
         [[ "${CPP_EXPO_LIST_CONTAINER}" == "${PROCESS_DATA_CONTAINER%/}/expo_list.list" ]]
-        [[ "${EXTCAT_INPUT_HOST}" == /* ]]
-        [[ "${EXTCAT_INPUT_CONTAINER}" == "/data/catalogs/ExtCatInput" ]]
         [[ "${CPP_EXECUTABLE}" == "${CPP_SOURCE_CONTAINER%/}/Fourier_Quad_Pipe" ]]
         [[ "${CPP_BUILD_JOBS}" =~ ^[1-9][0-9]*$ ]]
         [[ "${CPP_MAKE_CLEAN}" =~ ^[01]$ ]]
@@ -110,16 +108,9 @@ check_compose_environment_contract() {
         [[ "${DQ_ROOT_HOST}" == /* ]]
         [[ "${SCIENCE_ROOT_CONTAINER}" == "/data/archive/science" ]]
         [[ "${DQ_ROOT_CONTAINER}" == "/data/archive/dqmask" ]]
-        [[ "${EXTCAT_INPUT_HOST}" == /* ]]
-        [[ "${EXTCAT_INPUT_CONTAINER}" == "/data/catalogs/ExtCatInput" ]]
     ' _ "${REPOSITORY_DIR}/.env.example"
 
     grep -F 'source: ${SCIENCE_ROOT_HOST}' "${REPOSITORY_DIR}/compose.yaml" >/dev/null
-    grep -F 'source: ${EXTCAT_INPUT_HOST}' "${REPOSITORY_DIR}/compose.yaml" >/dev/null
-    grep -F 'target: ${EXTCAT_INPUT_CONTAINER:-/data/catalogs/ExtCatInput}' \
-        "${REPOSITORY_DIR}/compose.yaml" >/dev/null
-    grep -F -A3 'source: ${EXTCAT_INPUT_HOST}' "${REPOSITORY_DIR}/compose.yaml" |
-        grep -F 'read_only: true' >/dev/null
     grep -F 'source: ${DQ_ROOT_HOST}' "${REPOSITORY_DIR}/compose.yaml" >/dev/null
     grep -F 'target: ${SCIENCE_ROOT_CONTAINER:-/data/archive/science}' \
         "${REPOSITORY_DIR}/compose.yaml" >/dev/null

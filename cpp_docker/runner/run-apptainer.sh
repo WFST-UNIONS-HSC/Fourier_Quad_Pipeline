@@ -167,8 +167,6 @@ load_configuration() {
         FLAT_PATH_CONTAINER
         PROCESS_DATA_HOST
         PROCESS_DATA_CONTAINER
-        EXTCAT_INPUT_HOST
-        EXTCAT_INPUT_CONTAINER
         CPP_IMAGE_ID_EXPECTED
         CPP_GXX_VERSION_EXPECTED
         CPP_OPENMPI_VERSION_EXPECTED
@@ -205,8 +203,7 @@ load_configuration() {
         ASTROMETRY_CAT_HOST \
         SOURCE_CAT_HOST \
         FLAT_PATH_HOST \
-        PROCESS_DATA_HOST \
-        EXTCAT_INPUT_HOST; do
+        PROCESS_DATA_HOST; do
         require_host_directory "${variable_name}"
     done
 
@@ -217,13 +214,13 @@ load_configuration() {
         ASTROMETRY_CAT_CONTAINER \
         SOURCE_CAT_CONTAINER \
         FLAT_PATH_CONTAINER \
-        PROCESS_DATA_CONTAINER \
-        EXTCAT_INPUT_CONTAINER; do
+        PROCESS_DATA_CONTAINER; do
         require_container_path "${variable_name}"
     done
 
     # Optional pipeline output mounts (empty = use default under PROCESS_DATA)
     for variable_name in \
+        EXTCAT_INPUT_HOST EXTCAT_INPUT_CONTAINER \
         REARR_OUTPUT_HOST REARR_OUTPUT_CONTAINER \
         EXPOLIST_DIR_HOST EXPOLIST_DIR_CONTAINER \
         FD_OUTPUT_HOST FD_OUTPUT_CONTAINER; do
@@ -313,18 +310,20 @@ run_container() {
         --bind "${SOURCE_CAT_HOST}:${SOURCE_CAT_CONTAINER}:ro"
         --bind "${FLAT_PATH_HOST}:${FLAT_PATH_CONTAINER}:ro"
         --bind "${PROCESS_DATA_HOST}:${PROCESS_DATA_CONTAINER}:rw"
-        --bind "${EXTCAT_INPUT_HOST}:${EXTCAT_INPUT_CONTAINER}:ro"
         --env "CPP_SOURCE_CONTAINER=${CPP_SOURCE_CONTAINER}"
         --env "SCIENCE_ROOT_CONTAINER=${SCIENCE_ROOT_CONTAINER}"
         --env "DQ_ROOT_CONTAINER=${DQ_ROOT_CONTAINER}"
         --env "PROCESS_DATA_CONTAINER=${PROCESS_DATA_CONTAINER}"
-        --env "EXTCAT_INPUT_CONTAINER=${EXTCAT_INPUT_CONTAINER}"
+        --env "EXTCAT_INPUT_CONTAINER=${EXTCAT_INPUT_CONTAINER:-}"
         --env "REARR_OUTPUT_CONTAINER=${REARR_OUTPUT_CONTAINER:-}"
         --env "EXPOLIST_DIR_CONTAINER=${EXPOLIST_DIR_CONTAINER:-}"
         --env "FD_OUTPUT_CONTAINER=${FD_OUTPUT_CONTAINER:-}"
     )
 
-    # Optional pipeline output mounts (bound only when HOST is set)
+    # Optional pipeline mounts (bound only when HOST is set)
+    if [[ -n "${EXTCAT_INPUT_HOST:-}" ]]; then
+        RUNTIME_ARGUMENTS+=(--bind "${EXTCAT_INPUT_HOST}:${EXTCAT_INPUT_CONTAINER}:ro")
+    fi
     if [[ -n "${REARR_OUTPUT_HOST:-}" ]]; then
         RUNTIME_ARGUMENTS+=(--bind "${REARR_OUTPUT_HOST}:${REARR_OUTPUT_CONTAINER}:rw")
     fi
@@ -361,7 +360,7 @@ run_container() {
              test -d "${SCIENCE_ROOT_CONTAINER}"
              test -d "${DQ_ROOT_CONTAINER}"
              test -d "${PROCESS_DATA_CONTAINER}"
-             test -d "${EXTCAT_INPUT_CONTAINER}"
+             [[ -z "${EXTCAT_INPUT_CONTAINER:-}" || -d "${EXTCAT_INPUT_CONTAINER}" ]]
              [[ -z "${REARR_OUTPUT_CONTAINER:-}" || -d "${REARR_OUTPUT_CONTAINER}" ]]
              [[ -z "${EXPOLIST_DIR_CONTAINER:-}" || -d "${EXPOLIST_DIR_CONTAINER}" ]]
              [[ -z "${FD_OUTPUT_CONTAINER:-}" || -d "${FD_OUTPUT_CONTAINER}" ]]
