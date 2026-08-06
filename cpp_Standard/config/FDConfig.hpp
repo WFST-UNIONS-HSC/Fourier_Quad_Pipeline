@@ -119,6 +119,8 @@ inline constexpr int ccd_num_cols = ExtCatConfig::EXTCAT_TOTAL_COLUMNS + 1;
 
 // Per-source columns (0-based absolute, derived from LensingConfig indices)
 inline constexpr int col_polychi2 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::iid;
+inline constexpr int col_pixx    = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ipixx;
+inline constexpr int col_pixy    = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ipixy;
 inline constexpr int col_sig     = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::isig;
 inline constexpr int col_star    = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::istar;
 inline constexpr int col_peak    = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ipeak;
