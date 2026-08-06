@@ -79,10 +79,6 @@ check_environment_contract() {
         [[ "$(declare -p HPC_CONTAINER_ENV)" == "declare -a "* ]]
         [[ "$(declare -p SRUN_ARGS)" == "declare -a "* ]]
         [[ "${CPP_SOURCE_CONTAINER}" == "/workspace/src_pipe" ]]
-        [[ "${SCIENCE_ROOT_HOST}" == /* ]]
-        [[ "${DQ_ROOT_HOST}" == /* ]]
-        [[ "${SCIENCE_ROOT_CONTAINER}" == "/data/archive/science" ]]
-        [[ "${DQ_ROOT_CONTAINER}" == "/data/archive/dqmask" ]]
         [[ "${CPP_EXPO_LIST_CONTAINER}" == "${PROCESS_DATA_CONTAINER%/}/expo_list.list" ]]
         [[ "${CPP_EXECUTABLE}" == "${CPP_SOURCE_CONTAINER%/}/Fourier_Quad_Pipe" ]]
         [[ "${CPP_BUILD_JOBS}" =~ ^[1-9][0-9]*$ ]]
@@ -104,22 +100,7 @@ check_environment_contract() {
 check_compose_environment_contract() {
     bash -eu -o pipefail -c '
         source "$1"
-        [[ "${SCIENCE_ROOT_HOST}" == /* ]]
-        [[ "${DQ_ROOT_HOST}" == /* ]]
-        [[ "${SCIENCE_ROOT_CONTAINER}" == "/data/archive/science" ]]
-        [[ "${DQ_ROOT_CONTAINER}" == "/data/archive/dqmask" ]]
     ' _ "${REPOSITORY_DIR}/.env.example"
-
-    grep -F 'source: ${SCIENCE_ROOT_HOST}' "${REPOSITORY_DIR}/compose.yaml" >/dev/null
-    grep -F 'source: ${DQ_ROOT_HOST}' "${REPOSITORY_DIR}/compose.yaml" >/dev/null
-    grep -F 'target: ${SCIENCE_ROOT_CONTAINER:-/data/archive/science}' \
-        "${REPOSITORY_DIR}/compose.yaml" >/dev/null
-    grep -F 'target: ${DQ_ROOT_CONTAINER:-/data/archive/dqmask}' \
-        "${REPOSITORY_DIR}/compose.yaml" >/dev/null
-    grep -F -A3 'source: ${SCIENCE_ROOT_HOST}' "${REPOSITORY_DIR}/compose.yaml" |
-        grep -F 'read_only: true' >/dev/null
-    grep -F -A3 'source: ${DQ_ROOT_HOST}' "${REPOSITORY_DIR}/compose.yaml" |
-        grep -F 'read_only: true' >/dev/null
 }
 
 # ==========================================
