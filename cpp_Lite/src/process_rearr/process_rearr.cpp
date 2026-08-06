@@ -151,66 +151,32 @@ bool loadExposureList(const std::string& exposure_list,
 }
 
 // ==========================================
-// Function: Read the first image path from one per-exposure chip list
-// Method: Select the first nonempty trimmed line, preserving the legacy rule
-//         that this image determines both output root and exposure prefix.
+// Function: Resolve one exposure _all.cat path and dataset root
+// Method: Derive the dataset root from the per-exposure list path (parent of
+//         "stamps") and construct the _all.cat path directly from the list
+//         file stem, avoiding the legacy chip-list and image-path traversal.
 // ==========================================
-bool readFirstImagePath(const std::string& exposure_path,
-                        std::string& image_path,
+bool resolveCatalogPath(const std::string& exposure_list_path,
+                        fs::path& dataset_root,
+                        fs::path& catalog_path,
                         std::string& error) {
-    std::ifstream input(exposure_path);
-    if (!input.is_open()) {
-        error = "process_rearr cannot open per-exposure list: " + exposure_path;
+    const fs::path list_path(exposure_list_path);
+    const fs::path stamps_dir = list_path.parent_path();
+    if (stamps_dir.empty() || stamps_dir.filename() != "stamps") {
+        error = "process_rearr unexpected per-exposure list path "
+                "(expected .../stamps/<name>.list): " + exposure_list_path;
         return false;
     }
 
-    std::string line;
-    while (std::getline(input, line)) {
-        line = stripMatchingQuotes(trimWhitespace(line));
-        if (!line.empty()) {
-            image_path = line;
-            error.clear();
-            return true;
-        }
-    }
-    error = "process_rearr per-exposure list is empty: " + exposure_path;
-    return false;
-}
-
-// ==========================================
-// Function: Derive one exposure _all.cat path and dataset root
-// Method: Match F77 get_dir(level=2) and get_PREFIX_expo using filesystem
-//         parents plus the final underscore in the first image basename.
-// ==========================================
-bool deriveCatalogPath(const std::string& exposure_path,
-                       fs::path& dataset_root,
-                       fs::path& catalog_path,
-                       std::string& error) {
-    std::string first_image;
-    if (!readFirstImagePath(exposure_path, first_image, error)) {
+    dataset_root = fs::absolute(stamps_dir.parent_path()).lexically_normal();
+    const std::string exposure_name = list_path.stem().string();
+    if (exposure_name.empty()) {
+        error = "process_rearr per-exposure list has no stem: "
+                + exposure_list_path;
         return false;
     }
 
-    const fs::path image_path(first_image);
-    const fs::path first_parent = image_path.parent_path();
-    const fs::path second_parent = first_parent.parent_path();
-    if (first_parent.empty() || second_parent.empty()) {
-        error = "process_rearr image path has fewer than two parent levels: "
-                + first_image;
-        return false;
-    }
-
-    const std::string basename = image_path.filename().string();
-    const std::size_t underscore = basename.find_last_of('_');
-    if (underscore == std::string::npos || underscore == 0) {
-        error = "process_rearr image basename lacks an exposure suffix: "
-                + basename;
-        return false;
-    }
-
-    dataset_root = fs::absolute(second_parent).lexically_normal();
-    const std::string prefix = basename.substr(0, underscore);
-    catalog_path = dataset_root / "result" / (prefix + "_all.cat");
+    catalog_path = dataset_root / "result" / (exposure_name + "_all.cat");
     error.clear();
     return true;
 }
@@ -232,7 +198,7 @@ bool prepareInputs(const std::string& exposure_list,
     for (const std::string& exposure_path : exposure_paths) {
         fs::path dataset_root;
         fs::path catalog_path;
-        if (!deriveCatalogPath(exposure_path, dataset_root, catalog_path, error)) {
+        if (!resolveCatalogPath(exposure_path, dataset_root, catalog_path, error)) {
             return false;
         }
         if (common_root.empty()) {
@@ -917,6 +883,70 @@ bool reduceAndWriteSummary(const PreparedInputs& prepared,
     return true;
 }
 
+
+// ==========================================
+// Function: Generate a new expo list from the rearranged output directory
+// Method: Walk the output directory recursively, skip the configured skip
+//         directory (Large_Field), collect every .cat file, and write their
+//         absolute paths as quoted lines to the rearranged expo list file.
+// ==========================================
+bool generateRearrangedExpoList(const std::string& output_directory,
+                                std::string& error) {
+    const fs::path output_dir(output_directory);
+    const fs::path list_path =
+        output_dir / std::string(ProcessRearrConfig::REARRANGED_EXPO_LIST_FILENAME);
+
+    std::vector<std::string> catalog_paths;
+    const std::string skip_dir(ProcessRearrConfig::SKIP_DIRECTORY_NAME);
+
+    std::error_code walk_error;
+    for (auto iterator = fs::recursive_directory_iterator(
+             output_dir, fs::directory_options::skip_permission_denied,
+             walk_error);
+         iterator != fs::recursive_directory_iterator(); ++iterator) {
+        const fs::directory_entry& entry = *iterator;
+        if (entry.is_directory()) {
+            if (entry.path().filename() == skip_dir) {
+                iterator.disable_recursion_pending();
+            }
+            continue;
+        }
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        if (entry.path().extension()
+            == ProcessRearrConfig::SUBCAT_EXTENSION) {
+            catalog_paths.push_back(
+                fs::absolute(entry.path()).lexically_normal().string());
+        }
+    }
+    if (walk_error) {
+        error = "process_rearr failed to walk output directory: "
+                + output_directory + ": " + walk_error.message();
+        return false;
+    }
+
+    std::sort(catalog_paths.begin(), catalog_paths.end());
+
+    std::ofstream output(list_path, std::ios::trunc);
+    if (!output.is_open()) {
+        error = "process_rearr cannot write rearranged expo list: "
+                + list_path.string();
+        return false;
+    }
+    for (const std::string& path : catalog_paths) {
+        output << '"' << path << '"' << '\n';
+    }
+    output.close();
+    if (!output) {
+        error = "process_rearr I/O failure while writing rearranged expo list: "
+                + list_path.string();
+        return false;
+    }
+    error.clear();
+    return true;
+}
+
 }  // namespace
 
 // ==========================================
@@ -1133,12 +1163,31 @@ int process_rearr(const std::string& exposure_list,
         return 1;
     }
     MPI_Barrier(communicator);
+
+    // Generate the rearranged expo list for downstream processing.
+    local_success = true;
     if (rank == 0) {
+        if (!generateRearrangedExpoList(prepared.output_directory,
+                                        local_error)) {
+            local_success = false;
+        }
+    }
+    if (!collectiveSuccess(local_success, local_error, "expo-list", rank,
+                           world_size, communicator)) {
+        return 1;
+    }
+
+    if (rank == 0) {
+        const std::string rearranged_list_path =
+            (fs::path(prepared.output_directory)
+             / std::string(ProcessRearrConfig::REARRANGED_EXPO_LIST_FILENAME))
+                .string();
         std::cout << "process_rearr completed: rows=" << total_rows
                   << " partitions=" << partition_count
                   << " missing_catalogs=" << global_missing
                   << " malformed_rows=" << global_malformed
-                  << " output=" << prepared.output_directory << std::endl;
+                  << " output=" << prepared.output_directory
+                  << " expo_list=" << rearranged_list_path << std::endl;
     }
     return 0;
 }

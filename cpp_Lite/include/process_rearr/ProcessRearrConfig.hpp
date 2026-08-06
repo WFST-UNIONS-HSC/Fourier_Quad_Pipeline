@@ -32,7 +32,9 @@ inline constexpr int DEC_BIN_COUNT = 1800;
 inline constexpr std::size_t SKY_TILE_COUNT =
     static_cast<std::size_t>(RA_BIN_COUNT) * DEC_BIN_COUNT;
 inline constexpr std::uint64_t TARGET_SUBCAT_ROWS = 500000;
-inline constexpr std::string_view OUTPUT_DIRECTORY = "rearranged_catalog";
+inline constexpr std::string_view OUTPUT_DIRECTORY = "baked";
+inline constexpr std::string_view REARRANGED_EXPO_LIST_FILENAME = "expo_rearranged.list";
+inline constexpr std::string_view SKIP_DIRECTORY_NAME = "Large_Field";
 inline constexpr std::string_view SUBCAT_PREFIX = "subcat_";
 inline constexpr std::string_view SUBCAT_EXTENSION = ".cat";
 inline constexpr int SUBCAT_ID_WIDTH = 6;
