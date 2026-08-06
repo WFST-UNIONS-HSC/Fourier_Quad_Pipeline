@@ -151,40 +151,49 @@ bool loadExposureList(const std::string& exposure_list,
 }
 
 // ==========================================
-// Function: Derive the dataset root once from the first readable image path
-// Method: Open the first readable per-exposure list, read the first non-empty
-//         image line, and compute the grandparent directory (getDir level 2),
-//         matching process_main's dir_output derivation. Called only once.
+// Function: Resolve one exposure _all.cat path via getDir(image, 2)
+// Method: Open the per-exposure list, read the first non-empty image line,
+//         compute the grandparent directory (getDir level 2) as the dataset
+//         root for this exposure, and construct the _all.cat path. Called
+//         once per exposure, matching process_main's per-exposure derivation.
 // ==========================================
-bool deriveDatasetRoot(const std::vector<std::string>& exposure_paths,
-                       fs::path& dataset_root,
-                       std::string& error) {
-    for (const std::string& exposure_path : exposure_paths) {
-        std::ifstream input(exposure_path);
-        if (!input.is_open()) {
+bool resolveCatalogPathFromImage(const std::string& exposure_list_path,
+                                 fs::path& dataset_root,
+                                 fs::path& catalog_path,
+                                 std::string& error) {
+    std::ifstream input(exposure_list_path);
+    if (!input.is_open()) {
+        error = "process_rearr cannot open per-exposure list: "
+                + exposure_list_path;
+        return false;
+    }
+    std::string line;
+    while (std::getline(input, line)) {
+        line = stripMatchingQuotes(trimWhitespace(line));
+        if (line.empty()) {
             continue;
         }
-        std::string line;
-        while (std::getline(input, line)) {
-            line = stripMatchingQuotes(trimWhitespace(line));
-            if (line.empty()) {
-                continue;
-            }
-            const fs::path image_path(line);
-            const fs::path parent = image_path.parent_path();
-            const fs::path grandparent = parent.parent_path();
-            if (parent.empty() || grandparent.empty()) {
-                error = "process_rearr image path has fewer than two parent "
-                        "levels: " + line;
-                return false;
-            }
-            dataset_root = fs::absolute(grandparent).lexically_normal();
-            error.clear();
-            return true;
+        const fs::path image_path(line);
+        const fs::path parent = image_path.parent_path();
+        const fs::path grandparent = parent.parent_path();
+        if (parent.empty() || grandparent.empty()) {
+            error = "process_rearr image path has fewer than two parent "
+                    "levels: " + line;
+            return false;
         }
+        dataset_root = fs::absolute(grandparent).lexically_normal();
+        const fs::path list_path(exposure_list_path);
+        const std::string exposure_name = list_path.stem().string();
+        if (exposure_name.empty()) {
+            error = "process_rearr per-exposure list has no stem: "
+                    + exposure_list_path;
+            return false;
+        }
+        catalog_path = dataset_root / "result" / (exposure_name + "_all.cat");
+        error.clear();
+        return true;
     }
-    error = "process_rearr found no readable image path in any per-exposure "
-            "list";
+    error = "process_rearr per-exposure list is empty: " + exposure_list_path;
     return false;
 }
 
@@ -201,33 +210,30 @@ bool prepareInputs(const std::string& exposure_list,
         return false;
     }
 
-    fs::path dataset_root;
-    if (!deriveDatasetRoot(exposure_paths, dataset_root, error)) {
-        return false;
-    }
-
+    fs::path output_base_root;
     for (const std::string& exposure_path : exposure_paths) {
-        const fs::path list_path(exposure_path);
-        const std::string exposure_name = list_path.stem().string();
-        if (exposure_name.empty()) {
-            error = "process_rearr per-exposure list has no stem: "
-                    + exposure_path;
+        fs::path dataset_root;
+        fs::path catalog_path;
+        if (!resolveCatalogPathFromImage(exposure_path, dataset_root,
+                                         catalog_path, error)) {
             return false;
         }
-        prepared.catalog_paths.push_back(
-            (dataset_root / "result" / (exposure_name + "_all.cat")).string());
+        if (output_base_root.empty()) {
+            output_base_root = dataset_root;
+        }
+        prepared.catalog_paths.push_back(catalog_path.string());
     }
 
     const std::string base_dir_str(ProcessRearrConfig::OUTPUT_BASE_DIRECTORY);
     const fs::path base_dir =
-        base_dir_str.empty() ? dataset_root : fs::path(base_dir_str);
+        base_dir_str.empty() ? output_base_root : fs::path(base_dir_str);
     fs::path configured_output(std::string(ProcessRearrConfig::OUTPUT_DIRECTORY));
     if (configured_output.empty()) {
         configured_output = base_dir;
     } else if (configured_output.is_relative()) {
         configured_output = base_dir / configured_output;
     }
-    prepared.dataset_root = dataset_root.string();
+    prepared.dataset_root = output_base_root.string();
     prepared.output_directory = fs::absolute(configured_output).lexically_normal().string();
 
     for (const std::string& catalog_path : prepared.catalog_paths) {
