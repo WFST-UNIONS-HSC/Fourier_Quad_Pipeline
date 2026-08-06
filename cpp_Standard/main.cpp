@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <fstream>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -657,6 +658,65 @@ void printUsage(const char* program_name) {
            "path overrides external input for its dataset.\n";
 }
 
+
+// ==========================================
+// Function: Derive dataset root from the first image path in an expo list
+// Method: Read the first per-exposure list entry, open it, read the first
+//         non-empty image line, and compute the grandparent directory
+//         (getDir level 2), matching process_main's dir_output derivation.
+// ==========================================
+std::string deriveDatasetRootFromExpoList(const std::string& exposure_list) {
+    std::ifstream expo_input(exposure_list);
+    if (!expo_input.is_open()) {
+        return "";
+    }
+    std::string path;
+    int chip_count = 0;
+    while (expo_input >> path >> chip_count) {
+        if (path.size() >= 2 && path.front() == '"' && path.back() == '"') {
+            path = path.substr(1, path.size() - 2);
+        }
+        std::ifstream list_input(path);
+        if (!list_input.is_open()) {
+            continue;
+        }
+        std::string line;
+        while (std::getline(list_input, line)) {
+            std::size_t first = 0;
+            while (first < line.size()
+                   && (line[first] == ' ' || line[first] == '\t'
+                       || line[first] == '\r' || line[first] == '\n')) {
+                ++first;
+            }
+            std::size_t last = line.size();
+            while (last > first
+                   && (line[last - 1] == ' ' || line[last - 1] == '\t'
+                       || line[last - 1] == '\r' || line[last - 1] == '\n')) {
+                --last;
+            }
+            if (first == last) {
+                continue;
+            }
+            line = line.substr(first, last - first);
+            if (line.size() >= 2 && line.front() == '"' && line.back() == '"') {
+                line = line.substr(1, line.size() - 2);
+            }
+            if (line.empty()) {
+                continue;
+            }
+            const std::filesystem::path image_path(line);
+            const std::filesystem::path parent = image_path.parent_path();
+            const std::filesystem::path grandparent = parent.parent_path();
+            if (parent.empty() || grandparent.empty()) {
+                return "";
+            }
+            return std::filesystem::absolute(grandparent)
+                .lexically_normal().string();
+        }
+    }
+    return "";
+}
+
 }  // namespace
 
 // ==========================================
@@ -813,11 +873,7 @@ int main(int argc, char* argv[]) {
                     fd_expo_list = FDConfig::FD_EXPO_LIST;
                 }
                 const std::string fd_dataset_root =
-                    std::filesystem::absolute(
-                        std::filesystem::path(options.output_root)
-                        / dataset.target)
-                        .lexically_normal()
-                        .string();
+                    deriveDatasetRootFromExpoList(selected_exposure_list);
                 if (rank == 0) {
                     std::cout << "FD expo list: " << fd_expo_list
                               << "  dataset_root: " << fd_dataset_root << std::endl;

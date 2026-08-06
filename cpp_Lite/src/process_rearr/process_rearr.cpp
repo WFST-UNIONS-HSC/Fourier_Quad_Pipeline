@@ -151,34 +151,41 @@ bool loadExposureList(const std::string& exposure_list,
 }
 
 // ==========================================
-// Function: Resolve one exposure _all.cat path and dataset root
-// Method: Derive the dataset root from the per-exposure list path (parent of
-//         "stamps") and construct the _all.cat path directly from the list
-//         file stem, avoiding the legacy chip-list and image-path traversal.
+// Function: Derive the dataset root once from the first readable image path
+// Method: Open the first readable per-exposure list, read the first non-empty
+//         image line, and compute the grandparent directory (getDir level 2),
+//         matching process_main's dir_output derivation. Called only once.
 // ==========================================
-bool resolveCatalogPath(const std::string& exposure_list_path,
-                        fs::path& dataset_root,
-                        fs::path& catalog_path,
-                        std::string& error) {
-    const fs::path list_path(exposure_list_path);
-    const fs::path stamps_dir = list_path.parent_path();
-    if (stamps_dir.empty() || stamps_dir.filename() != "stamps") {
-        error = "process_rearr unexpected per-exposure list path "
-                "(expected .../stamps/<name>.list): " + exposure_list_path;
-        return false;
+bool deriveDatasetRoot(const std::vector<std::string>& exposure_paths,
+                       fs::path& dataset_root,
+                       std::string& error) {
+    for (const std::string& exposure_path : exposure_paths) {
+        std::ifstream input(exposure_path);
+        if (!input.is_open()) {
+            continue;
+        }
+        std::string line;
+        while (std::getline(input, line)) {
+            line = stripMatchingQuotes(trimWhitespace(line));
+            if (line.empty()) {
+                continue;
+            }
+            const fs::path image_path(line);
+            const fs::path parent = image_path.parent_path();
+            const fs::path grandparent = parent.parent_path();
+            if (parent.empty() || grandparent.empty()) {
+                error = "process_rearr image path has fewer than two parent "
+                        "levels: " + line;
+                return false;
+            }
+            dataset_root = fs::absolute(grandparent).lexically_normal();
+            error.clear();
+            return true;
+        }
     }
-
-    dataset_root = fs::absolute(stamps_dir.parent_path()).lexically_normal();
-    const std::string exposure_name = list_path.stem().string();
-    if (exposure_name.empty()) {
-        error = "process_rearr per-exposure list has no stem: "
-                + exposure_list_path;
-        return false;
-    }
-
-    catalog_path = dataset_root / "result" / (exposure_name + "_all.cat");
-    error.clear();
-    return true;
+    error = "process_rearr found no readable image path in any per-exposure "
+            "list";
+    return false;
 }
 
 // ==========================================
@@ -194,33 +201,33 @@ bool prepareInputs(const std::string& exposure_list,
         return false;
     }
 
-    fs::path common_root;
+    fs::path dataset_root;
+    if (!deriveDatasetRoot(exposure_paths, dataset_root, error)) {
+        return false;
+    }
+
     for (const std::string& exposure_path : exposure_paths) {
-        fs::path dataset_root;
-        fs::path catalog_path;
-        if (!resolveCatalogPath(exposure_path, dataset_root, catalog_path, error)) {
+        const fs::path list_path(exposure_path);
+        const std::string exposure_name = list_path.stem().string();
+        if (exposure_name.empty()) {
+            error = "process_rearr per-exposure list has no stem: "
+                    + exposure_path;
             return false;
         }
-        if (common_root.empty()) {
-            common_root = dataset_root;
-        } else if (dataset_root != common_root) {
-            error = "process_rearr exposure list spans multiple dataset roots: "
-                    + common_root.string() + " and " + dataset_root.string();
-            return false;
-        }
-        prepared.catalog_paths.push_back(catalog_path.string());
+        prepared.catalog_paths.push_back(
+            (dataset_root / "result" / (exposure_name + "_all.cat")).string());
     }
 
     const std::string base_dir_str(ProcessRearrConfig::OUTPUT_BASE_DIRECTORY);
     const fs::path base_dir =
-        base_dir_str.empty() ? common_root : fs::path(base_dir_str);
+        base_dir_str.empty() ? dataset_root : fs::path(base_dir_str);
     fs::path configured_output(std::string(ProcessRearrConfig::OUTPUT_DIRECTORY));
     if (configured_output.empty()) {
         configured_output = base_dir;
     } else if (configured_output.is_relative()) {
         configured_output = base_dir / configured_output;
     }
-    prepared.dataset_root = common_root.string();
+    prepared.dataset_root = dataset_root.string();
     prepared.output_directory = fs::absolute(configured_output).lexically_normal().string();
 
     for (const std::string& catalog_path : prepared.catalog_paths) {
