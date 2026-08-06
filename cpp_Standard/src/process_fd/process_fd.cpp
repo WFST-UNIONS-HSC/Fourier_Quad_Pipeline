@@ -35,8 +35,13 @@ bool loadExposureList(const std::string& path, std::vector<std::string>& files,
             return false;
         }
         std::string name;
-        while (input >> name)
+        while (input >> name) {
+            if (name.size() >= 2 && name.front() == '"'
+                && name.back() == '"') {
+                name = name.substr(1, name.size() - 2);
+            }
             files.push_back(name);
+        }
         if (files.empty()) {
             std::cerr << "EXPO_LIST contains no exposures: " << path << std::endl;
             return false;
