@@ -197,11 +197,11 @@ int process_fd(const std::string& exposure_list,
 
     // 7. Write output
     if (rank == 0) {
-        const std::string base_dir_str(fc::FD_OUTPUT_BASE_DIRECTORY);
+        const std::string base_dir_str(options.fd_output_base_directory);
         const std::filesystem::path base_dir =
             base_dir_str.empty() ? std::filesystem::path(dataset_root)
                                  : std::filesystem::path(base_dir_str);
-        std::filesystem::path configured_output(fc::FD_OUTPUT_DIRECTORY);
+        std::filesystem::path configured_output(options.fd_output_directory);
         if (configured_output.empty()) {
             configured_output = base_dir;
         } else if (configured_output.is_relative()) {

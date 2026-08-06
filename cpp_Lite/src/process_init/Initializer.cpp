@@ -376,19 +376,28 @@ std::vector<ExposureRecord> buildExposureRecords(const Config& config,
         ExposureRecord record;
         record.exposure = archiveStem(science_sources[source_index]);
         record.list_path = target_root / "stamps" / (record.exposure + ".list");
-        for (int image_index = 1; image_index <= image_count; ++image_index) {
-            record.image_paths.push_back(
-                target_root / "science"
-                / (record.exposure + "_" + std::to_string(image_index) + ".fits"));
+
+        // Search for existing chip files from _1 up to _max_chip.
+        // Science numbering is sequential; if the count of files found
+        // does not match image_count, some HDUs failed extraction and
+        // the entire source is skipped.
+        int found = 0;
+        for (int chip = 1; chip <= config.max_chip; ++chip) {
+            const fs::path image_path = target_root / "science"
+                / (record.exposure + "_" + std::to_string(chip) + ".fits");
+            if (fs::exists(image_path)) {
+                record.image_paths.push_back(image_path);
+                ++found;
+            }
         }
+        if (found != image_count) {
+            continue;
+        }
+
         std::sort(record.image_paths.begin(), record.image_paths.end());
         validatePipelinePath(record.list_path, config.f77_max_path);
         for (const fs::path& image_path : record.image_paths) {
             validatePipelinePath(image_path, config.f77_max_path);
-            if (!fs::exists(image_path)) {
-                throw std::runtime_error("expected science image is missing after extraction: "
-                                         + image_path.string());
-            }
         }
         records.push_back(std::move(record));
     }

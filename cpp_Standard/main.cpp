@@ -353,6 +353,20 @@ bool applyNamedOption(const std::string& name,
     } else if (name == "--expo-list") {
         options.expo_list = value;
         options.external_expo_list_supplied = true;
+    } else if (name == "--rearr-output-dir") {
+        options.rearr_output_directory = value;
+    } else if (name == "--rearr-output-base") {
+        options.rearr_output_base_directory = value;
+    } else if (name == "--rearr-list-name") {
+        options.rearranged_expo_list_filename = value;
+    } else if (name == "--rearr-list-dir") {
+        options.rearranged_expo_list_directory = value;
+    } else if (name == "--fd-expo-list") {
+        options.fd_expo_list = value;
+    } else if (name == "--fd-output-dir") {
+        options.fd_output_directory = value;
+    } else if (name == "--fd-output-base") {
+        options.fd_output_base_directory = value;
     } else {
         error = "unknown option: " + name;
         return false;
@@ -642,6 +656,13 @@ void printUsage(const char* program_name) {
         << "  --f77-max-path N      Generated path limit; zero disables (default: "
         << InitConfig::F77_MAX_PATH << ")\n"
         << "  --expo-list PATH      Single exposure list for main/rearr-only mode\n"
+        << "  --rearr-output-dir D  process_rearr output sub-directory (default: baked)\n"
+        << "  --rearr-output-base P process_rearr output base path (default: dataset root)\n"
+        << "  --rearr-list-name F   Rearranged expo-list filename (default: expo_rearranged.list)\n"
+        << "  --rearr-list-dir P    Rearranged expo-list directory (default: expo-list parent)\n"
+        << "  --fd-expo-list PATH   process_fd exposure list (default: rearranged list)\n"
+        << "  --fd-output-dir D    process_fd output sub-directory (default: fdout)\n"
+        << "  --fd-output-base P    process_fd output base path (default: dataset root)\n"
         << "  --help                Show this help\n"
         << "Options accept both --name value and --name=value. The first explicit "
            "--dataset, --contains, or --extcat-contains replaces its corresponding "
@@ -855,22 +876,20 @@ int main(int argc, char* argv[]) {
                     rng_initialized = true;
                 }
                 std::string fd_expo_list;
-                if (std::string(FDConfig::FD_EXPO_LIST).empty()) {
-                    const std::string rearr_dir(
-                        ProcessRearrConfig::REARRANGED_EXPO_LIST_DIRECTORY);
+                if (options.fd_expo_list.empty()) {
                     const std::filesystem::path list_dir =
-                        rearr_dir.empty()
+                        options.rearranged_expo_list_directory.empty()
                             ? std::filesystem::path(selected_exposure_list)
                                   .parent_path()
-                            : std::filesystem::path(rearr_dir);
+                            : std::filesystem::path(
+                                  options.rearranged_expo_list_directory);
                     fd_expo_list =
                         std::filesystem::absolute(
-                            list_dir / std::string(
-                                ProcessRearrConfig::REARRANGED_EXPO_LIST_FILENAME))
+                            list_dir / options.rearranged_expo_list_filename)
                             .lexically_normal()
                             .string();
                 } else {
-                    fd_expo_list = FDConfig::FD_EXPO_LIST;
+                    fd_expo_list = options.fd_expo_list;
                 }
                 const std::string fd_dataset_root =
                     deriveDatasetRootFromExpoList(selected_exposure_list);

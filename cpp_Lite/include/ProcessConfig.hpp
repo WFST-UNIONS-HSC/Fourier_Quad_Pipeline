@@ -20,6 +20,7 @@ inline constexpr bool RUN_PROCESS_EXTCAT = false;
 inline constexpr bool RUN_PROCESS_INIT = true;
 inline constexpr bool RUN_PROCESS_MAIN = true;
 inline constexpr bool RUN_PROCESS_REARR = false;
+inline constexpr bool RUN_PROCESS_FD = false;
 
 // ==========================================
 // Configuration: External source-catalog repartitioning defaults
@@ -49,11 +50,30 @@ inline constexpr std::size_t EXTCAT_ZP_COLUMN_ONE_BASED = 17;
 inline constexpr const char* SCIENCE_ROOT = "/lustre/home/acct-phyzj/share/DES/g";
 inline constexpr const char* DQ_ROOT = "/lustre/home/acct-phyzj/share/DES/mask_v1/g_mask";
 inline constexpr const char* OUTPUT_ROOT = "/lustre/home/acct-phyzj/share/DES/g_band_v1";
-inline const std::vector<DatasetSpec> DATASETS = {{"g2019", "c4d_19"}};
+// {"Target1", "Prefix1"}, {"Target2", "Prefix2"} ...
+inline const std::vector<DatasetSpec> DATASETS = {
+    {"gband", "c4d_"}
+};
+// "Contains1", "Contains2" ...
 inline const std::vector<std::string> CONTAINS = {"v1"};
 inline constexpr const char* EXISTING = "fail";
 inline constexpr int F77_MAX_PATH = 150;
+// Maximum chip number to search; must match LensingConfig::NMAX_CHIP.
+inline constexpr int MAX_CHIP = 62;
 inline constexpr const char* EXPO_LIST = "";
+
+// ==========================================
+// Configuration: Path interface defaults for process_rearr and process_fd
+// Method: These I/O path constants are the compile-time defaults seeded into
+//         RuntimeOptions below.  CLI options override them at runtime without rebuild.
+// ==========================================
+inline constexpr const char* REARR_OUTPUT_DIRECTORY = "baked";
+inline constexpr const char* REARR_OUTPUT_BASE_DIRECTORY = "";
+inline constexpr const char* REARRANGED_EXPO_LIST_FILENAME = "expo_rearranged.list";
+inline constexpr const char* REARRANGED_EXPO_LIST_DIRECTORY = "";
+inline constexpr const char* FD_EXPO_LIST = "";
+inline constexpr const char* FD_OUTPUT_DIRECTORY = "fdout";
+inline constexpr const char* FD_OUTPUT_BASE_DIRECTORY = "";
 
 // ==========================================
 // Configuration: Runtime workflow options
@@ -65,6 +85,7 @@ struct RuntimeOptions {
     bool run_process_init = RUN_PROCESS_INIT;
     bool run_process_main = RUN_PROCESS_MAIN;
     bool run_process_rearr = RUN_PROCESS_REARR;
+    bool run_process_fd = RUN_PROCESS_FD;
     std::string extcat_input_directory = EXTCAT_INPUT_DIRECTORY;
     std::string extcat_output_directory = EXTCAT_OUTPUT_DIRECTORY;
     std::vector<std::string> extcat_filename_tokens = EXTCAT_FILENAME_TOKENS;
@@ -90,6 +111,13 @@ struct RuntimeOptions {
     std::string existing = EXISTING;
     int f77_max_path = F77_MAX_PATH;
     std::string expo_list = EXPO_LIST;
+    std::string rearr_output_directory = REARR_OUTPUT_DIRECTORY;
+    std::string rearr_output_base_directory = REARR_OUTPUT_BASE_DIRECTORY;
+    std::string rearranged_expo_list_filename = REARRANGED_EXPO_LIST_FILENAME;
+    std::string rearranged_expo_list_directory = REARRANGED_EXPO_LIST_DIRECTORY;
+    std::string fd_expo_list = FD_EXPO_LIST;
+    std::string fd_output_directory = FD_OUTPUT_DIRECTORY;
+    std::string fd_output_base_directory = FD_OUTPUT_BASE_DIRECTORY;
     bool external_expo_list_supplied = false;
     bool help_requested = false;
 };

@@ -204,6 +204,7 @@ bool resolveCatalogPathFromImage(const std::string& exposure_list_path,
 //         header, and preserve missing-catalog skip behavior for distributed reads.
 // ==========================================
 bool prepareInputs(const std::string& exposure_list,
+                   const ProcessConfig::RuntimeOptions& options,
                    PreparedInputs& prepared,
                    std::string& error) {
     std::vector<std::string> exposure_paths;
@@ -225,10 +226,10 @@ bool prepareInputs(const std::string& exposure_list,
         prepared.catalog_paths.push_back(catalog_path.string());
     }
 
-    const std::string base_dir_str(ProcessRearrConfig::OUTPUT_BASE_DIRECTORY);
+    const std::string base_dir_str(options.rearr_output_base_directory);
     const fs::path base_dir =
         base_dir_str.empty() ? output_base_root : fs::path(base_dir_str);
-    fs::path configured_output(std::string(ProcessRearrConfig::OUTPUT_DIRECTORY));
+    fs::path configured_output(options.rearr_output_directory);
     if (configured_output.empty()) {
         configured_output = base_dir;
     } else if (configured_output.is_relative()) {
@@ -990,7 +991,7 @@ int process_rearr(const std::string& exposure_list,
 
     PreparedInputs prepared;
     int preparation_ok = 1;
-    if (rank == 0 && !prepareInputs(exposure_list, prepared, local_error)) {
+    if (rank == 0 && !prepareInputs(exposure_list, options, prepared, local_error)) {
         preparation_ok = 0;
     }
     MPI_Bcast(&preparation_ok, 1, MPI_INT, 0, communicator);
@@ -1185,14 +1186,14 @@ int process_rearr(const std::string& exposure_list,
     local_success = true;
     std::string rearranged_list_path;
     if (rank == 0) {
-        const std::string configured_list_dir(
-            ProcessRearrConfig::REARRANGED_EXPO_LIST_DIRECTORY);
+        const std::string& configured_list_dir(
+            options.rearranged_expo_list_directory);
         const fs::path list_dir = configured_list_dir.empty()
             ? fs::path(exposure_list).parent_path()
             : fs::path(configured_list_dir);
         rearranged_list_path =
             fs::absolute(list_dir
-                         / std::string(ProcessRearrConfig::REARRANGED_EXPO_LIST_FILENAME))
+                         / options.rearranged_expo_list_filename)
                 .lexically_normal().string();
         if (!generateRearrangedExpoList(prepared.output_directory,
                                         rearranged_list_path,

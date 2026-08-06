@@ -15,7 +15,7 @@
 //         and return the generated absolute exposure-list path on success.
 // ==========================================
 int process_init(const ProcessConfig::RuntimeOptions& options,
-                 const ProcessConfig::DatasetSpec& dataset,
+                 const InitConfig::DatasetSpec& dataset,
                  std::string& generated_expo_list) {
     int rank = 0;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -29,6 +29,7 @@ int process_init(const ProcessConfig::RuntimeOptions& options,
     config.filename_prefix = dataset.prefix;
     config.filename_tokens = options.contains;
     config.f77_max_path = options.f77_max_path;
+    config.max_chip = InitConfig::MAX_CHIP;
 
     if (options.existing == "fail") {
         config.existing_policy = fqinit::ExistingPolicy::Fail;

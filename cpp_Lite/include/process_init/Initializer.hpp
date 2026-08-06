@@ -20,6 +20,7 @@ struct Config {
     std::vector<std::string> filename_tokens = {"v1"};
     ExistingPolicy existing_policy = ExistingPolicy::Fail;
     int f77_max_path = 149;
+    int max_chip = 62;
 };
 
 // ==========================================

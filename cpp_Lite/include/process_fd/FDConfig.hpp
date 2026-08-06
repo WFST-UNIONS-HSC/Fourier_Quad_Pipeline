@@ -159,11 +159,6 @@ inline constexpr double pi = LensingConfig::pi;
 inline constexpr double arc_convert = LensingConfig::arc_convert;  // pi/180
 inline constexpr int NMAX_EXPO = LensingConfig::NMAX_EXPO;       // max exposures
 
-// ==================== Pipeline I/O paths ====================
-inline constexpr const char* FD_EXPO_LIST = "";            // empty = use REARRANGED_EXPO_LIST
-inline constexpr const char* FD_OUTPUT_DIRECTORY = "fdout";
-inline constexpr const char* FD_OUTPUT_BASE_DIRECTORY = "";  // empty = dataset_root
-
 }  // namespace FDConfig
 
 #endif  // FD_CONFIG_HPP
