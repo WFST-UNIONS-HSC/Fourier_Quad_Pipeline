@@ -65,8 +65,8 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
         if (undefined) continue;
 
         // Pixel coordinates for chip-edge masking
-        int ix = static_cast<int>(item[fc::ccd_num_cols + 1]);  // ccd_num+2 (1-based)
-        int iy = static_cast<int>(item[fc::ccd_num_cols + 2]);  // ccd_num+3
+        int ix = static_cast<int>(item[fc::col_pixx]);  // pixel x
+        int iy = static_cast<int>(item[fc::col_pixy]);  // pixel y
 
         // Bad CCD check
         int ccd_val = static_cast<int>(std::lround(item[fc::col_ccd]));

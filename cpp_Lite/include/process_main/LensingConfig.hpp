@@ -130,6 +130,8 @@ namespace LensingConfig {
 
     // Catalogue column indices (shifted to 0-based for C++)
     constexpr int iid = 1 - 1;
+    constexpr int ipixx = 2 - 1;
+    constexpr int ipixy = 3 - 1;
     constexpr int isig = 4 - 1;
     constexpr int istar = 5 - 1;
     constexpr int ipeak = 5 - 1;
