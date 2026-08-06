@@ -77,23 +77,29 @@ make -C /workspace/src_pipe -j4
 Makefile 使用 `mpicxx`、C++17、CFITSIO、FFTW、Eigen、LAPACK 和 BLAS。
 可选的 `STACK_PREFIX` 用于非容器环境。编译产物留在宿主挂载的源码目录。
 
-固定容器路径为：
+必需容器路径为：
 
 - 源码：`/workspace/src_pipe`
-- Science 原始归档：`/data/archive/science`（只读）
-- DQMask 原始归档：`/data/archive/dqmask`（只读）
 - 测天星表：`/data/catalogs/AstroDir`
 - 源星表：`/data/catalogs/ExtSrcDir`
 - 平场：`/data/calib/FlatDir`
 - 处理数据：`/data/DataProcess`
 
+六个可选挂载（Science 归档、DQMask、extcat 输入、rearr 输出、expo list、
+FD 输出）可通过 `compose.optional.yaml` 引入：
+
+    docker compose -f compose.yaml -f compose.optional.yaml up
+
+HPC（Apptainer）中，在 `cpppipeline.env` 设置对应的 `*_HOST` 变量即可绑定；
+留空则跳过。
+
 三个 catalogue/flat 路径必须与
-`cpp_Standard/include/process_main/LensingConfig.hpp` 的编译期科学配置一致。
+`cpp_Standard/config/LensingConfig.hpp` 的编译期科学配置一致。
 初始化时，将 `SCIENCE_ROOT_CONTAINER`、`DQ_ROOT_CONTAINER` 分别传给
-`--science-root`、`--dq-root`，并将可写的 `PROCESS_DATA_CONTAINER` 传给
-`--output-root`。容器挂载接口无需为批处理增加变量：重复传入
-`--dataset TARGET:PREFIX` 即可批量运行，重复传入 `--contains TOKEN` 即按
-OR 规则匹配。
+`--science-root`、`--dq-root`（仅当这些挂载激活时），并将可写的
+`PROCESS_DATA_CONTAINER` 传给 `--output-root`。容器挂载接口无需为批处理
+增加变量：重复传入 `--dataset TARGET:PREFIX` 即可批量运行，重复传入
+`--contains TOKEN` 即按 OR 规则匹配。
 
 ## 4. 生成唯一 SIF
 

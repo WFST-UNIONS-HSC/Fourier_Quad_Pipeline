@@ -53,10 +53,14 @@ visible from every allocated node. Container catalogue destinations must match
 the strings compiled into
 `/workspace/src_pipe/include/process_main/LensingConfig.hpp`.
 
-`SCIENCE_ROOT_HOST` and `DQ_ROOT_HOST` are fixed read-only archive binds. Their
-container destinations are `SCIENCE_ROOT_CONTAINER` and `DQ_ROOT_CONTAINER`;
-use exactly those values for the executable's `--science-root` and `--dq-root`
-arguments. Generated files remain under the writable `PROCESS_DATA_CONTAINER`.
+`SCIENCE_ROOT_HOST` and `DQ_ROOT_HOST` are optional read-only archive binds.
+Set them only when running process_init or process_main. Their container
+destinations are `SCIENCE_ROOT_CONTAINER` and `DQ_ROOT_CONTAINER`; use exactly
+those values for the executable's `--science-root` and `--dq-root` arguments
+when active. Four additional optional mounts (`EXTCAT_INPUT`, `REARR_OUTPUT`,
+`EXPOLIST_DIR`, `FD_OUTPUT`) follow the same conditional pattern: set `*_HOST`
+to bind, leave empty to skip. Generated files remain under the writable
+`PROCESS_DATA_CONTAINER`.
 
 `HPC_MODULES`, `HPC_EXTRA_BINDS`, `HPC_PASSTHROUGH_ENV`,
 `HPC_CONTAINER_ENV`, and `SRUN_ARGS` are Bash indexed arrays. Modules may make
@@ -138,4 +142,5 @@ policy. If a site requires centralized logs, pass absolute `--output` and
 `--error` paths to every `sbatch` command.
 
 Do not compile the same source copy concurrently. Source and processing binds
-are writable; Science, DQMask, catalogue, and calibration binds are read-only.
+are writable; catalogue and calibration binds are read-only. Science, DQMask,
+and four pipeline output mounts are optional (bound only when `*_HOST` is set).

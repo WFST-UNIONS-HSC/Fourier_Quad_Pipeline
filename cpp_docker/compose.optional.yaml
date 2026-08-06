@@ -1,7 +1,7 @@
 # Optional pipeline mounts.  Include with:
 #   docker compose -f compose.yaml -f compose.optional.yaml up
 #
-# All four mounts are optional.  The pipeline does not always run every
+# All six mounts are optional.  The pipeline does not always run every
 # process stage, so unused mounts can be omitted entirely.
 #
 #   SCIENCE_ROOT  - science image archive (process_init / process_main)

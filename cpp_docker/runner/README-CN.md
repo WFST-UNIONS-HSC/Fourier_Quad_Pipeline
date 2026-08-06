@@ -69,9 +69,11 @@ cp cpppipeline.env.example cpppipeline.env
 `MPI_LAUNCH_MODE=srun`、`SLURM_MPI_TYPE=pmi2` 和
 `HPC_SCRUB_MPI_ENV=1`。
 
-`SCIENCE_ROOT_HOST` 和 `DQ_ROOT_HOST` 是固定的只读归档挂载源，对应容器路径为
-`SCIENCE_ROOT_CONTAINER` 和 `DQ_ROOT_CONTAINER`。运行初始化器时，必须将这两个
-容器路径分别传给 `--science-root`、`--dq-root`；生成结果继续写入可写的
+`SCIENCE_ROOT_HOST` 和 `DQ_ROOT_HOST` 是可选的只读归档挂载源。仅在运行
+process_init 或 process_main 时设置。对应容器路径为
+`SCIENCE_ROOT_CONTAINER` 和 `DQ_ROOT_CONTAINER`。四个额外的可选挂载
+（`EXTCAT_INPUT`、`REARR_OUTPUT`、`EXPOLIST_DIR`、`FD_OUTPUT`）遵循相同的
+条件模式：设置 `*_HOST` 即绑定，留空则跳过。生成结果继续写入可写的
 `PROCESS_DATA_CONTAINER`。
 
 三个 catalogue/flat 容器路径必须与
