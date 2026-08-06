@@ -1,5 +1,5 @@
 #include "process_fd/FDMeasurement.hpp"
-#include "process_fd/FDConfig.hpp"
+#include "FDConfig.hpp"
 #include "process_fd/QuadraticFitting.hpp"
 #include "process_main/NumericalRecipes.hpp"
 

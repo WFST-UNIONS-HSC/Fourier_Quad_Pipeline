@@ -2,6 +2,7 @@
 #define PROCESS_REARR_CONFIG_HPP
 
 #include "ProcessConfig.hpp"
+#include "ExtCatConfig.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -19,7 +20,7 @@ inline constexpr std::size_t ichi2 =
     static_cast<std::size_t>(LensingConfig::ichi2) + 1;
 inline constexpr std::size_t CCD_COLUMN_COUNT = 1;
 inline constexpr std::size_t ALL_CAT_TOTAL_COLUMNS =
-    ProcessConfig::EXTCAT_TOTAL_COLUMNS + CCD_COLUMN_COUNT + ichi2;
+    ExtCatConfig::EXTCAT_TOTAL_COLUMNS + CCD_COLUMN_COUNT + ichi2;
 
 // ==========================================
 // Configuration: Spatial partitioning and output defaults
@@ -51,7 +52,7 @@ inline std::size_t externalCatalogColumns(
     const ProcessConfig::RuntimeOptions& options) {
     return options.extcat_use_explicit_columns
                ? options.extcat_input_columns_one_based.size()
-               : ProcessConfig::EXTCAT_TOTAL_COLUMNS;
+               : ExtCatConfig::EXTCAT_TOTAL_COLUMNS;
 }
 
 // ==========================================
@@ -65,7 +66,7 @@ inline std::size_t allCatalogColumns(
 }
 
 static_assert(ichi2 == 25, "process_main must append 25 fields through exposure Chi2");
-static_assert(ProcessConfig::EXTCAT_TOTAL_COLUMNS > 0,
+static_assert(ExtCatConfig::EXTCAT_TOTAL_COLUMNS > 0,
               "the external catalog column count must be positive");
 static_assert(SKY_TILE_COUNT
                   <= static_cast<std::size_t>(std::numeric_limits<int>::max()),

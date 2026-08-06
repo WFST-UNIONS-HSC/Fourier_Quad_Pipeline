@@ -1,7 +1,7 @@
 #include "process_rearr/process_rearr.hpp"
 
 #include "process_rearr/CatalogRearranger.hpp"
-#include "process_rearr/ProcessRearrConfig.hpp"
+#include "ProcessRearrConfig.hpp"
 
 #include <mpi.h>
 

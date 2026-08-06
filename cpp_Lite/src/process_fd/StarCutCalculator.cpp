@@ -1,5 +1,5 @@
 #include "process_fd/StarCutCalculator.hpp"
-#include "process_fd/FDConfig.hpp"
+#include "FDConfig.hpp"
 
 #include <mpi.h>
 

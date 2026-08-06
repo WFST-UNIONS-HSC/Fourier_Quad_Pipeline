@@ -1,5 +1,5 @@
 #include "process_fd/process_fd.hpp"
-#include "process_fd/FDConfig.hpp"
+#include "FDConfig.hpp"
 #include "process_fd/FDData.hpp"
 #include "process_fd/ShearCatalogReader.hpp"
 #include "process_fd/StarCutCalculator.hpp"

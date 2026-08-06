@@ -1,5 +1,5 @@
 #include "process_fd/ShearCatalogReader.hpp"
-#include "process_fd/FDConfig.hpp"
+#include "FDConfig.hpp"
 
 #include <cmath>
 #include <fstream>

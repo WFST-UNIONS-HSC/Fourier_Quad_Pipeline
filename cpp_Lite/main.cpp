@@ -1,16 +1,18 @@
 #include "process_main/MPIScheduler.hpp"
 #include "process_main/NumericalRecipes.hpp"
 #include "process_main/ExternalCatalogReader.hpp"
-#include "process_main/LensingConfig.hpp"
+#include "LensingConfig.hpp"
 #include "ProcessConfig.hpp"
+#include "ExtCatConfig.hpp"
+#include "InitConfig.hpp"
 #include "process_extcat/process_extcat.hpp"
 #include "process_init/process_init.hpp"
 #include "process_main/process_main.hpp"
 #include "process_rearr/CatalogRearranger.hpp"
 #include "process_rearr/process_rearr.hpp"
 #include "process_fd/process_fd.hpp"
-#include "process_fd/FDConfig.hpp"
-#include "process_rearr/ProcessRearrConfig.hpp"
+#include "FDConfig.hpp"
+#include "ProcessRearrConfig.hpp"
 
 #include <mpi.h>
 
@@ -154,7 +156,7 @@ bool parseExtcatFieldColumn(const std::string& value, std::size_t& column) {
 // Method: Split exactly one TARGET:PREFIX value and reject missing components.
 // ==========================================
 bool parseDataset(const std::string& value,
-                  ProcessConfig::DatasetSpec& dataset,
+                  InitConfig::DatasetSpec& dataset,
                   std::string& error) {
     const std::size_t separator = value.find(':');
     if (separator == std::string::npos || separator == 0 || separator + 1 == value.size()
@@ -180,7 +182,7 @@ bool prepareLegacyDataset(ProcessConfig::RuntimeOptions& options,
         return false;
     }
     if (!state.legacy_dataset_option_seen) {
-        ProcessConfig::DatasetSpec dataset;
+        InitConfig::DatasetSpec dataset;
         if (!options.datasets.empty()) {
             dataset = options.datasets.front();
         }
@@ -308,7 +310,7 @@ bool applyNamedOption(const std::string& name,
             error = "--dataset cannot be combined with --target or --prefix";
             return false;
         }
-        ProcessConfig::DatasetSpec dataset;
+        InitConfig::DatasetSpec dataset;
         if (!parseDataset(value, dataset, error)) {
             return false;
         }
@@ -406,7 +408,7 @@ bool validateOptions(const ProcessConfig::RuntimeOptions& options, std::string& 
     std::set<std::string> targets;
     if (options.run_process_init || options.run_process_main || options.run_process_fd
         || options.run_process_rearr) {
-        for (const ProcessConfig::DatasetSpec& dataset : options.datasets) {
+        for (const InitConfig::DatasetSpec& dataset : options.datasets) {
             if (dataset.target.empty() || dataset.target == "." || dataset.target == ".."
                 || dataset.target.find('/') != std::string::npos
                 || dataset.target.find('\\') != std::string::npos) {
@@ -537,7 +539,7 @@ bool parseCommandLine(int argc,
 //         dataset's expo_<target>.list and normalize it to an absolute path.
 // ==========================================
 std::string resolveExposureList(const ProcessConfig::RuntimeOptions& options,
-                                const ProcessConfig::DatasetSpec& dataset) {
+                                const InitConfig::DatasetSpec& dataset) {
     std::filesystem::path path;
     if (!options.expo_list.empty()) {
         path = options.expo_list;
@@ -557,11 +559,11 @@ std::string resolveExposureList(const ProcessConfig::RuntimeOptions& options,
 // Method: Join every target/prefix pair without mutating the configured list.
 // ==========================================
 std::string configuredDatasetsText() {
-    if (ProcessConfig::DATASETS.empty()) {
+    if (InitConfig::DATASETS.empty()) {
         return "none";
     }
     std::string text;
-    for (const ProcessConfig::DatasetSpec& dataset : ProcessConfig::DATASETS) {
+    for (const InitConfig::DatasetSpec& dataset : InitConfig::DATASETS) {
         if (!text.empty()) {
             text += ", ";
         }
@@ -575,11 +577,11 @@ std::string configuredDatasetsText() {
 // Method: Join every OR-matched basename token, or state that filtering is disabled.
 // ==========================================
 std::string configuredContainsText() {
-    if (ProcessConfig::CONTAINS.empty()) {
+    if (InitConfig::CONTAINS.empty()) {
         return "none (no token filter)";
     }
     std::string text;
-    for (const std::string& token : ProcessConfig::CONTAINS) {
+    for (const std::string& token : InitConfig::CONTAINS) {
         if (!text.empty()) {
             text += ", ";
         }
@@ -593,11 +595,11 @@ std::string configuredContainsText() {
 // Method: Join OR-matched raw-catalog basename tokens or state that all files match.
 // ==========================================
 std::string configuredExtcatContainsText() {
-    if (ProcessConfig::EXTCAT_FILENAME_TOKENS.empty()) {
+    if (ExtCatConfig::EXTCAT_FILENAME_TOKENS.empty()) {
         return "none (all files)";
     }
     std::string text;
-    for (const std::string& token : ProcessConfig::EXTCAT_FILENAME_TOKENS) {
+    for (const std::string& token : ExtCatConfig::EXTCAT_FILENAME_TOKENS) {
         if (!text.empty()) {
             text += ", ";
         }
@@ -629,7 +631,7 @@ void printUsage(const char* program_name) {
         << "  --extcat-contains T   Repeatable raw basename token, matched with OR (default: "
         << configuredExtcatContainsText() << ")\n"
         << "  --extcat-recursive B  Recurse below extcat input (default: "
-        << (ProcessConfig::EXTCAT_RECURSIVE ? "true" : "false") << ")\n"
+        << (ExtCatConfig::EXTCAT_RECURSIVE ? "true" : "false") << ")\n"
         << "  --extcat-delimiter M  auto, whitespace, comma, or tab\n"
         << "  --extcat-header M     auto, present, or absent\n"
         << "  --extcat-columns LIST Ordered one-based input indices; output width follows LIST\n"
@@ -637,7 +639,7 @@ void printUsage(const char* program_name) {
         << "  --extcat-dec-column N Raw one-based Dec column; overrides header discovery\n"
         << "  --extcat-zp-column N  Raw one-based ZP column consumed by process_main\n"
         << "  --extcat-chunk-mib N  MPI byte-range task size in MiB (default: "
-        << ProcessConfig::EXTCAT_CHUNK_MIB << ")\n"
+        << ExtCatConfig::EXTCAT_CHUNK_MIB << ")\n"
         << "  --extcat-malformed P  fail or skip malformed rows\n"
         << "  --extcat-existing P   fail or overwrite generated tiles\n"
         << "  --science-root PATH   Original Science FITS/FZ repository\n"
@@ -650,9 +652,9 @@ void printUsage(const char* program_name) {
         << "  --contains TEXT       Repeatable basename token, matched with OR (default: "
         << configuredContainsText() << ")\n"
         << "  --existing MODE       fail, resume, or overwrite (default: "
-        << ProcessConfig::EXISTING << ")\n"
+        << InitConfig::EXISTING << ")\n"
         << "  --f77-max-path N      Generated path limit; zero disables (default: "
-        << ProcessConfig::F77_MAX_PATH << ")\n"
+        << InitConfig::F77_MAX_PATH << ")\n"
         << "  --expo-list PATH      Single exposure list for main/rearr-only mode\n"
         << "  --rearr-output-dir D  process_rearr output sub-directory (default: baked)\n"
         << "  --rearr-output-base P process_rearr output base path (default: dataset root)\n"
@@ -787,7 +789,7 @@ int main(int argc, char* argv[]) {
                  && (options.run_process_init || options.run_process_main || options.run_process_fd
                      || options.run_process_rearr);
              ++index) {
-            const ProcessConfig::DatasetSpec& dataset = options.datasets[index];
+            const InitConfig::DatasetSpec& dataset = options.datasets[index];
             if (rank == 0) {
                 std::cout << "Dataset " << (index + 1) << "/" << options.datasets.size()
                           << ": target=" << dataset.target

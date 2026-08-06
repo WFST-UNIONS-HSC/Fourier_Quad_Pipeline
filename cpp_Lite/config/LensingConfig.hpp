@@ -119,7 +119,7 @@ namespace LensingConfig {
     constexpr int area_max = ns * ns;
    constexpr int area_thresh = 6;
 
-    constexpr int gal_smooth = 2;
+    constexpr int gal_smooth = 0;
     constexpr int star_smooth = 2;
 
     constexpr double SNR_PSF = 100.0;

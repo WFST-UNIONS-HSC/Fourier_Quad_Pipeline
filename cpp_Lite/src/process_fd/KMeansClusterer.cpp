@@ -1,5 +1,5 @@
 #include "process_fd/KMeansClusterer.hpp"
-#include "process_fd/FDConfig.hpp"
+#include "FDConfig.hpp"
 #include "process_main/NumericalRecipes.hpp"
 
 #include <mpi.h>

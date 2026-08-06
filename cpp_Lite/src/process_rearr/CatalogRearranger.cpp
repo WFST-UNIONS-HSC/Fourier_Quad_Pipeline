@@ -1,6 +1,6 @@
 #include "process_rearr/CatalogRearranger.hpp"
 
-#include "process_rearr/ProcessRearrConfig.hpp"
+#include "ProcessRearrConfig.hpp"
 
 #include <algorithm>
 #include <cerrno>

@@ -2,7 +2,7 @@ CXX = mpicxx
 STACK_PREFIX ?=
 EIGEN_INCLUDE ?=
 
-CPPFLAGS = -Iinclude -Iinclude/process_extcat -Iinclude/process_init -Iinclude/process_main -Iinclude/process_rearr -Iinclude/process_fd
+CPPFLAGS = -Iinclude -Iconfig -Iinclude/process_extcat -Iinclude/process_init -Iinclude/process_main -Iinclude/process_rearr -Iinclude/process_fd
 CXXFLAGS = -O3 -std=c++17 -Wall -Wextra -MMD -MP
 LDFLAGS =
 LDLIBS = -lcfitsio -lfftw3 -lfftw3f -llapack -lblas -lm

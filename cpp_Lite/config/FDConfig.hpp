@@ -8,8 +8,8 @@
 //         star-bar fitting mode at compile time.
 // ==========================================
 
-#include "process_main/LensingConfig.hpp"
-#include "ProcessConfig.hpp"
+#include "LensingConfig.hpp"
+#include "ExtCatConfig.hpp"
 
 namespace FDConfig {
 
@@ -44,7 +44,7 @@ inline constexpr bool FD_PER_EXPOSURE_STAR_BAR = false;
 inline constexpr int nmax_per_core = 20000000;
 inline constexpr int fd_num = 21;          // spatial bins by field distortion
 inline constexpr int PDF_BINS = 4;         // equal-probability inner bins
-inline constexpr int gf_lim = 0.0015;      // spatial bin range ±gf_lim
+inline constexpr float gf_lim = 0.0015;      // spatial bin range ±gf_lim
 inline constexpr int NMAX = 200;           // fine grid sampling points
 inline constexpr int MAX_DUP = 5;          // max duplicate measurements
 
@@ -54,15 +54,15 @@ inline constexpr int nmax_total = 1000000; // max total sources for k-means
 inline constexpr int Km_iter = 100;        // k-means iterations
 
 // ==================== Quality-cut thresholds ====================
-inline constexpr float snrfcut = 0.0;
-inline constexpr float snrlow = 20.0;
+inline constexpr float snrfcut = 4.0;
+inline constexpr float snrlow = 0.0;
 inline constexpr float snrhigh = 0.0;
 inline constexpr float starcut = 20.0;
 inline constexpr float chi2_thresh = 0.01;
 inline constexpr float flagcut = 0.0;
 inline constexpr float imaxcut = 64.0;
 inline constexpr float jmaxcut = 64.0;
-inline constexpr float zplow = 1e-10;
+inline constexpr float zplow = 0.0;
 inline constexpr float zphigh = 3.0;
 inline constexpr float r_half_thresh = 0.0;
 inline constexpr float star_bar_mltp = 3.0;
@@ -72,7 +72,7 @@ inline constexpr float psf_chi2_mltp = 3.0;
 inline constexpr float ft_cut = -1.0;      // <0 means skip
 inline constexpr float fg_cut = -10.0;
 inline constexpr float gold_cut = -10.0;
-inline constexpr float ext_cut = 4.0;
+inline constexpr float ext_cut = -4.0;
 
 // ==================== Star-cut histogram parameters ====================
 inline constexpr int n_size_bins = 100;
@@ -109,11 +109,13 @@ inline constexpr int col_cdec = 5;
 inline constexpr int col_mag_g = 6;
 inline constexpr int col_mag_r = 8;
 inline constexpr int col_mag_i = 10;
+inline constexpr int col_mag_z = 12;
+inline constexpr int col_mag_y = 14;
 inline constexpr int col_zp = 16;
-inline constexpr int col_ccd = ProcessConfig::EXTCAT_TOTAL_COLUMNS;
+inline constexpr int col_ccd = ExtCatConfig::EXTCAT_TOTAL_COLUMNS;
 
 // Number of pre-source columns (external catalog columns + CCD_NUM)
-inline constexpr int ccd_num_cols = ProcessConfig::EXTCAT_TOTAL_COLUMNS + 1;
+inline constexpr int ccd_num_cols = ExtCatConfig::EXTCAT_TOTAL_COLUMNS + 1;
 
 // Per-source columns (0-based absolute, derived from LensingConfig indices)
 inline constexpr int col_polychi2 = ccd_num_cols + LensingConfig::iid;
