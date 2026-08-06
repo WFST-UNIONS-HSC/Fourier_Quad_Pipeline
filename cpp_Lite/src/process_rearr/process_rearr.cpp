@@ -182,14 +182,15 @@ bool resolveCatalogPathFromImage(const std::string& exposure_list_path,
             return false;
         }
         dataset_root = fs::absolute(grandparent).lexically_normal();
-        const fs::path list_path(exposure_list_path);
-        const std::string exposure_name = list_path.stem().string();
-        if (exposure_name.empty()) {
-            error = "process_rearr per-exposure list has no stem: "
-                    + exposure_list_path;
+        const std::string basename = image_path.filename().string();
+        const std::size_t underscore = basename.find_last_of('_');
+        if (underscore == std::string::npos || underscore == 0) {
+            error = "process_rearr image basename lacks an exposure suffix: "
+                    + basename;
             return false;
         }
-        catalog_path = dataset_root / "result" / (exposure_name + "_all.cat");
+        const std::string prefix = basename.substr(0, underscore);
+        catalog_path = dataset_root / "result" / (prefix + "_all.cat");
         error.clear();
         return true;
     }
