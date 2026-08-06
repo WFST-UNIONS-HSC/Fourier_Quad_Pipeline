@@ -9,6 +9,7 @@
 // ==========================================
 
 #include "LensingConfig.hpp"
+#include "ExtCatConfig.hpp"
 
 namespace FDConfig {
 
@@ -108,40 +109,42 @@ inline constexpr int col_cdec = 5;
 inline constexpr int col_mag_g = 6;
 inline constexpr int col_mag_r = 8;
 inline constexpr int col_mag_i = 10;
+inline constexpr int col_mag_z = 12;
+inline constexpr int col_mag_y = 14;
 inline constexpr int col_zp = 16;
-inline constexpr int col_ccd = 18;          // ccd_num column (1-based 19)
+inline constexpr int col_ccd = ExtCatConfig::EXTCAT_TOTAL_COLUMNS;
 
-// Number of pre-source columns (Fortran ccd_num=19)
-inline constexpr int ccd_num_cols = 19;
+// Number of pre-source columns (external catalog columns + CCD_NUM)
+inline constexpr int ccd_num_cols = ExtCatConfig::EXTCAT_TOTAL_COLUMNS + 1;
 
-// Per-source columns (0-based absolute, = Fortran_value - 1)
-inline constexpr int col_polychi2 = 19;      // 1+ccd_num -1
-inline constexpr int col_sig = 22;          // 4+ccd_num -1
-inline constexpr int col_star = 23;          // 5+ccd_num -1
-inline constexpr int col_peak = 23;          // 5+ccd_num -1 (same as star)
-inline constexpr int col_imax = 24;          // 6+ccd_num -1
-inline constexpr int col_jmax = 25;          // 7+ccd_num -1
-inline constexpr int col_h_flux = 26;        // 8+ccd_num -1
-inline constexpr int col_h_area = 27;        // 9+ccd_num -1
-inline constexpr int col_flag = 28;          // 10+ccd_num -1
-inline constexpr int col_PSF = 29;           // 11+ccd_num -1
-inline constexpr int col_SNR_F = 30;          // 12+ccd_num -1
-inline constexpr int col_ra = 31;            // 13+ccd_num -1
-inline constexpr int col_dec = 32;            // 14+ccd_num -1
-inline constexpr int col_gf1 = 33;            // 15+ccd_num -1
-inline constexpr int col_gf2 = 34;            // 16+ccd_num -1
-inline constexpr int col_g1 = 35;             // 17+ccd_num -1
-inline constexpr int col_g2 = 36;             // 18+ccd_num -1
-inline constexpr int col_de = 37;             // 19+ccd_num -1
-inline constexpr int col_h1 = 38;             // 20+ccd_num -1
-inline constexpr int col_h2 = 39;             // 21+ccd_num -1
-inline constexpr int col_cos2 = 40;            // 22+ccd_num -1
-inline constexpr int col_sin2 = 41;            // 23+ccd_num -1
-inline constexpr int col_parity = 42;          // 24+ccd_num -1
-inline constexpr int col_chi2 = 43;            // 25+ccd_num -1 (last data col)
+// Per-source columns (0-based absolute, derived from LensingConfig indices)
+inline constexpr int col_polychi2 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::iid;
+inline constexpr int col_sig     = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::isig;
+inline constexpr int col_star    = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::istar;
+inline constexpr int col_peak    = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ipeak;
+inline constexpr int col_imax    = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::i_imax;
+inline constexpr int col_jmax    = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::i_jmax;
+inline constexpr int col_h_flux  = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ih_flux;
+inline constexpr int col_h_area  = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ih_area;
+inline constexpr int col_flag    = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::iflag;
+inline constexpr int col_PSF     = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::iPSF;
+inline constexpr int col_SNR_F   = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::iSNR_F;
+inline constexpr int col_ra      = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ira;
+inline constexpr int col_dec     = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::idec;
+inline constexpr int col_gf1     = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::igf1;
+inline constexpr int col_gf2     = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::igf2;
+inline constexpr int col_g1      = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ig1;
+inline constexpr int col_g2      = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ig2;
+inline constexpr int col_de      = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ide;
+inline constexpr int col_h1      = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ih1;
+inline constexpr int col_h2      = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ih2;
+inline constexpr int col_cos2    = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::icos2;
+inline constexpr int col_sin2    = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::isin2;
+inline constexpr int col_parity  = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::iparity;
+inline constexpr int col_chi2    = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ichi2;
 
-// Total number of columns in the catalog (= Fortran ichi2)
-inline constexpr int ICHI2 = 25 + ccd_num_cols;  // = 44
+// Total number of columns in the catalog
+inline constexpr int ICHI2 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::npara;
 
 // ==================== Bad CCD list (DES) ====================
 inline constexpr int bad_ccds[] = {2, 31, 53, 61};
