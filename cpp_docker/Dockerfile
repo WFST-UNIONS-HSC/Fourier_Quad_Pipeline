@@ -174,8 +174,12 @@ RUN dnf install -y \
         /data/archive/dqmask \
         /data/catalogs/AstroDir \
         /data/catalogs/ExtSrcDir \
+        /data/catalogs/ExtCatInput \
         /data/calib/FlatDir \
         /data/DataProcess \
+        /data/output/rearr \
+        /data/output/expolist \
+        /data/output/fdout \
     && chown -R cpp:cpp /workspace/src_pipe /data
 
 COPY --from=stack-builder \
