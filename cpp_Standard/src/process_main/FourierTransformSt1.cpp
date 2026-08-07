@@ -34,10 +34,10 @@ namespace FourierTransformSt1 {
         }
 
         std::string raw_prefix = UniversalUtils::getPrefix(imageFile);
-        std::string PREFIX = dirOutput + "/stamps/" + raw_prefix;
+        // PREFIX inlined: per-type stamps/ subdirs (reorganized layout)
 
         int nsource = 0;
-        std::string filename = PREFIX + "_star_can_info.dat";
+        std::string filename = dirOutput + "/stamps/dat_StarCanInfo/" + raw_prefix + "_star_can_info.dat";
 
         std::ifstream fin(filename);
         if (!fin.is_open()) {
@@ -66,13 +66,13 @@ namespace FourierTransformSt1 {
             std::vector<float> source_coll;
             std::vector<float> noise_coll;
 
-            std::string filename_star_can = PREFIX + "_star_can.fits";
+            std::string filename_star_can = dirOutput + "/stamps/fits_StarCan/" + raw_prefix + "_star_can.fits";
             if (!FitsIO::readStamps(ngal_max, 1, nsource, ns, ns, source_coll, nn1, nn2, filename_star_can)) {
                 std::cerr << "Error reading stamps: " << filename_star_can << "\n";
                 return;
             }
 
-            std::string filename_star_can_noise = PREFIX + "_star_can_noise.fits";
+            std::string filename_star_can_noise = dirOutput + "/stamps/fits_StarCanN/" + raw_prefix + "_star_can_noise.fits";
             if (!FitsIO::readStamps(ngal_max, 1, nsource, ns, ns, noise_coll, nn1, nn2, filename_star_can_noise)) {
                 std::cerr << "Error reading stamps: " << filename_star_can_noise << "\n";
                 return;
@@ -100,7 +100,7 @@ namespace FourierTransformSt1 {
                 std::copy(source_p.begin(), source_p.end(), power_coll.begin() + i * ns * ns);
             }
 
-            std::string filename_star_can_power = PREFIX + "_star_can_power.fits";
+            std::string filename_star_can_power = dirOutput + "/stamps/fits_StarCanP/" + raw_prefix + "_star_can_power.fits";
             FitsIO::writeStamps(ngal_max, 1, nsource, ns, ns, power_coll, nn1, nn2, filename_star_can_power);
         }
     }

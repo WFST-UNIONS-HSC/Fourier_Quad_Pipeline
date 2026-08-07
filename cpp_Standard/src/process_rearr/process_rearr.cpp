@@ -151,9 +151,9 @@ bool loadExposureList(const std::string& exposure_list,
 }
 
 // ==========================================
-// Function: Resolve one exposure _all.cat path via getDir(image, 2)
+// Function: Resolve one exposure _all.cat path via getDir(image, 3)
 // Method: Open the per-exposure list, read the first non-empty image line,
-//         compute the grandparent directory (getDir level 2) as the dataset
+//         compute the great-grandparent directory (getDir level 3) as the dataset
 //         root for this exposure, and construct the _all.cat path. Called
 //         once per exposure, matching process_main's per-exposure derivation.
 // ==========================================
@@ -176,12 +176,13 @@ bool resolveCatalogPathFromImage(const std::string& exposure_list_path,
         const fs::path image_path(line);
         const fs::path parent = image_path.parent_path();
         const fs::path grandparent = parent.parent_path();
-        if (parent.empty() || grandparent.empty()) {
-            error = "process_rearr image path has fewer than two parent "
+        const fs::path great_grandparent = grandparent.parent_path();
+        if (parent.empty() || grandparent.empty() || great_grandparent.empty()) {
+            error = "process_rearr image path has fewer than three parent "
                     "levels: " + line;
             return false;
         }
-        dataset_root = fs::absolute(grandparent).lexically_normal();
+        dataset_root = fs::absolute(great_grandparent).lexically_normal();
         const std::string basename = image_path.filename().string();
         const std::size_t underscore = basename.find_last_of('_');
         if (underscore == std::string::npos || underscore == 0) {

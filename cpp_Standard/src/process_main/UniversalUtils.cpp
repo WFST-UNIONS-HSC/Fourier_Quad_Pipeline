@@ -740,6 +740,6 @@ namespace UniversalUtils {
             std::exit(1);
         }
 
-        dir_output = getDir(image_files[0], 2);
+        dir_output = getDir(image_files[0], 3);
     }
 }

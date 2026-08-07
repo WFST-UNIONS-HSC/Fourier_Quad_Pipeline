@@ -683,8 +683,8 @@ void printUsage(const char* program_name) {
 // ==========================================
 // Function: Derive dataset root from the first image path in an expo list
 // Method: Read the first per-exposure list entry, open it, read the first
-//         non-empty image line, and compute the grandparent directory
-//         (getDir level 2), matching process_main's dir_output derivation.
+//         non-empty image line, and compute the great-grandparent directory
+//         (getDir level 3), matching process_main's dir_output derivation.
 // ==========================================
 std::string deriveDatasetRootFromExpoList(const std::string& exposure_list) {
     std::ifstream expo_input(exposure_list);
@@ -728,10 +728,11 @@ std::string deriveDatasetRootFromExpoList(const std::string& exposure_list) {
             const std::filesystem::path image_path(line);
             const std::filesystem::path parent = image_path.parent_path();
             const std::filesystem::path grandparent = parent.parent_path();
-            if (parent.empty() || grandparent.empty()) {
+            const std::filesystem::path great_grandparent = grandparent.parent_path();
+            if (parent.empty() || grandparent.empty() || great_grandparent.empty()) {
                 return "";
             }
-            return std::filesystem::absolute(grandparent)
+            return std::filesystem::absolute(great_grandparent)
                 .lexically_normal().string();
         }
     }

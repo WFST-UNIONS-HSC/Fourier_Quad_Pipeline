@@ -399,6 +399,7 @@ ExtractionResult extractArchive(const std::filesystem::path& source,
         }
 
         std::filesystem::create_directories(staging_directory);
+        std::filesystem::create_directories(final_directory);
         std::vector<PlannedImage> successful_plans;
         int skipped = 0;
         for (const PlannedImage& plan : to_extract) {

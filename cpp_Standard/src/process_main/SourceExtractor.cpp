@@ -211,8 +211,8 @@ namespace SourceExtractor {
         }
 
         std::string raw_prefix = UniversalUtils::getPrefix(imageFiles[ichip - 1]);
-        std::string PREFIX = dirOutput + "/stamps/" + raw_prefix;
-        std::string filename = PREFIX + "_norm.fits";
+        std::string PREFIX = raw_prefix;
+        std::string filename = dirOutput + "/stamps/Norm/" + PREFIX + "_norm.fits";
 
         std::vector<float> normap;
         int norm_nx = 0, norm_ny = 0;
@@ -273,16 +273,16 @@ namespace SourceExtractor {
             }
         }
 
-        getExpoCatalog(PREFIX, nx, ny, sigmap, weight, normap, proc_error);
+        getExpoCatalog(dirOutput, PREFIX, nx, ny, sigmap, weight, normap, proc_error);
 
         if (LensingConfig::ext_cat == 0) {
-            genSourceCatalog(PREFIX, nx, ny, array, weight, ngal, proc_error);
+            genSourceCatalog(dirOutput, PREFIX, nx, ny, array, weight, ngal, proc_error);
             if (LensingConfig::ext_PSF == 0) {
-                genStarCandidate(PREFIX, nstar, proc_error);
+                genStarCandidate(dirOutput, PREFIX, nstar, proc_error);
             }
         } else {
             std::string PREFIX_head = UniversalUtils::getPrefixExpo(imageFiles[0]);
-            filename = dirOutput + "/astrometry/" + PREFIX_head + ".head";
+            filename = dirOutput + "/astrometry/Head/" + PREFIX_head + ".head";
             
             double cRPIX[2] = {0.0, 0.0};
             double cD[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
@@ -303,10 +303,10 @@ namespace SourceExtractor {
                 deBlending(sortfile, sortnum, nx, ny, weight, cRPIX, cD, cRVAL, PU, proc_error);
             }
 
-            genSourceExtCatalog(sortfile, sortnum, PREFIX, nx, ny, array, weight, sigmap, cRPIX, cD, cRVAL, PU, ngal, proc_error);
+            genSourceExtCatalog(dirOutput, sortfile, sortnum, PREFIX, nx, ny, array, weight, sigmap, cRPIX, cD, cRVAL, PU, ngal, proc_error);
 
             if (LensingConfig::ext_PSF == 0) {
-                genStarCandidateDirect(PREFIX, nx, ny, array, weight, nstar, proc_error);
+                genStarCandidateDirect(dirOutput, PREFIX, nx, ny, array, weight, nstar, proc_error);
             }
         }
 
@@ -433,7 +433,7 @@ namespace SourceExtractor {
     // Function: Build exposure source catalog
     // Method: Match F77 get_expo_catalog scan and neighbor traversal order.
     // ==========================================
-    void getExpoCatalog(const std::string& prefix, int nx, int ny, const std::vector<float>& sigmap,
+    void getExpoCatalog(const std::string& dirOutput, const std::string& prefix, int nx, int ny, const std::vector<float>& sigmap,
                         std::vector<int>& weight, const std::vector<float>& normap, int& ierror) {
         if (ierror == 1) return;
 
@@ -449,7 +449,7 @@ namespace SourceExtractor {
             }
         }
 
-        std::string catname = prefix + ".cat";
+        std::string catname = dirOutput + "/stamps/cat_Orig/" + prefix + ".cat";
         std::ofstream fout(catname);
         if (!fout.is_open()) {
             std::cerr << "Error: could not open catalog file for writing: " << catname << std::endl;
@@ -571,7 +571,7 @@ namespace SourceExtractor {
         fout.close();
     }
 
-    void genSourceCatalog(const std::string& prefix, int nx, int ny, const std::vector<float>& array,
+    void genSourceCatalog(const std::string& dirOutput, const std::string& prefix, int nx, int ny, const std::vector<float>& array,
                           std::vector<int>& weight, int& ngal, int& procError) {
         ngal = 0;
 
@@ -580,7 +580,7 @@ namespace SourceExtractor {
         std::vector<std::vector<float>> source_para(LensingConfig::ngal_max, std::vector<float>(LensingConfig::npara, 0.0f));
 
         if (procError != 1) {
-            std::string catname = prefix + ".cat";
+            std::string catname = dirOutput + "/stamps/cat_Orig/" + prefix + ".cat";
             std::ifstream fin(catname);
             if (!fin.is_open()) {
                 std::cerr << catname << std::endl;
@@ -633,13 +633,13 @@ namespace SourceExtractor {
         int nn1 = LensingConfig::ns * LensingConfig::len_g;
         int nn2 = LensingConfig::ns * (ngal / LensingConfig::len_g + 1);
         
-        std::string filename_src = prefix + "_source.fits";
+        std::string filename_src = dirOutput + "/stamps/fits_Src/" + prefix + "_source.fits";
         FitsIO::writeStamps(LensingConfig::ngal_max, 1, ngal, LensingConfig::ns, LensingConfig::ns, source_collect, nn1, nn2, filename_src);
 
-        std::string filename_noise = prefix + "_noise.fits";
+        std::string filename_noise = dirOutput + "/stamps/fits_Noise/" + prefix + "_noise.fits";
         FitsIO::writeStamps(LensingConfig::ngal_max, 1, ngal, LensingConfig::ns, LensingConfig::ns, noise_collect, nn1, nn2, filename_noise);
 
-        std::string filename_info = prefix + "_source_info.dat";
+        std::string filename_info = dirOutput + "/stamps/dat_SrcInfo/" + prefix + "_source_info.dat";
         std::ofstream fout(filename_info);
         if (fout.is_open()) {
             fout << "ig xp yp sigma peak imax jmax half_light_flux half_light_area flag\n";
@@ -658,7 +658,7 @@ namespace SourceExtractor {
     // Method: Read configured RA, Dec, and ZP fields while skipping missing tiles and malformed
     //         rows, preserving valid-row extraction and each accepted original catalog row.
     // ==========================================
-    void genSourceExtCatalog(const std::vector<std::string>& sortFile, int sortNum, const std::string& prefix,
+    void genSourceExtCatalog(const std::string& dirOutput, const std::vector<std::string>& sortFile, int sortNum, const std::string& prefix,
                              int nx, int ny, const std::vector<float>& array, std::vector<int>& weight,
                              const std::vector<float>& sigmap, const double cRPIX[2], const double cD[2][2],
                              const double cRVAL[2], const double PU[2][LensingConfig::npd], int& ngal, int& procError) {
@@ -777,14 +777,14 @@ namespace SourceExtractor {
             int nn1 = LensingConfig::ns * LensingConfig::len_g;
             int nn2 = LensingConfig::ns * (ngal / LensingConfig::len_g + 1);
             
-            std::string filename_src = prefix + "_source.fits";
+            std::string filename_src = dirOutput + "/stamps/fits_Src/" + prefix + "_source.fits";
             FitsIO::writeStamps(LensingConfig::ngal_max, 1, ngal, LensingConfig::ns, LensingConfig::ns, source_collect, nn1, nn2, filename_src);
 
-            std::string filename_noise = prefix + "_noise.fits";
+            std::string filename_noise = dirOutput + "/stamps/fits_Noise/" + prefix + "_noise.fits";
             FitsIO::writeStamps(LensingConfig::ngal_max, 1, ngal, LensingConfig::ns, LensingConfig::ns, noise_collect, nn1, nn2, filename_noise);
         }
 
-        std::string filename_info = prefix + "_source_info.dat";
+        std::string filename_info = dirOutput + "/stamps/dat_SrcInfo/" + prefix + "_source_info.dat";
         std::ofstream fout(filename_info);
         if (fout.is_open()) {
             fout << "ig xp yp sigma peak imax jmax half_light_flux half_light_area flag\n";
@@ -797,7 +797,7 @@ namespace SourceExtractor {
             fout.close();
         }
 
-        std::string filename_orig = prefix + "_orig.cat";
+        std::string filename_orig = dirOutput + "/stamps/cat_Orig/" + prefix + "_orig.cat";
         std::ofstream fout_orig(filename_orig);
         if (fout_orig.is_open()) {
             if (procError == 1 || ngal == 0) {
@@ -1012,14 +1012,14 @@ namespace SourceExtractor {
         ImageProcessing::decorateStamp(LensingConfig::ns, sig, weights, stamps);
     }
 
-    void genStarCandidate(const std::string& prefix, int& nstar, int& procError) {
+    void genStarCandidate(const std::string& dirOutput, const std::string& prefix, int& nstar, int& procError) {
         nstar = 0;
 
         std::vector<std::vector<float>> source_para;
         int ngal = 0;
 
         if (procError != 1) {
-            std::string filename = prefix + "_source_info.dat";
+            std::string filename = dirOutput + "/stamps/dat_SrcInfo/" + prefix + "_source_info.dat";
             std::ifstream fin(filename);
             if (!fin.is_open()) {
                 std::cerr << filename << std::endl;
@@ -1063,10 +1063,10 @@ namespace SourceExtractor {
             source_collect.resize(LensingConfig::ngal_max * LensingConfig::ns * LensingConfig::ns, 0.0f);
             noise_collect.resize(LensingConfig::ngal_max * LensingConfig::ns * LensingConfig::ns, 0.0f);
 
-            std::string filename_noise = prefix + "_noise.fits";
+            std::string filename_noise = dirOutput + "/stamps/fits_Noise/" + prefix + "_noise.fits";
             FitsIO::readStamps(LensingConfig::ngal_max, 1, ngal, LensingConfig::ns, LensingConfig::ns, noise_collect, nn1, nn2, filename_noise);
 
-            std::string filename_source = prefix + "_source.fits";
+            std::string filename_source = dirOutput + "/stamps/fits_Src/" + prefix + "_source.fits";
             FitsIO::readStamps(LensingConfig::ngal_max, 1, ngal, LensingConfig::ns, LensingConfig::ns, source_collect, nn1, nn2, filename_source);
         }
 
@@ -1093,7 +1093,7 @@ namespace SourceExtractor {
             if (nstar >= LensingConfig::nstar_max) break;
         }
 
-        std::string filename_star_info = prefix + "_star_can_info.dat";
+        std::string filename_star_info = dirOutput + "/stamps/dat_StarCanInfo/" + prefix + "_star_can_info.dat";
         std::ofstream fout(filename_star_info);
         if (fout.is_open()) {
             fout << "ig xp yp SNR\n";
@@ -1107,15 +1107,15 @@ namespace SourceExtractor {
             int nn1_s = LensingConfig::ns * LensingConfig::len_s;
             int nn2_s = LensingConfig::ns * (nstar / LensingConfig::len_s + 1);
 
-            std::string filename_star_src = prefix + "_star_can.fits";
+            std::string filename_star_src = dirOutput + "/stamps/fits_StarCan/" + prefix + "_star_can.fits";
             FitsIO::writeStamps(LensingConfig::ngal_max, 1, nstar, LensingConfig::ns, LensingConfig::ns, star_source_collect, nn1_s, nn2_s, filename_star_src);
 
-            std::string filename_star_noise = prefix + "_star_can_noise.fits";
+            std::string filename_star_noise = dirOutput + "/stamps/fits_StarCanN/" + prefix + "_star_can_noise.fits";
             FitsIO::writeStamps(LensingConfig::ngal_max, 1, nstar, LensingConfig::ns, LensingConfig::ns, star_noise_collect, nn1_s, nn2_s, filename_star_noise);
         }
     }
 
-    void genStarCandidateDirect(const std::string& prefix, int nx, int ny, const std::vector<float>& array,
+    void genStarCandidateDirect(const std::string& dirOutput, const std::string& prefix, int nx, int ny, const std::vector<float>& array,
                                 const std::vector<int>& weight, int& nstar, int& procError) {
         nstar = 0;
 
@@ -1124,7 +1124,7 @@ namespace SourceExtractor {
         std::vector<std::vector<float>> star_para;
 
         if (procError != 1) {
-            std::string catname = prefix + ".cat";
+            std::string catname = dirOutput + "/stamps/cat_Orig/" + prefix + ".cat";
             std::ifstream fin(catname);
             if (!fin.is_open()) {
                 std::cerr << catname << std::endl;
@@ -1176,7 +1176,7 @@ namespace SourceExtractor {
             fin.close();
         }
 
-        std::string filename_star_info = prefix + "_star_can_info.dat";
+        std::string filename_star_info = dirOutput + "/stamps/dat_StarCanInfo/" + prefix + "_star_can_info.dat";
         std::ofstream fout(filename_star_info);
         if (fout.is_open()) {
             fout << "ig xp yp SNR\n";
@@ -1190,10 +1190,10 @@ namespace SourceExtractor {
             int nn1_s = LensingConfig::ns * LensingConfig::len_s;
             int nn2_s = LensingConfig::ns * (nstar / LensingConfig::len_s + 1);
 
-            std::string filename_star_src = prefix + "_star_can.fits";
+            std::string filename_star_src = dirOutput + "/stamps/fits_StarCan/" + prefix + "_star_can.fits";
             FitsIO::writeStamps(LensingConfig::ngal_max, 1, nstar, LensingConfig::ns, LensingConfig::ns, star_source_collect, nn1_s, nn2_s, filename_star_src);
 
-            std::string filename_star_noise = prefix + "_star_can_noise.fits";
+            std::string filename_star_noise = dirOutput + "/stamps/fits_StarCanN/" + prefix + "_star_can_noise.fits";
             FitsIO::writeStamps(LensingConfig::ngal_max, 1, nstar, LensingConfig::ns, LensingConfig::ns, star_noise_collect, nn1_s, nn2_s, filename_star_noise);
         }
     }

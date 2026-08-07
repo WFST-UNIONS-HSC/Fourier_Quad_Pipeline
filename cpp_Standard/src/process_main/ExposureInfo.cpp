@@ -22,9 +22,9 @@ std::vector<float> expo_para;
 // ==========================================
 void getExpoInfo(const std::vector<std::string>& imageFiles, int nchip, const std::string& dirOutput, float para[6]) {
     std::string prefix_expo = UniversalUtils::getPrefixExpo(imageFiles[0]);
-    std::string fstar = dirOutput + "/stamps/" + prefix_expo + "_star_info_expo.dat";
-    std::string fastro = dirOutput + "/astrometry/" + prefix_expo + ".head";
-    std::string fexpo = dirOutput + "/result/" + prefix_expo + "_expo_info.dat";
+    std::string fstar = dirOutput + "/stamps/dat_StarInfo/" + prefix_expo + "_star_info_expo.dat";
+    std::string fastro = dirOutput + "/astrometry/Head/" + prefix_expo + ".head";
+    std::string fexpo = dirOutput + "/stamps/dat_ExpoInfo/" + prefix_expo + "_expo_info.dat";
 
     std::ofstream fout10(fexpo);
     if (!fout10.is_open()) {

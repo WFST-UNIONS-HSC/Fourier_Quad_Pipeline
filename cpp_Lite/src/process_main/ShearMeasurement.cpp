@@ -211,18 +211,18 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
     float poly_std = 0.0f;
 
     std::string prefix_expo = UniversalUtils::getPrefixExpo(imageFiles[0]);
-    std::string headname = dirOutput + "/astrometry/" + prefix_expo + ".head";
+    std::string headname = dirOutput + "/astrometry/Head/" + prefix_expo + ".head";
 
     std::vector<double> local_coe(ns * ns * (npl + 1), 0.0);
 
     for (int ichip = 0; ichip < nchip; ++ichip) {
         proc_error = 0;
         std::string PREFIX = UniversalUtils::getPrefix(imageFiles[ichip]);
-        std::string PREFIX1 = dirOutput + "/stamps/" + PREFIX;
-        std::string PREFIX2 = dirOutput + "/result/" + PREFIX;
+        // PREFIX1 inlined: per-type stamps/ subdirs (reorganized layout)
+        std::string PREFIX2 = dirOutput + "/stamps/dat_Shear/" + PREFIX;
 
         {
-            std::string filename = PREFIX1 + "_PSF_coe_local.dat";
+            std::string filename = dirOutput + "/stamps/dat_PsfFit/" + PREFIX + "_PSF_coe_local.dat";
             std::ifstream fin(filename);
             if (!fin.is_open()) {
                 proc_error = 1;
@@ -281,7 +281,7 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
         }
 
         int ngal = 0;
-        std::string info_filename = PREFIX1 + "_source_info.dat";
+        std::string info_filename = dirOutput + "/stamps/dat_SrcInfo/" + PREFIX + "_source_info.dat";
         std::ifstream fin(info_filename);
         if (!fin.is_open()) {
             std::cerr << "Error / proc_shear source_info catalog file error!! " << info_filename << std::endl;
@@ -322,7 +322,7 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
         int nn2 = ns * (ngal / len_g + 1);
 
         std::vector<float> gal_p_coll;
-        std::string power_fits = PREFIX1 + "_source_p.fits";
+        std::string power_fits = dirOutput + "/stamps/fits_SrcP/" + PREFIX + "_source_p.fits";
         if (!FitsIO::readStamps(ngal_max, 1, ngal, ns, ns, gal_p_coll, nn1, nn2, power_fits)) {
             std::cerr << "Error / proc_shear source_p FITS file error!! " << power_fits << std::endl;
             std::exit(1);
