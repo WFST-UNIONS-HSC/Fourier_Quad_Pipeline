@@ -43,6 +43,15 @@ jobs:
                 -x '*/.git/*' '*/.git'
           done
 
+          # Archive root-level documentation (+ LICENSE) so the per-tree README
+          # pointers (../CPP_GUIDE.md, ../CPP_PIPELINE_PARAMETERS.md) resolve
+          # when a user extracts a single content zip alongside docs.zip.
+          zip artifacts/docs.zip \
+              README.md README_CN.md \
+              F77_GUIDE.md F77_GUIDE_CN.md \
+              CPP_GUIDE.md CPP_GUIDE_CN.md \
+              CPP_PIPELINE_PARAMETERS.md LICENSE
+
           # gen_src_cat is a required standalone release asset.
           test -f artifacts/gen_src_cat.zip
 

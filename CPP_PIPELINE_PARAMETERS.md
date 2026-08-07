@@ -109,7 +109,7 @@ are from `ProcessConfig.hpp`; all others are compile-time constants from
 | `PROCESS_stage` | — | Product of primes (default `2·3·5·7·11·13·17·19·23 = 223092870*`) | Stage control bitmask. Each prime factor enables one stage: `2`→Pre-process, `3`→Astrometry, `5`→Source extraction, `7`→FFT Stage 1, `11`→PSF model, `13`→FFT Stage 2, `17`→Shear measurement, `19`→Exposure info, `23`→Catalog combination. Stage 9 (`23`) requires Stage 8 (`19`); the pipeline rejects `23` without `19`. |
 | `ASTROMETRY_trivial` | — | `0*`, `1` (Std only; Lite frozen to `0`) | `0` uses Gaia-based astrometric solution; `1` uses trivial (identity) astrometry. Lite implements only `0`. |
 | `include_FLAT` | — | `0*`, `1` (Std only; Lite frozen to `0`) | `0` disables super-flat multiplication; `1` enables it using `FLAT_PATH`. Lite implements only `0`. |
-| `include_Mask` | — | `0`, `1`, `2*`, `3` (Std only; Lite frozen to `2`) | `0` no mask; `1` legacy mask branch; `2` per-chip DQ mask from `dirOutput/dqmask`; `3` combines legacy and DQ mask. Lite implements only `2`. |
+| `include_Mask` | — | `0`, `1`, `2*`, `3` (Std only; Lite frozen to `2`) | `0` no mask; `1` legacy mask branch; `2` per-chip DQ mask from `dirOutput/dqmask/<exposure>/`; `3` combines legacy and DQ mask. Lite implements only `2`. |
 
 ### 3c. Image / CCD size (compile-time)
 
