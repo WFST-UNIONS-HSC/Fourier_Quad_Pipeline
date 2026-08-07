@@ -37,7 +37,7 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
     if (LensingConfig::ext_cat == 1) {
         for (int ichip = 0; ichip < nchip; ++ichip) {
             std::string prefix = UniversalUtils::getPrefix(imageFiles[ichip]);
-            std::string filename = dirOutput + "/stamps/" + prefix + "_orig.cat";
+            std::string filename = dirOutput + "/stamps/cat_Orig/" + prefix + "_orig.cat";
             std::ifstream fin15(filename);
             if (fin15.is_open()) {
                 if (std::getline(fin15, cat_list2)) {
@@ -64,7 +64,7 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
         std::string prefix = UniversalUtils::getPrefix(imageFiles[ichip]);
         last_prefix = prefix;
 
-        std::string filename_shear = dirOutput + "/result/" + prefix + "_shear.dat";
+        std::string filename_shear = dirOutput + "/stamps/dat_Shear/" + prefix + "_shear.dat";
         std::ifstream fin10(filename_shear);
         if (!fin10.is_open()) {
             std::cerr << filename_shear << " is missing!" << std::endl;
@@ -76,7 +76,7 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
         cat_list1 = trimRight(cat_list1);
 
         if (LensingConfig::ext_cat == 1) {
-            std::string filename_orig = dirOutput + "/stamps/" + prefix + "_orig.cat";
+            std::string filename_orig = dirOutput + "/stamps/cat_Orig/" + prefix + "_orig.cat";
             std::ifstream fin15(filename_orig);
             if (!fin15.is_open()) {
                 std::cerr << filename_orig << " is missing!" << std::endl;

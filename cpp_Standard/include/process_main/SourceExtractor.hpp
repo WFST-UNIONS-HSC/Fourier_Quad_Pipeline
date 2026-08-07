@@ -17,13 +17,13 @@ namespace SourceExtractor {
                     
     void fillPatch(int nx, int ny, std::vector<int>& map, int ix, int iy, int old_v, int new_v);
     
-    void getExpoCatalog(const std::string& prefix, int nx, int ny, const std::vector<float>& sigmap,
+    void getExpoCatalog(const std::string& dirOutput, const std::string& prefix, int nx, int ny, const std::vector<float>& sigmap,
                         std::vector<int>& weight, const std::vector<float>& normap, int& ierror);
                         
-    void genSourceCatalog(const std::string& prefix, int nx, int ny, const std::vector<float>& array,
+    void genSourceCatalog(const std::string& dirOutput, const std::string& prefix, int nx, int ny, const std::vector<float>& array,
                           std::vector<int>& weight, int& ngal, int& procError);
                           
-    void genSourceExtCatalog(const std::vector<std::string>& sortFile, int sortNum, const std::string& prefix,
+    void genSourceExtCatalog(const std::string& dirOutput, const std::vector<std::string>& sortFile, int sortNum, const std::string& prefix,
                              int nx, int ny, const std::vector<float>& array, std::vector<int>& weight,
                              const std::vector<float>& sigmap, const double cRPIX[2], const double cD[2][2],
                              const double cRVAL[2], const double PU[2][LensingConfig::npd], int& ngal, int& procError);
@@ -35,9 +35,9 @@ namespace SourceExtractor {
                      const std::vector<int>& weight, double xp, double yp, double sig, int& imax, int& jmax,
                      double& peak, double& half_light_flux, int& half_light_area);
                      
-    void genStarCandidate(const std::string& prefix, int& nstar, int& procError);
+    void genStarCandidate(const std::string& dirOutput, const std::string& prefix, int& nstar, int& procError);
     
-    void genStarCandidateDirect(const std::string& prefix, int nx, int ny, const std::vector<float>& array,
+    void genStarCandidateDirect(const std::string& dirOutput, const std::string& prefix, int nx, int ny, const std::vector<float>& array,
                                 const std::vector<int>& weight, int& nstar, int& procError);
 
     void generateGalCatFileName(const double cRVAL[2], std::string& filename,

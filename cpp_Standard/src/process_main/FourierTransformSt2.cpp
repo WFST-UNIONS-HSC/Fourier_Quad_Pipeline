@@ -20,10 +20,10 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
     int ns = LensingConfig::ns;
 
     std::string raw_prefix = UniversalUtils::getPrefix(imageFile);
-    std::string PREFIX = dirOutput + "/stamps/" + raw_prefix;
+    // PREFIX inlined: per-type stamps/ subdirs (reorganized layout)
 
     int nsource = 0;
-    std::string info_filename = PREFIX + "_source_info.dat";
+    std::string info_filename = dirOutput + "/stamps/dat_SrcInfo/" + raw_prefix + "_source_info.dat";
     std::vector<std::vector<float>> source_para;
 
     std::ifstream fin(info_filename);
@@ -69,14 +69,14 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
     int nn2 = ns * (nsource / len_g + 1);
 
     std::vector<float> source_coll;
-    std::string source_fits = PREFIX + "_source.fits";
+    std::string source_fits = dirOutput + "/stamps/fits_Src/" + raw_prefix + "_source.fits";
     if (!FitsIO::readStamps(ngal_max, 1, nsource, ns, ns, source_coll, nn1, nn2, source_fits)) {
         std::cerr << "Error reading source stamps: " << source_fits << std::endl;
         return;
     }
 
     std::vector<float> noise_coll;
-    std::string noise_fits = PREFIX + "_noise.fits";
+    std::string noise_fits = dirOutput + "/stamps/fits_Noise/" + raw_prefix + "_noise.fits";
     if (!FitsIO::readStamps(ngal_max, 1, nsource, ns, ns, noise_coll, nn1, nn2, noise_fits)) {
         std::cerr << "Error reading noise stamps: " << noise_fits << std::endl;
         return;
@@ -124,7 +124,7 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
     }
     fout.close();
 
-    std::string power_fits = PREFIX + "_source_p.fits";
+    std::string power_fits = dirOutput + "/stamps/fits_SrcP/" + raw_prefix + "_source_p.fits";
     if (!FitsIO::writeStamps(ngal_max, 1, nsource, ns, ns, power_coll, nn1, nn2, power_fits)) {
         std::cerr << "Error / FFT2 source_p FITS write failed: " << power_fits << std::endl;
         std::exit(EXIT_FAILURE);

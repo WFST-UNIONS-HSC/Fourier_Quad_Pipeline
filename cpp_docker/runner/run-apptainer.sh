@@ -155,10 +155,6 @@ load_configuration() {
         CPP_SIF
         CPP_SOURCE_HOST
         CPP_SOURCE_CONTAINER
-        SCIENCE_ROOT_HOST
-        SCIENCE_ROOT_CONTAINER
-        DQ_ROOT_HOST
-        DQ_ROOT_CONTAINER
         ASTROMETRY_CAT_HOST
         ASTROMETRY_CAT_CONTAINER
         SOURCE_CAT_HOST
@@ -198,8 +194,6 @@ load_configuration() {
 
     for variable_name in \
         CPP_SOURCE_HOST \
-        SCIENCE_ROOT_HOST \
-        DQ_ROOT_HOST \
         ASTROMETRY_CAT_HOST \
         SOURCE_CAT_HOST \
         FLAT_PATH_HOST \
@@ -209,13 +203,27 @@ load_configuration() {
 
     for variable_name in \
         CPP_SOURCE_CONTAINER \
-        SCIENCE_ROOT_CONTAINER \
-        DQ_ROOT_CONTAINER \
         ASTROMETRY_CAT_CONTAINER \
         SOURCE_CAT_CONTAINER \
         FLAT_PATH_CONTAINER \
         PROCESS_DATA_CONTAINER; do
         require_container_path "${variable_name}"
+    done
+
+    # Optional pipeline output mounts (empty = use default under PROCESS_DATA)
+    for variable_name in \
+        SCIENCE_ROOT_HOST SCIENCE_ROOT_CONTAINER \
+        DQ_ROOT_HOST DQ_ROOT_CONTAINER \
+        EXTCAT_INPUT_HOST EXTCAT_INPUT_CONTAINER \
+        REARR_OUTPUT_HOST REARR_OUTPUT_CONTAINER \
+        EXPOLIST_DIR_HOST EXPOLIST_DIR_CONTAINER \
+        FD_OUTPUT_HOST FD_OUTPUT_CONTAINER; do
+        if [[ -n "${!variable_name:-}" ]]; then
+            case "${variable_name}" in
+                *_HOST)      require_host_directory "${variable_name}" ;;
+                *_CONTAINER) require_container_path "${variable_name}" ;;
+            esac
+        fi
     done
 }
 
@@ -290,17 +298,39 @@ run_container() {
         --no-home
         --pwd "${CONTAINER_PWD}"
         --bind "${CPP_SOURCE_HOST}:${CPP_SOURCE_CONTAINER}:rw"
-        --bind "${SCIENCE_ROOT_HOST}:${SCIENCE_ROOT_CONTAINER}:ro"
-        --bind "${DQ_ROOT_HOST}:${DQ_ROOT_CONTAINER}:ro"
         --bind "${ASTROMETRY_CAT_HOST}:${ASTROMETRY_CAT_CONTAINER}:ro"
         --bind "${SOURCE_CAT_HOST}:${SOURCE_CAT_CONTAINER}:ro"
         --bind "${FLAT_PATH_HOST}:${FLAT_PATH_CONTAINER}:ro"
         --bind "${PROCESS_DATA_HOST}:${PROCESS_DATA_CONTAINER}:rw"
         --env "CPP_SOURCE_CONTAINER=${CPP_SOURCE_CONTAINER}"
-        --env "SCIENCE_ROOT_CONTAINER=${SCIENCE_ROOT_CONTAINER}"
-        --env "DQ_ROOT_CONTAINER=${DQ_ROOT_CONTAINER}"
+        --env "SCIENCE_ROOT_CONTAINER=${SCIENCE_ROOT_CONTAINER:-}"
+        --env "DQ_ROOT_CONTAINER=${DQ_ROOT_CONTAINER:-}"
         --env "PROCESS_DATA_CONTAINER=${PROCESS_DATA_CONTAINER}"
+        --env "EXTCAT_INPUT_CONTAINER=${EXTCAT_INPUT_CONTAINER:-}"
+        --env "REARR_OUTPUT_CONTAINER=${REARR_OUTPUT_CONTAINER:-}"
+        --env "EXPOLIST_DIR_CONTAINER=${EXPOLIST_DIR_CONTAINER:-}"
+        --env "FD_OUTPUT_CONTAINER=${FD_OUTPUT_CONTAINER:-}"
     )
+
+    # Optional pipeline mounts (bound only when HOST is set)
+    if [[ -n "${SCIENCE_ROOT_HOST:-}" ]]; then
+        RUNTIME_ARGUMENTS+=(--bind "${SCIENCE_ROOT_HOST}:${SCIENCE_ROOT_CONTAINER}:ro")
+    fi
+    if [[ -n "${DQ_ROOT_HOST:-}" ]]; then
+        RUNTIME_ARGUMENTS+=(--bind "${DQ_ROOT_HOST}:${DQ_ROOT_CONTAINER}:ro")
+    fi
+    if [[ -n "${EXTCAT_INPUT_HOST:-}" ]]; then
+        RUNTIME_ARGUMENTS+=(--bind "${EXTCAT_INPUT_HOST}:${EXTCAT_INPUT_CONTAINER}:ro")
+    fi
+    if [[ -n "${REARR_OUTPUT_HOST:-}" ]]; then
+        RUNTIME_ARGUMENTS+=(--bind "${REARR_OUTPUT_HOST}:${REARR_OUTPUT_CONTAINER}:rw")
+    fi
+    if [[ -n "${EXPOLIST_DIR_HOST:-}" ]]; then
+        RUNTIME_ARGUMENTS+=(--bind "${EXPOLIST_DIR_HOST}:${EXPOLIST_DIR_CONTAINER}:rw")
+    fi
+    if [[ -n "${FD_OUTPUT_HOST:-}" ]]; then
+        RUNTIME_ARGUMENTS+=(--bind "${FD_OUTPUT_HOST}:${FD_OUTPUT_CONTAINER}:rw")
+    fi
 
     for bind_specification in "${EXTRA_BINDS[@]}"; do
         RUNTIME_ARGUMENTS+=(--bind "${bind_specification}")
@@ -325,9 +355,13 @@ run_container() {
              pkg-config --exact-version=3.3.11 fftw3
              test -r "${CPP_STACK_PREFIX}/include/eigen3/Eigen/Dense"
              test -d "${CPP_SOURCE_CONTAINER}"
-             test -d "${SCIENCE_ROOT_CONTAINER}"
-             test -d "${DQ_ROOT_CONTAINER}"
+             [[ -z "${SCIENCE_ROOT_CONTAINER:-}" || -d "${SCIENCE_ROOT_CONTAINER}" ]]
+             [[ -z "${DQ_ROOT_CONTAINER:-}" || -d "${DQ_ROOT_CONTAINER}" ]]
              test -d "${PROCESS_DATA_CONTAINER}"
+             [[ -z "${EXTCAT_INPUT_CONTAINER:-}" || -d "${EXTCAT_INPUT_CONTAINER}" ]]
+             [[ -z "${REARR_OUTPUT_CONTAINER:-}" || -d "${REARR_OUTPUT_CONTAINER}" ]]
+             [[ -z "${EXPOLIST_DIR_CONTAINER:-}" || -d "${EXPOLIST_DIR_CONTAINER}" ]]
+             [[ -z "${FD_OUTPUT_CONTAINER:-}" || -d "${FD_OUTPUT_CONTAINER}" ]]
              printf "Apptainer image and bind checks passed on %s.\n" "$(hostname)"'
         )
     elif ((${#RUN_COMMAND[@]} == 0)); then

@@ -34,12 +34,6 @@ struct Task {
     fs::path source;
 };
 
-struct ExposureRecord {
-    std::string exposure;
-    fs::path list_path;
-    std::vector<fs::path> image_paths;
-};
-
 // ==========================================
 // Function: Test whether a string ends with one exact suffix
 // Method: Compare the final suffix-sized span without locale transformations.
@@ -255,8 +249,16 @@ void broadcastPaths(std::vector<fs::path>& paths, int root_rank, MPI_Comm commun
 // ==========================================
 void createPipelineDirectories(const fs::path& target_root) {
     static const std::vector<std::string> directory_names = {
-        "science", "dqmask", "stamps", "result", "astrometry",
-        "dat_pcs", "dat_starcomp", "fits_psfresi", "rescale", "starxy",
+        "science", "dqmask", "stamps", "result",
+        "stamps/Norm", "stamps/cat_Orig", "stamps/dat_StarInfo",
+        "stamps/dat_StarCanInfo", "stamps/fits_StarCan", "stamps/fits_StarCanN",
+        "stamps/fits_StarCanP", "stamps/dat_SrcInfo", "stamps/fits_Src",
+        "stamps/fits_Noise", "stamps/fits_SrcP", "stamps/fits_StarP",
+        "stamps/dat_PsfFit", "stamps/fits_PsfLocal", "stamps/fits_PsfSrc",
+        "stamps/dat_Shear", "stamps/dat_ExpoInfo", "stamps/dat_StarComp",
+        "stamps/dat_Rescale", "stamps/dat_StarXY", "stamps/fits_PsfResi",
+        "stamps/dat_Pcs", "stamps/dat_StarCompV2",
+        "astrometry/dat_Astro", "astrometry/Head", "astrometry/dat_Chk",
     };
     for (const std::string& name : directory_names) {
         fs::create_directories(target_root / name);
@@ -359,88 +361,51 @@ void validatePipelinePath(const fs::path& path, int f77_max_path) {
 }
 
 // ==========================================
-// Function: Build corrected deterministic exposure records from successful tasks
-// Method: Preserve science HDU numbering, lexically sort chip paths as before,
-//         and sort exposure stems without the legacy i-1 rotation.
+// Function: Publish top-level exposure and compatibility FITS lists
+// Method: After every rank has written its per-exposure chip lists into
+//         stamps/ during extraction, rank zero scans stamps/, sorts the
+//         per-exposure lists, and atomically writes expo_<target>.list
+//         ("<list path>" <chip count>) and the flat fits_<target>.list.
+//         No re-stat of science images is required.
 // ==========================================
-std::vector<ExposureRecord> buildExposureRecords(const Config& config,
-                                                 const fs::path& target_root,
-                                                 const std::vector<fs::path>& science_sources,
-                                                 const std::vector<int>& image_counts) {
-    std::vector<ExposureRecord> records;
-    for (std::size_t source_index = 0; source_index < science_sources.size(); ++source_index) {
-        const int image_count = image_counts[source_index];
-        if (image_count <= 0) {
-            throw std::runtime_error("successful science task returned no images: "
-                                     + science_sources[source_index].string());
+void publishPipelineLists(const Config& config, const fs::path& target_root) {
+    const fs::path stamps_dir = target_root / "stamps";
+    std::vector<fs::path> exposure_lists;
+    for (const auto& entry : fs::directory_iterator(stamps_dir)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".list") {
+            exposure_lists.push_back(entry.path());
         }
-        ExposureRecord record;
-        record.exposure = archiveStem(science_sources[source_index]);
-        record.list_path = target_root / "stamps" / (record.exposure + ".list");
-        for (int image_index = 1; image_index <= image_count; ++image_index) {
-            record.image_paths.push_back(
-                target_root / "science"
-                / (record.exposure + "_" + std::to_string(image_index) + ".fits"));
-        }
-        std::sort(record.image_paths.begin(), record.image_paths.end());
-        validatePipelinePath(record.list_path, config.f77_max_path);
-        for (const fs::path& image_path : record.image_paths) {
-            validatePipelinePath(image_path, config.f77_max_path);
-            if (!fs::exists(image_path)) {
-                throw std::runtime_error("expected science image is missing after extraction: "
-                                         + image_path.string());
-            }
-        }
-        records.push_back(std::move(record));
     }
-    std::sort(records.begin(), records.end(), [](const ExposureRecord& left,
-                                                  const ExposureRecord& right) {
-        return left.exposure < right.exposure;
-    });
-    return records;
-}
+    std::sort(exposure_lists.begin(), exposure_lists.end());
 
-// ==========================================
-// Function: Publish per-exposure, top-level exposure, and compatibility FITS lists
-// Method: Validate all content first, then atomically write corrected direct-order lists.
-// ==========================================
-void writePipelineLists(const Config& config,
-                        const std::vector<ExposureRecord>& records) {
-    struct PendingFile {
-        fs::path path;
-        std::string content;
-    };
-    std::vector<PendingFile> pending;
-    std::vector<fs::path> all_images;
     std::ostringstream top_list;
-
-    for (const ExposureRecord& record : records) {
-        std::ostringstream exposure_list;
-        for (const fs::path& image_path : record.image_paths) {
-            exposure_list << image_path.string() << '\n';
-            all_images.push_back(image_path);
-        }
-        pending.push_back({record.list_path, exposure_list.str()});
-        top_list << '"' << record.list_path.string() << '"'
-                 << "     " << record.image_paths.size() << '\n';
-    }
-
-    std::sort(all_images.begin(), all_images.end());
     std::ostringstream fits_list;
-    for (const fs::path& image_path : all_images) {
-        fits_list << image_path.string() << '\n';
+    for (const fs::path& list_path : exposure_lists) {
+        validatePipelinePath(list_path, config.f77_max_path);
+        std::ifstream list_input(list_path);
+        int chip_count = 0;
+        std::string line;
+        while (std::getline(list_input, line)) {
+            while (!line.empty()
+                   && (line.back() == '\r' || line.back() == ' '
+                       || line.back() == '\t')) {
+                line.pop_back();
+            }
+            if (line.empty()) {
+                continue;
+            }
+            fits_list << line << '\n';
+            ++chip_count;
+        }
+        top_list << '"' << list_path.string() << '"' << "     " << chip_count << '\n';
     }
 
     const fs::path top_path = config.output_root / ("expo_" + config.target + ".list");
     const fs::path fits_path = config.output_root / ("fits_" + config.target + ".list");
     validatePipelinePath(top_path, config.f77_max_path);
     validatePipelinePath(fits_path, config.f77_max_path);
-    pending.push_back({fits_path, fits_list.str()});
-    pending.push_back({top_path, top_list.str()});
-
-    for (const PendingFile& file : pending) {
-        writeAtomic(file.path, file.content);
-    }
+    writeAtomic(top_path, top_list.str());
+    writeAtomic(fits_path, fits_list.str());
 }
 
 // ==========================================
@@ -453,6 +418,7 @@ std::string makeManifest(const Config& config,
                          const std::vector<int>& statuses,
                          const std::vector<int>& image_counts,
                          const std::vector<int>& resumed_flags,
+                         const std::vector<int>& skipped_hdus,
                          bool lists_published,
                          const std::string& final_error) {
     int science_sources = 0;
@@ -460,7 +426,9 @@ std::string makeManifest(const Config& config,
     int science_images = 0;
     int dq_images = 0;
     int resumed_sources = 0;
+    int skipped_hdus_total = 0;
     std::vector<std::string> failed_sources;
+    std::vector<std::string> partial_sources;
     for (std::size_t index = 0; index < tasks.size(); ++index) {
         if (tasks[index].kind == ProductKind::Science) {
             ++science_sources;
@@ -470,16 +438,22 @@ std::string makeManifest(const Config& config,
             dq_images += std::max(0, image_counts[index]);
         }
         resumed_sources += resumed_flags[index] > 0 ? 1 : 0;
+        skipped_hdus_total += skipped_hdus[index];
         if (statuses[index] <= 0) {
             failed_sources.push_back(tasks[index].source.string());
+        } else if (skipped_hdus[index] > 0) {
+            partial_sources.push_back(tasks[index].source.string());
         }
     }
 
-    const bool success = failed_sources.empty() && lists_published && final_error.empty();
+    const bool has_failures = !failed_sources.empty() || !partial_sources.empty();
+    const std::string status_text = !lists_published ? "failed"
+                                    : has_failures ? "partial"
+                                                   : "success";
     std::ostringstream manifest;
     manifest << "{\n"
              << "  \"schema_version\": 2,\n"
-             << "  \"status\": \"" << (success ? "success" : "failed") << "\",\n"
+             << "  \"status\": \"" << status_text << "\",\n"
              << "  \"direct_source_read\": true,\n"
              << "  \"copy_staging\": false,\n"
              << "  \"exposure_order\": \"corrected_lexical_no_rotation\",\n"
@@ -513,6 +487,15 @@ std::string makeManifest(const Config& config,
             manifest << ", ";
         }
         manifest << '"' << jsonEscape(failed_sources[index]) << '"';
+    }
+    manifest << "],\n"
+             << "  \"skipped_hdus\": " << skipped_hdus_total << ",\n"
+             << "  \"partial_sources\": [";
+    for (std::size_t index = 0; index < partial_sources.size(); ++index) {
+        if (index != 0) {
+            manifest << ", ";
+        }
+        manifest << '"' << jsonEscape(partial_sources[index]) << '"';
     }
     manifest << "]\n}\n";
     return manifest.str();
@@ -695,14 +678,19 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
     std::vector<int> local_status(tasks.size(), 0);
     std::vector<int> local_counts(tasks.size(), 0);
     std::vector<int> local_resumed(tasks.size(), 0);
+    std::vector<int> local_skipped(tasks.size(), 0);
     const fs::path staging_root = target_root / ".fq_init_tmp" / run_token;
 
     for (std::size_t task_index = static_cast<std::size_t>(rank);
          task_index < tasks.size();
          task_index += static_cast<std::size_t>(process_count)) {
         const Task& task = tasks[task_index];
+        const std::string exposure_stem = (task.kind == ProductKind::Science)
+                                              ? archiveStem(task.source)
+                                              : dqOutputStem(task.source);
         const fs::path final_directory = target_root
-                                          / (task.kind == ProductKind::Science ? "science" : "dqmask");
+                                          / (task.kind == ProductKind::Science ? "science" : "dqmask")
+                                          / exposure_stem;
         const fs::path task_staging = staging_root / ("rank_" + std::to_string(rank))
                                       / ("task_" + std::to_string(task_index));
         const ExtractionResult result = extractArchive(
@@ -712,15 +700,39 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
                                        ? static_cast<int>(result.output_paths.size())
                                        : 0;
         local_resumed[task_index] = result.resumed ? 1 : 0;
+        local_skipped[task_index] = result.skipped_hdus;
         if (!result.success) {
             std::cerr << "[rank " << rank << "] failed " << task.source << ": "
                       << result.error << std::endl;
+        }
+        if (task.kind == ProductKind::Science && result.success
+            && !result.output_paths.empty()) {
+            try {
+                std::vector<fs::path> sorted_paths = result.output_paths;
+                std::sort(sorted_paths.begin(), sorted_paths.end());
+                const std::string exposure = archiveStem(task.source);
+                const fs::path list_path = target_root / "stamps" / (exposure + ".list");
+                validatePipelinePath(list_path, config.f77_max_path);
+                for (const fs::path& image_path : sorted_paths) {
+                    validatePipelinePath(image_path, config.f77_max_path);
+                }
+                std::ostringstream exposure_list;
+                for (const fs::path& image_path : sorted_paths) {
+                    exposure_list << image_path.string() << '\n';
+                }
+                writeAtomic(list_path, exposure_list.str());
+            } catch (const std::exception& exception) {
+                local_status[task_index] = -1;
+                std::cerr << "[rank " << rank << "] failed to publish per-exposure list for "
+                          << task.source << ": " << exception.what() << std::endl;
+            }
         }
     }
 
     std::vector<int> global_status(tasks.size(), 0);
     std::vector<int> global_counts(tasks.size(), 0);
     std::vector<int> global_resumed(tasks.size(), 0);
+    std::vector<int> global_skipped(tasks.size(), 0);
     if (!tasks.empty()) {
         const int mpi_count = static_cast<int>(tasks.size());
         MPI_Allreduce(local_status.data(), global_status.data(), mpi_count,
@@ -729,6 +741,8 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
                       MPI_INT, MPI_SUM, communicator);
         MPI_Allreduce(local_resumed.data(), global_resumed.data(), mpi_count,
                       MPI_INT, MPI_SUM, communicator);
+        MPI_Allreduce(local_skipped.data(), global_skipped.data(), mpi_count,
+                      MPI_INT, MPI_SUM, communicator);
     }
     MPI_Barrier(communicator);
 
@@ -736,21 +750,17 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
     std::string final_error;
     int final_status = 0;
     if (rank == 0) {
-        const bool extraction_failed = std::any_of(
-            global_status.begin(), global_status.end(), [](int value) { return value != 1; });
-        if (extraction_failed) {
-            final_status = 1;
-            final_error = "one or more source archives failed; pipeline lists were not published";
-        } else {
-            try {
-                const std::vector<ExposureRecord> records = buildExposureRecords(
-                    config, target_root, science_sources, global_counts);
-                writePipelineLists(config, records);
-                lists_published = true;
-            } catch (const std::exception& exception) {
-                final_status = 1;
-                final_error = exception.what();
+        const bool any_failed = std::any_of(
+            global_status.begin(), global_status.end(), [](int value) { return value < 0; });
+        try {
+            publishPipelineLists(config, target_root);
+            lists_published = true;
+            if (any_failed) {
+                final_error = "some source archives failed; pipeline lists published with available data";
             }
+        } catch (const std::exception& exception) {
+            final_status = 1;
+            final_error = exception.what();
         }
 
         try {
@@ -758,7 +768,7 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
                                            / ("init_" + config.target + "_manifest.json");
             writeAtomic(manifest_path, makeManifest(
                 config, tasks, global_status, global_counts, global_resumed,
-                lists_published, final_error));
+                global_skipped, lists_published, final_error));
         } catch (const std::exception& exception) {
             final_status = 1;
             if (!final_error.empty()) {
@@ -779,6 +789,9 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
                       << " science archives, " << dq_sources.size()
                       << " DQ archives, corrected exposure order, no source copy staging."
                       << std::endl;
+            if (!final_error.empty()) {
+                std::cerr << "Initialization warning: " << final_error << std::endl;
+            }
         } else {
             std::cerr << "Initialization failed: " << final_error << std::endl;
         }

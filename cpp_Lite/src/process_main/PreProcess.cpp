@@ -464,8 +464,8 @@ namespace PreProcess {
         // ==========================================
         if (proc_error == 0) {
             std::string prefix_e = UniversalUtils::getPrefixExpo(imageFile);
-            std::string local_mask_file = dirOutput + "/dqmask/" + prefix_e + "_"
-                                          + std::to_string(cid) + ".fits";
+            std::string local_mask_file = dirOutput + "/dqmask/" + prefix_e + "/"
+                                          + prefix_e + "_" + std::to_string(cid) + ".fits";
             int nxx = 0, nyy = 0;
             std::vector<float> flat_weight;
             if (!FitsIO::readImage(local_mask_file, nxx, nyy, flat_weight)) {
@@ -484,7 +484,7 @@ namespace PreProcess {
             }
         }
 
-        std::string astroFilename = dirOutput + "/astrometry/" + prefix + "_astro.dat";
+        std::string astroFilename = dirOutput + "/astrometry/dat_Astro/" + prefix + "_astro.dat";
 
         std::string catfile = UniversalUtils::generateGaiaFileName(LensingConfig::ASTROMETRY_CAT, wcs.crval, proc_error);
         Astrometry::genAstrometryData(catfile, nx, ny, normap, weight, wcs, astroFilename, proc_error);
@@ -514,7 +514,7 @@ namespace PreProcess {
             }
         }
 
-        std::string normFilename = dirOutput + "/stamps/" + prefix + "_norm.fits";
+        std::string normFilename = dirOutput + "/stamps/Norm/" + prefix + "_norm.fits";
         if (!FitsIO::writeImageCopyHDU(imageFile, normFilename, nx, ny, normap)) {
             std::cerr << "Error writing normalized image: " << normFilename << std::endl;
             proc_error = 1;

@@ -2,6 +2,7 @@
 #define PROCESS_INIT_PROCESS_INIT_HPP
 
 #include "ProcessConfig.hpp"
+#include "InitConfig.hpp"
 
 #include <string>
 
@@ -11,7 +12,7 @@
 //         and return the generated absolute exposure-list path on success.
 // ==========================================
 int process_init(const ProcessConfig::RuntimeOptions& options,
-                 const ProcessConfig::DatasetSpec& dataset,
+                 const InitConfig::DatasetSpec& dataset,
                  std::string& generated_expo_list);
 
 #endif  // PROCESS_INIT_PROCESS_INIT_HPP

@@ -3,6 +3,7 @@
 #include "Astrometry.hpp"
 #include "CatalogCombiner.hpp"
 #include "ExposureInfo.hpp"
+#include "ExternalCatalogReader.hpp"
 #include "FourierTransformSt1.hpp"
 #include "FourierTransformSt2.hpp"
 #include "LensingConfig.hpp"
@@ -96,12 +97,37 @@ void broadcastExposureList(int rank) {
 }  // namespace
 
 // ==========================================
-// Function: Run the numerical Fourier_Quad pipeline on one exposure list
-// Method: Load and broadcast the list, then execute the configured MPI stages
-//         without owning MPI initialization or finalization.
+// Function: Run the numerical Fourier_Quad pipeline with compiled defaults
+// Method: Preserve the historical one-argument API by forwarding a default RuntimeOptions object.
 // ==========================================
 int process_main(const std::string& exposure_list) {
+    return process_main(exposure_list, ProcessConfig::RuntimeOptions{});
+}
+
+// ==========================================
+// Function: Run the numerical Fourier_Quad pipeline with unified runtime options
+// Method: Resolve external-catalog projection and RA/Dec/ZP columns, then load and broadcast
+//         the exposure list before executing configured MPI stages without owning MPI lifecycle.
+// ==========================================
+int process_main(const std::string& exposure_list,
+                 const ProcessConfig::RuntimeOptions& options) {
     const int rank = MPIScheduler::my_id;
+
+    std::string column_error;
+    const int local_columns_ok = ExternalCatalogReader::configure(options, column_error) ? 1 : 0;
+    int global_columns_ok = 0;
+    MPI_Allreduce(&local_columns_ok, &global_columns_ok, 1, MPI_INT, MPI_MIN,
+                  MPI_COMM_WORLD);
+    if (global_columns_ok == 0) {
+        if (rank == 0) {
+            std::cerr << "External-catalog column error: "
+                      << (column_error.empty()
+                              ? "validation failed on another MPI rank"
+                              : column_error)
+                      << std::endl;
+        }
+        return 1;
+    }
 
     int load_ok = 1;
     std::string load_error;

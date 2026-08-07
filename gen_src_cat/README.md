@@ -333,12 +333,13 @@ The C++ repartitioner emits this schema only when its pass-through input or
 explicit selection has the same fields in the same order. Otherwise it emits
 the effective input width or selected-list width.
 
-`process_main` reads RA after skipping the number of leading fields configured
-by `ext_cat_columns_before_ra`. Its default value is `4`, matching the four flag
-fields above. It then expects Dec, the ten magnitude/error fields, `dnf_z`, and
-`dnf_zsigma` in that order. Therefore arbitrary-width or arbitrarily ordered
-C++ output is valid for catalog-only jobs, but it can feed `process_main` only
-when the selected order satisfies that reader contract.
+`process_main` reads only the one-based raw positions configured by
+`EXTCAT_RA_COLUMN_ONE_BASED`, `EXTCAT_DEC_COLUMN_ONE_BASED`, and
+`EXTCAT_ZP_COLUMN_ONE_BASED`; their defaults are `5`, `6`, and `17` for the
+schema above. Other fields are not converted and may contain arbitrary strings.
+When explicit projection is enabled, all three raw indices must appear in the
+selected list. The reader automatically maps them to their generated output
+positions, so no fixed width or fixed magnitude/error layout is required.
 
 ## Connect generated tiles to Fourier_Quad
 
