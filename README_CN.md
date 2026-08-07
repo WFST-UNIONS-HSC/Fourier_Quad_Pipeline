@@ -72,8 +72,8 @@ mpirun -np 4 ./Fourier_Quad_Pipe --expo-list expo_list.list
 
 ```bash
 # 拉取已发布镜像（或：cd f77_docker && docker compose build）
-docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/f77pipeline:sha-2d88686
-docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/cpppipeline:sha-2d88686
+docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/f77pipeline:latest
+docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/cpppipeline:latest
 
 # HPC（Slurm + Apptainer）：转为 SIF 并提交
 bash f77_docker/runner/pull-sif.sh        # 或 cpp_docker/runner/pull-sif.sh

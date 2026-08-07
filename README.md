@@ -78,8 +78,8 @@ scripts.
 
 ```bash
 # Pull a published image (or: cd f77_docker && docker compose build)
-docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/f77pipeline:sha-2d88686
-docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/cpppipeline:sha-2d88686
+docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/f77pipeline:latest
+docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/cpppipeline:latest
 
 # HPC (Slurm + Apptainer): convert to a SIF and submit
 bash f77_docker/runner/pull-sif.sh        # or cpp_docker/runner/pull-sif.sh
