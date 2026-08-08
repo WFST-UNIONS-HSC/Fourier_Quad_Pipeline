@@ -1,7 +1,7 @@
 # Fourier_Quad_Pipeline
 
 A weak-lensing shear measurement pipeline based on the **Fourier\_Quad** method,
-provided in both **Fortran 77 (legacy)** and **C++ (current)** implementations,
+provided in both **Fortran 77 (legacy)** and **C++ (Neo)** implementations,
 together with ready-to-use **Docker** build environments and **HPC**
 (Slurm/Apptainer) runner scripts.
 
