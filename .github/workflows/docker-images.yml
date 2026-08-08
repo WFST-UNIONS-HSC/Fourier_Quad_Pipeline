@@ -1,7 +1,7 @@
 name: Build and publish Docker images
 
 # ==========================================
-# Trigger: push a version tag (v*) or manual dispatch.
+# Trigger: push a major-release tag (v<digits>.0.0) or manual dispatch.
 # Builds two images and publishes them to GHCR:
 #   - f77pipeline  (f77_docker context)
 #   - cpppipeline  (cpp_docker context)
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - "v*"
+      - "v[0-9]+.0.0"
 
 permissions:
   contents: read
