@@ -36,7 +36,6 @@ jobs:
               ! -name '.planning' \
               ! -name '.github' \
               ! -name 'artifacts' \
-              ! -name 'gen_src_cat' \
               -print0 | sort -z | while IFS= read -r -d '' dir; do
             dirname="$(basename "$dir")"
             echo "Zipping: $dirname"
