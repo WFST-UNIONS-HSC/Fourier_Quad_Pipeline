@@ -58,6 +58,7 @@ namespace FitsIO {
     private:
         void* fptr; // fitsfile* typecast to void* to avoid exposing cfitsio headers in FitsIO.hpp
         int status;
+        std::string outputFilename;
     };
 }
 

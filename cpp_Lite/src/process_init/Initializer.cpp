@@ -1,4 +1,5 @@
 #include "process_init/Initializer.hpp"
+#include "OutputLayout.hpp"
 
 #include <mpi.h>
 
@@ -244,24 +245,26 @@ void broadcastPaths(std::vector<fs::path>& paths, int root_rank, MPI_Comm commun
 }
 
 // ==========================================
-// Function: Create the complete directory contract consumed by all pipeline modes
-// Method: Materialize the ten established output directories under one target.
+// Function: Create the complete base-directory contract consumed by all pipeline modes
+// Method: Apply the two shared OutputLayout directory sets idempotently.
 // ==========================================
 void createPipelineDirectories(const fs::path& target_root) {
-    static const std::vector<std::string> directory_names = {
-        "science", "dqmask", "stamps", "result",
-        "stamps/Norm", "stamps/cat_Orig", "stamps/dat_StarInfo",
-        "stamps/dat_StarCanInfo", "stamps/fits_StarCan", "stamps/fits_StarCanN",
-        "stamps/fits_StarCanP", "stamps/dat_SrcInfo", "stamps/fits_Src",
-        "stamps/fits_Noise", "stamps/fits_SrcP", "stamps/fits_StarP",
-        "stamps/dat_PsfFit", "stamps/fits_PsfLocal", "stamps/fits_PsfSrc",
-        "stamps/dat_Shear", "stamps/dat_ExpoInfo", "stamps/dat_StarComp",
-        "stamps/dat_Rescale", "stamps/dat_StarXY", "stamps/fits_PsfResi",
-        "stamps/dat_Pcs", "stamps/dat_StarCompV2",
-        "astrometry/dat_Astro", "astrometry/Head", "astrometry/dat_Chk",
-    };
-    for (const std::string& name : directory_names) {
+    for (const char* name : OutputLayout::NON_CHIP_BASE_DIRECTORIES) {
         fs::create_directories(target_root / name);
+    }
+    for (const char* name : OutputLayout::CHIP_PRODUCT_DIRECTORIES) {
+        fs::create_directories(target_root / name);
+    }
+}
+
+// ==========================================
+// Function: Create every chip-product directory for one exposure
+// Method: Apply the shared OutputLayout contract idempotently after list publication.
+// ==========================================
+void createExposureProductDirectories(const fs::path& target_root,
+                                      const std::string& exposure) {
+    for (const char* name : OutputLayout::CHIP_PRODUCT_DIRECTORIES) {
+        fs::create_directories(target_root / name / exposure);
     }
 }
 
@@ -409,6 +412,49 @@ void publishPipelineLists(const Config& config, const fs::path& target_root) {
 }
 
 // ==========================================
+// Function: Materialize chip-product exposure directories from the published expo list
+// Method: Parse expo_<target>.list after its atomic publication, validate each generated
+//         per-exposure list path, derive the exposure from its .list basename, and create
+//         every shared chip-product directory idempotently.
+// ==========================================
+void createExposureDirectoriesFromPublishedList(const Config& config,
+                                                const fs::path& target_root) {
+    const fs::path top_path = config.output_root / ("expo_" + config.target + ".list");
+    std::ifstream input(top_path);
+    if (!input.is_open()) {
+        throw std::runtime_error("cannot read published exposure list: "
+                                 + top_path.string());
+    }
+
+    const fs::path expected_parent = (target_root / "stamps").lexically_normal();
+    std::set<std::string> exposures;
+    std::string list_path_text;
+    int chip_count = 0;
+    while (input >> std::quoted(list_path_text) >> chip_count) {
+        const fs::path list_path = fs::path(list_path_text).lexically_normal();
+        if (chip_count < 0 || list_path.extension() != ".list"
+            || list_path.parent_path() != expected_parent) {
+            throw std::runtime_error("invalid record in published exposure list: "
+                                     + list_path_text);
+        }
+        const std::string exposure = list_path.stem().string();
+        if (exposure.empty()) {
+            throw std::runtime_error("empty exposure name in published exposure list: "
+                                     + list_path_text);
+        }
+        exposures.insert(exposure);
+    }
+    if (!input.eof()) {
+        throw std::runtime_error("malformed published exposure list: "
+                                 + top_path.string());
+    }
+
+    for (const std::string& exposure : exposures) {
+        createExposureProductDirectories(target_root, exposure);
+    }
+}
+
+// ==========================================
 // Function: Serialize one durable initialization manifest
 // Method: Record fixed naming/order decisions, direct-read provenance, counts,
 //         existing-output policy, and every failed source path.
@@ -420,6 +466,7 @@ std::string makeManifest(const Config& config,
                          const std::vector<int>& resumed_flags,
                          const std::vector<int>& skipped_hdus,
                          bool lists_published,
+                         bool exposure_directories_created,
                          const std::string& final_error) {
     int science_sources = 0;
     int dq_sources = 0;
@@ -447,9 +494,10 @@ std::string makeManifest(const Config& config,
     }
 
     const bool has_failures = !failed_sources.empty() || !partial_sources.empty();
-    const std::string status_text = !lists_published ? "failed"
-                                    : has_failures ? "partial"
-                                                   : "success";
+    const std::string status_text =
+        (!lists_published || !exposure_directories_created)
+            ? "failed"
+            : has_failures ? "partial" : "success";
     std::ostringstream manifest;
     manifest << "{\n"
              << "  \"schema_version\": 2,\n"
@@ -480,6 +528,8 @@ std::string makeManifest(const Config& config,
              << "  \"dq_images\": " << dq_images << ",\n"
              << "  \"resumed_sources\": " << resumed_sources << ",\n"
              << "  \"lists_published\": " << (lists_published ? "true" : "false") << ",\n"
+             << "  \"exposure_directories_created\": "
+             << (exposure_directories_created ? "true" : "false") << ",\n"
              << "  \"error\": \"" << jsonEscape(final_error) << "\",\n"
              << "  \"failed_sources\": [";
     for (std::size_t index = 0; index < failed_sources.size(); ++index) {
@@ -602,7 +652,8 @@ void printUsage(const char* program_name) {
         << "  --prefix TEXT          Required filename prefix, for example c4d_15\n"
         << "  --contains TEXT        Repeatable filename token; matches any token (default: v1)\n"
         << "  --existing MODE        fail (default), resume, or overwrite\n"
-        << "  --f77-max-path N       Maximum generated path length; 0 disables (default: 149)\n"
+        << "  --f77-max-path N       Maximum generated path length; 0 disables (default: "
+        << InitConfig::F77_MAX_PATH << ")\n"
         << "  --help                  Show this help\n";
 }
 
@@ -747,6 +798,7 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
     MPI_Barrier(communicator);
 
     bool lists_published = false;
+    bool exposure_directories_created = false;
     std::string final_error;
     int final_status = 0;
     if (rank == 0) {
@@ -755,6 +807,8 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
         try {
             publishPipelineLists(config, target_root);
             lists_published = true;
+            createExposureDirectoriesFromPublishedList(config, target_root);
+            exposure_directories_created = true;
             if (any_failed) {
                 final_error = "some source archives failed; pipeline lists published with available data";
             }
@@ -768,7 +822,8 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
                                            / ("init_" + config.target + "_manifest.json");
             writeAtomic(manifest_path, makeManifest(
                 config, tasks, global_status, global_counts, global_resumed,
-                global_skipped, lists_published, final_error));
+                global_skipped, lists_published, exposure_directories_created,
+                final_error));
         } catch (const std::exception& exception) {
             final_status = 1;
             if (!final_error.empty()) {

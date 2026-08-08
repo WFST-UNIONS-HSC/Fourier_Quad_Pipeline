@@ -1,4 +1,6 @@
 #include "Astrometry.hpp"
+#include "OutputFile.hpp"
+#include "OutputLayout.hpp"
 #include "LensingConfig.hpp"
 #include "UniversalUtils.hpp"
 #include "FitsIO.hpp"
@@ -850,7 +852,7 @@ namespace Astrometry {
                            const std::vector<float>& map, const std::vector<int>& weight,
                            WCSParams& wcs, const std::string& filename, int& procError) {
         if (procError == 1) {
-            std::ofstream ofs(filename);
+            MainIO::OutputFile ofs(filename);
             if (ofs) {
                 ofs << std::setprecision(17) << wcs.crpix[0] << " " << wcs.crpix[1] << " "
                     << wcs.crval[0] << " " << wcs.crval[1] << "\n";
@@ -880,7 +882,7 @@ namespace Astrometry {
         if (!ifs) {
             std::cerr << "Error / gen_astrometry_data catalog file error: " << catStandard << std::endl;
             procError = 1;
-            std::ofstream ofs(filename);
+            MainIO::OutputFile ofs(filename);
             if (ofs) {
                 ofs << std::setprecision(17) << wcs.crpix[0] << " " << wcs.crpix[1] << " "
                     << wcs.crval[0] << " " << wcs.crval[1] << "\n";
@@ -911,7 +913,7 @@ namespace Astrometry {
             n_ref++;
             if (n_ref > nss_max) {
                 std::cerr << "n_ref is too large!! " << filename << std::endl;
-                std::ofstream ofs(filename);
+                MainIO::OutputFile ofs(filename);
                 if (ofs) {
                     ofs << std::setprecision(17) << wcs.crpix[0] << " " << wcs.crpix[1] << " "
                         << wcs.crval[0] << " " << wcs.crval[1] << "\n";
@@ -954,7 +956,7 @@ namespace Astrometry {
 
         // std::cout << nss << " " << n_ref << " " << n_user << " " << filename << std::endl;
 
-       std::ofstream ofs(filename);
+       MainIO::OutputFile ofs(filename);
         if (ofs) {
             ofs << std::setprecision(17) << wcs.crpix[0] << " " << wcs.crpix[1] << " "
                 << wcs.crval[0] << " " << wcs.crval[1] << "\n";
@@ -1243,7 +1245,8 @@ namespace Astrometry {
 
         for (int ichip = 1; ichip <= nchip; ++ichip) {
             std::string prefix = UniversalUtils::getPrefix(imageFiles[ichip - 1]);
-            std::string filename = dirOutput + "/astrometry/dat_Astro/" + prefix + "_astro.dat";
+            std::string filename = OutputLayout::chipPath(
+                dirOutput, "astrometry/dat_Astro", prefix, "_astro.dat");
 
             std::ifstream ifs(filename);
             if (!ifs) {
@@ -1426,7 +1429,7 @@ namespace Astrometry {
         }
 
         std::string out_head = dirOutput + "/astrometry/Head/" + prefix_expo + ".head";
-        std::ofstream ofs(out_head);
+        MainIO::OutputFile ofs(out_head);
         if (ofs) {
             ofs << std::setprecision(17) << cRVAL2[0] << " " << cRVAL2[1] << "\n";
             for (int i = 0; i < LensingConfig::npd; ++i) {
@@ -1451,7 +1454,7 @@ namespace Astrometry {
 
         std::string prefix_expo = UniversalUtils::getPrefixExpo(imageFiles[0]);
         std::string check_filename = dirOutput + "/astrometry/dat_Chk/" + prefix_expo + "_check.dat";
-        std::ofstream check_ofs(check_filename);
+        MainIO::OutputFile check_ofs(check_filename);
         if (!check_ofs) {
             std::cerr << "Error writing check file: " << check_filename << std::endl;
             return;
@@ -1467,7 +1470,8 @@ namespace Astrometry {
 
             if (proc_error == 0) {
                 std::string prefix = UniversalUtils::getPrefix(imageFiles[ichip - 1]);
-                std::string norm_filename = dirOutput + "/stamps/Norm/" + prefix + "_norm.fits";
+                std::string norm_filename = OutputLayout::chipPath(
+                    dirOutput, "stamps/Norm", prefix, "_norm.fits");
                 
                 WCSParams wcs;
                 wcs.crpix[0] = cRPIX[0];
@@ -1481,7 +1485,8 @@ namespace Astrometry {
 
                 FitsIO::updatePara(norm_filename, wcs);
 
-                std::string astro_filename = dirOutput + "/astrometry/dat_Astro/" + prefix + "_astro.dat";
+                std::string astro_filename = OutputLayout::chipPath(
+                    dirOutput, "astrometry/dat_Astro", prefix, "_astro.dat");
                 std::ifstream astro_ifs(astro_filename);
                 if (astro_ifs) {
                     std::string dummyLine1, dummyLine2;

@@ -1,4 +1,5 @@
 #include "PreProcess.hpp"
+#include "OutputLayout.hpp"
 #include "LensingConfig.hpp"
 #include "UniversalUtils.hpp"
 #include "FitsIO.hpp"
@@ -509,7 +510,8 @@ namespace PreProcess {
             }
         }
 
-        std::string astroFilename = dirOutput + "/astrometry/dat_Astro/" + prefix + "_astro.dat";
+        std::string astroFilename = OutputLayout::chipPath(
+            dirOutput, "astrometry/dat_Astro", prefix, "_astro.dat");
 
         if (LensingConfig::ASTROMETRY_trivial == 1) {
             Astrometry::genAstrometryDataTrivial(wcs, astroFilename);
@@ -564,7 +566,8 @@ namespace PreProcess {
             }
         }
 
-        std::string normFilename = dirOutput + "/stamps/Norm/" + prefix + "_norm.fits";
+        std::string normFilename = OutputLayout::chipPath(
+            dirOutput, "stamps/Norm", prefix, "_norm.fits");
         if (!FitsIO::writeImageCopyHDU(imageFile, normFilename, nx, ny, normap)) {
             std::cerr << "Error writing normalized image: " << normFilename << std::endl;
             proc_error = 1;

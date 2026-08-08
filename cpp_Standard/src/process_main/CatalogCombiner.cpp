@@ -1,4 +1,6 @@
 #include "CatalogCombiner.hpp"
+#include "OutputFile.hpp"
+#include "OutputLayout.hpp"
 #include "LensingConfig.hpp"
 #include "UniversalUtils.hpp"
 #include "ExposureInfo.hpp"
@@ -22,11 +24,16 @@ static inline std::string trimRight(std::string str) {
     return str;
 }
 
+// ==========================================
+// Function: Combine one exposure's chip catalogs into the final result catalog
+// Method: Read aligned original/shear rows and publish the merged text output
+//         through the checked main-process writer.
+// ==========================================
 void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, float chi2) {
     std::string prefix_expo = UniversalUtils::getPrefixExpo(imageFiles[0]);
     std::string out_filename = dirOutput + "/result/" + prefix_expo + "_all.cat";
 
-    std::ofstream fout20(out_filename);
+    MainIO::OutputFile fout20(out_filename);
     if (!fout20.is_open()) {
         std::cerr << "Error: cannot open combined catalog output: " << out_filename << std::endl;
         std::exit(1);
@@ -37,7 +44,8 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
     if (LensingConfig::ext_cat == 1) {
         for (int ichip = 0; ichip < nchip; ++ichip) {
             std::string prefix = UniversalUtils::getPrefix(imageFiles[ichip]);
-            std::string filename = dirOutput + "/stamps/cat_Orig/" + prefix + "_orig.cat";
+            std::string filename = OutputLayout::chipPath(
+                dirOutput, "stamps/cat_Orig", prefix, "_orig.cat");
             std::ifstream fin15(filename);
             if (fin15.is_open()) {
                 if (std::getline(fin15, cat_list2)) {
@@ -64,7 +72,8 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
         std::string prefix = UniversalUtils::getPrefix(imageFiles[ichip]);
         last_prefix = prefix;
 
-        std::string filename_shear = dirOutput + "/stamps/dat_Shear/" + prefix + "_shear.dat";
+        std::string filename_shear = OutputLayout::chipPath(
+            dirOutput, "stamps/dat_Shear", prefix, "_shear.dat");
         std::ifstream fin10(filename_shear);
         if (!fin10.is_open()) {
             std::cerr << filename_shear << " is missing!" << std::endl;
@@ -76,7 +85,8 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
         cat_list1 = trimRight(cat_list1);
 
         if (LensingConfig::ext_cat == 1) {
-            std::string filename_orig = dirOutput + "/stamps/cat_Orig/" + prefix + "_orig.cat";
+            std::string filename_orig = OutputLayout::chipPath(
+                dirOutput, "stamps/cat_Orig", prefix, "_orig.cat");
             std::ifstream fin15(filename_orig);
             if (!fin15.is_open()) {
                 std::cerr << filename_orig << " is missing!" << std::endl;

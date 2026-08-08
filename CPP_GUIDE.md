@@ -282,7 +282,7 @@ inline const std::vector<std::string> CONTAINS = {"v1", "v2"};
 | `--prefix TEXT` | Legacy single-dataset prefix; cannot be mixed with `--dataset`. |
 | `--contains TEXT` | Accepted basename token; repeat for OR matching. |
 | `--existing MODE` | `fail`, `resume`, or `overwrite`; default is `fail`. |
-| `--f77-max-path N` | Maximum generated path length; `0` disables the check. |
+| `--f77-max-path N` | Initializer-only maximum generated path length; `0` disables the check. |
 | `--expo-list PATH` | Exposure list used in main/rearr-only mode. |
 | `--help` | Print the effective command contract. |
 
@@ -294,6 +294,12 @@ replacement/append rule for `CONTAINS`. Other duplicate scalar options use the
 last value. The first explicit `--extcat-contains` similarly replaces
 `EXTCAT_FILENAME_TOKENS`; later occurrences append. Dataset target names must be
 unique within one invocation.
+
+`--f77-max-path` belongs to `process_init`: its default value of 150 protects
+paths intended to remain compatible with the legacy Fortran workflow. It does
+not truncate or reject paths in `process_main`. Main-process paths are
+`std::string` values and are instead subject to the selected filesystem and I/O
+library limits (including CFITSIO's filename capacity for FITS products).
 
 
 ## Run modes
@@ -407,10 +413,14 @@ is collective; the numerical phase is never entered after initialization fails.
 ## Initializer output contract
 
 For each `--output-root OUTPUT --dataset TARGET:PREFIX`, initialization builds
-the pipeline directory tree below `OUTPUT/TARGET`, extracts Science/DQ chip
-images into per-exposure subdirectories, and publishes the top-level exposure
-lists. Source `.fits.fz` archives are read in place and are never copied or
-removed.
+the pipeline directory tree below `OUTPUT/TARGET`. The exact order is: create
+the fixed type directories idempotently; extract Science/DQ chip images; write
+each successful Science exposure's `stamps/<EXPOSURE>.list`; have rank zero
+publish the two top-level lists; create chip-product exposure subdirectories
+from the published expo list; and finally publish the manifest. Source
+`.fits.fz` archives are read in place and are never copied or removed. The
+complete fixed directory contract and its chip-product subset are centralized
+in `include/OutputLayout.hpp` for both variants.
 
 ### Output layout under `OUTPUT/TARGET`
 
@@ -438,22 +448,54 @@ Type-specific subdirectories replace the former flat `stamps/`, `rescale/`,
 `fits_StarCanP/`, `fits_StarP/`, `fits_Src/`, `fits_Noise/`, `fits_SrcP/`,
 `fits_PsfLocal/`, `fits_PsfSrc/`, `fits_PsfResi/`.
 
+Every chip-scoped product is sharded one level further by exposure:
+`<TYPE>/<EXPOSURE>/<CHIP><SUFFIX>`. For example, a normalized chip is written
+as `stamps/Norm/<EXPOSURE>/<CHIP>_norm.fits`, and its astrometry solution is
+`astrometry/dat_Astro/<EXPOSURE>/<CHIP>_astro.dat`. Exposure-scoped products
+such as `.head`, `_star_info_expo.dat`, `_star_power_expo.fits`,
+`_PSF_source.fits`, `_expo_info.dat`, and `_all.cat` remain directly in their
+existing type directories. Rank zero creates these chip-product
+`<EXPOSURE>/` directories idempotently only after publishing and re-reading
+`expo_TARGET.list`.
+
+### process_main path and output-failure contract
+
+The Stage 1--9 producer/consumer chain has been audited against this layout.
+Chip products are constructed on both write and read paths with
+`OutputLayout::chipPath`; exposure products remain directly in their declared
+type directories. The checked chain is: astrometry/normalization, WCS/check,
+source and star-candidate extraction, star power, PSF products, source power,
+shear, exposure information, and final catalog combination. DQ input is read
+from the same `dqmask/<EXPOSURE>/<EXPOSURE>_<CCDNUM>.fits` contract published
+by initialization. No path-layer or suffix mismatch was found.
+
+All `process_main` text outputs use the checked `MainIO::OutputFile` stream.
+FITS outputs use the checked `FitsIO` creation/write/close paths. A create,
+write, flush, or close failure emits one `Output creation failed` diagnostic
+containing MPI rank, operation, output path, and the OS/CFITSIO reason, then
+terminates the MPI job with `MPI_Abort`. This avoids leaving the master or
+another worker blocked in the dynamic scheduler.
+
 ### Exposure-list generation
 
 During extraction each rank writes `stamps/<EXPOSURE>.list` (the chip image
 paths it produced) directly from the extraction result - no post-hoc disk
 re-scan is performed. After all ranks finish, rank zero scans `stamps/`, sorts
-the per-exposure lists, and atomically publishes:
+the per-exposure lists, and atomically publishes the first two files below:
 
 - `OUTPUT/expo_TARGET.list` - top-level list; each line is
   `"<OUTPUT/TARGET/stamps/<EXPOSURE>.list>"  <chip count>`.
 - `OUTPUT/fits_TARGET.list` - flat list of every Science chip image path.
-- `OUTPUT/init_TARGET_manifest.json` - initialization manifest.
 
-Manifest schema version 2 records all active basename filters in the
-`filename_tokens` array. Science chips are numbered by two-dimensional HDU
-occurrence; DQ chips are numbered by `CCDNUM`. Downstream stages derive the
-dataset root from a Science chip path via `getDir(image, 3)` (three levels up:
+Rank zero then reads the published expo list and creates each chip-product
+exposure subdirectory. Only after that step succeeds does it atomically publish
+`OUTPUT/init_TARGET_manifest.json`. Manifest schema version 2 records the
+`exposure_directories_created` completion flag as well as all active basename
+filters in the `filename_tokens` array.
+
+Science chips are numbered by two-dimensional HDU occurrence; DQ chips are
+numbered by `CCDNUM`. Downstream stages derive the dataset root from a Science
+chip path via `getDir(image, 3)` (three levels up:
 `science/<EXPOSURE>/<file>` -> `science` -> `OUTPUT/TARGET`), and per-chip DQ
 masks are read from `dqmask/<EXPOSURE>/<EXPOSURE>_<CCDNUM>.fits`.
 
@@ -556,5 +598,3 @@ For detailed HPC runner documentation, see:
 - [`cpp_docker/runner/README.md`](cpp_docker/runner/README.md) / [`cpp_docker/runner/README-CN.md`](cpp_docker/runner/README-CN.md)
 
 ---
-
-

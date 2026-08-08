@@ -1,6 +1,7 @@
 #ifndef FQ_INIT_INITIALIZER_HPP
 #define FQ_INIT_INITIALIZER_HPP
 
+#include "InitConfig.hpp"
 #include "process_init/FitsExtractor.hpp"
 
 #include <mpi.h>
@@ -19,7 +20,7 @@ struct Config {
     std::string filename_prefix;
     std::vector<std::string> filename_tokens = {"v1"};
     ExistingPolicy existing_policy = ExistingPolicy::Fail;
-    int f77_max_path = 149;
+    int f77_max_path = InitConfig::F77_MAX_PATH;
     int max_chip = 62;
 };
 

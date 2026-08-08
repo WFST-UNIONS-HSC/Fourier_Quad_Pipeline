@@ -8,6 +8,7 @@
 #include "FourierTransformSt2.hpp"
 #include "LensingConfig.hpp"
 #include "MPIScheduler.hpp"
+#include "OutputFile.hpp"
 #include "PSFModel.hpp"
 #include "PSFRecons.hpp"
 #include "PreProcess.hpp"
@@ -216,7 +217,7 @@ int process_main(const std::string& exposure_list,
     if (rank == 0) {
         const std::string root_directory = UniversalUtils::getDir(exposure_list, 1);
         const std::string filename = root_directory + "/expo_info.dat";
-        std::ofstream output(filename);
+        MainIO::OutputFile output(filename);
         if (output.is_open()) {
             output << std::setprecision(10);
             output << "N-valid-chip PSF-FWHM(arcsec) chi_d-stars nstar-per-chip "

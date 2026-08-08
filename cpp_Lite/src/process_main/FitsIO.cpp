@@ -1,21 +1,50 @@
 #include "FitsIO.hpp"
+#include "OutputFile.hpp"
 #include <fitsio.h>
 #include <iostream>
 #include <cstdio>
 #include <algorithm>
 #include <cstdlib>
+#include <sstream>
 
 namespace FitsIO {
 
-    void printError(int status) {
-        if (status == 0) return;
-        char errtext[31];
+    // ==========================================
+    // Function: Format one CFITSIO status and diagnostic stack
+    // Method: Capture the primary status text and drain all queued messages into
+    //         one reason string suitable for read diagnostics or fatal output errors.
+    // ==========================================
+    static std::string fitsErrorMessage(int status) {
+        char errtext[FLEN_STATUS] = {};
         fits_get_errstatus(status, errtext);
-        std::cerr << "FITSIO Error Status = " << status << ": " << errtext << std::endl;
-        char errmessage[81];
-        while (fits_read_errmsg(errmessage)) {
-            std::cerr << errmessage << std::endl;
+        std::ostringstream message;
+        message << "CFITSIO status " << status << ": " << errtext;
+        char errmessage[FLEN_ERRMSG] = {};
+        while (fits_read_errmsg(errmessage) != 0) {
+            message << "; " << errmessage;
         }
+        return message.str();
+    }
+
+    // ==========================================
+    // Function: Print one non-fatal CFITSIO diagnostic
+    // Method: Reuse the complete formatted status stack for input-side failures.
+    // ==========================================
+    void printError(int status) {
+        if (status != 0) {
+            std::cerr << fitsErrorMessage(status) << std::endl;
+        }
+    }
+
+    // ==========================================
+    // Function: Terminate after a CFITSIO output failure
+    // Method: Convert the complete CFITSIO status stack into the shared MPI-wide
+    //         fail-fast output diagnostic.
+    // ==========================================
+    [[noreturn]] static void failFitsOutput(const std::string& operation,
+                                            const std::string& filename,
+                                            int status) {
+        MainIO::failOutput(operation, filename, fitsErrorMessage(status));
     }
 
     // ==========================================
@@ -213,21 +242,28 @@ namespace FitsIO {
         return true;
     }
 
+    // ==========================================
+    // Function: Write an image while preserving the template primary HDU
+    // Method: Treat template-open failure as an input error, but terminate the
+    //         complete MPI program for output creation, write, or close failure.
+    // ==========================================
     bool writeImageCopyHDU(const std::string& templateFile, const std::string& filename, int nx, int ny, const std::vector<float>& data) {
-        // Delete file if exists
-        std::remove(filename.c_str());
-
         fitsfile* infptr = nullptr;
         fitsfile* outfptr = nullptr;
         int status = 0;
 
         fits_open_file(&infptr, templateFile.c_str(), READONLY, &status);
-        fits_create_file(&outfptr, filename.c_str(), &status);
         if (status != 0) {
             printError(status);
-            if (infptr) fits_close_file(infptr, &status);
-            if (outfptr) fits_close_file(outfptr, &status);
             return false;
+        }
+
+        const std::string create_name = "!" + filename;
+        fits_create_file(&outfptr, create_name.c_str(), &status);
+        if (status != 0) {
+            int close_status = 0;
+            fits_close_file(infptr, &close_status);
+            failFitsOutput("create FITS output", filename, status);
         }
 
         // Copy primary HDU
@@ -239,26 +275,37 @@ namespace FitsIO {
 
         long fpixel[2] = {1, 1};
         fits_write_pix(outfptr, TFLOAT, fpixel, nx * ny, const_cast<float*>(data.data()), &status);
-
-        fits_close_file(infptr, &status);
-        fits_close_file(outfptr, &status);
-
         if (status != 0) {
-            printError(status);
+            failFitsOutput("write FITS output", filename, status);
+        }
+
+        int input_close_status = 0;
+        fits_close_file(infptr, &input_close_status);
+        if (input_close_status != 0) {
+            printError(input_close_status);
             return false;
+        }
+
+        int output_close_status = 0;
+        fits_close_file(outfptr, &output_close_status);
+        if (output_close_status != 0) {
+            failFitsOutput("close FITS output", filename, output_close_status);
         }
         return true;
     }
 
+    // ==========================================
+    // Function: Write one standard two-dimensional float FITS image
+    // Method: Use CFITSIO overwrite syntax and terminate the complete MPI
+    //         program for creation, header, pixel, or close failure.
+    // ==========================================
     bool writeImage(const std::string& filename, int nx, int ny, const std::vector<float>& data) {
-        std::remove(filename.c_str());
-
         fitsfile* fptr = nullptr;
         int status = 0;
-        fits_create_file(&fptr, ("!" + filename).c_str(), &status); // '!' forces overwrite if fits_create_file allows
+        const std::string create_name = "!" + filename;
+        fits_create_file(&fptr, create_name.c_str(), &status);
         if (status != 0) {
-            printError(status);
-            return false;
+            failFitsOutput("create FITS output", filename, status);
         }
 
         int bitpix = -32;
@@ -268,11 +315,14 @@ namespace FitsIO {
 
         long fpixel[2] = {1, 1};
         fits_write_pix(fptr, TFLOAT, fpixel, nx * ny, const_cast<float*>(data.data()), &status);
-        fits_close_file(fptr, &status);
-
         if (status != 0) {
-            printError(status);
-            return false;
+            failFitsOutput("write FITS output", filename, status);
+        }
+
+        int close_status = 0;
+        fits_close_file(fptr, &close_status);
+        if (close_status != 0) {
+            failFitsOutput("close FITS output", filename, close_status);
         }
         return true;
     }
@@ -323,8 +373,9 @@ namespace FitsIO {
     bool writeStamps(int np, int nstart, int n, int nsx, int nsy, const std::vector<float>& stamps, int n1, int n2, const std::string& filename) {
         constexpr int f77Nmax = 7000;
         if (n2 > f77Nmax) {
-            std::cerr << "(Write Stamp)Large_stamp is too small!!" << std::endl;
-            std::exit(EXIT_FAILURE);
+            MainIO::failOutput(
+                "pack FITS stamps", filename,
+                "requested output height exceeds the retained 7000-row stamp buffer contract");
         }
 
         std::vector<float> largeStamp(static_cast<size_t>(n1) * n2, 0.0f);
@@ -334,8 +385,9 @@ namespace FitsIO {
 
         for (int k = nstart - 1; k < n; ++k) {
             if (offy + nsy > n2) {
-                std::cerr << "write_stamps ERROR: large stamp overflow!" << std::endl;
-                std::exit(EXIT_FAILURE);
+                MainIO::failOutput(
+                    "pack FITS stamps", filename,
+                    "stamp collection exceeds the requested FITS image dimensions");
             }
             for (int y = 0; y < nsy; ++y) {
                 for (int x = 0; x < nsx; ++x) {
@@ -354,6 +406,11 @@ namespace FitsIO {
         return writeImage(filename, n1, n2, largeStamp);
     }
 
+    // ==========================================
+    // Function: Pack selected image stamps into one checked FITS image
+    // Method: Abort the complete MPI program on packing overflow and delegate
+    //         creation/write failure handling to writeImage.
+    // ==========================================
     bool writeStamps2(int np, int n, int nsx, int nsy, const std::vector<float>& stamps, const std::vector<int>& opt, int val, int n1, int n2, const std::string& filename) {
         std::vector<float> largeStamp(static_cast<size_t>(n1) * n2, 0.0f);
 
@@ -363,8 +420,9 @@ namespace FitsIO {
         for (int k = 0; k < n; ++k) {
             if (opt[k] != val) continue;
             if (offy + nsy > n2) {
-                std::cerr << "large_stamp overflow in writeStamps2!" << std::endl;
-                return false;
+                MainIO::failOutput(
+                    "pack selected FITS stamps", filename,
+                    "selected stamp collection exceeds the requested FITS image dimensions");
             }
             for (int y = 0; y < nsy; ++y) {
                 for (int x = 0; x < nsx; ++x) {
@@ -383,29 +441,50 @@ namespace FitsIO {
         return writeImage(filename, n1, n2, largeStamp);
     }
 
+    // ==========================================
+    // Function: Initialize one serial FITS writer
+    // Method: Start with no open output and no retained CFITSIO status.
+    // ==========================================
     FitsSerialWriter::FitsSerialWriter() : fptr(nullptr), status(0) {}
 
+    // ==========================================
+    // Function: Finalize one serial FITS writer
+    // Method: Route scope-driven close through the checked output-close path.
+    // ==========================================
     FitsSerialWriter::~FitsSerialWriter() {
         close();
     }
 
+    // ==========================================
+    // Function: Create one serial multi-HDU FITS output
+    // Method: Use CFITSIO overwrite syntax and terminate all MPI ranks when
+    //         output creation fails.
+    // ==========================================
     bool FitsSerialWriter::init(const std::string& filename) {
         close();
-        std::remove(filename.c_str());
+        outputFilename = filename;
         status = 0;
         fitsfile* f = nullptr;
-        fits_create_file(&f, filename.c_str(), &status);
+        const std::string create_name = "!" + filename;
+        fits_create_file(&f, create_name.c_str(), &status);
         fptr = static_cast<void*>(f);
         if (status != 0) {
-            printError(status);
-            return false;
+            failFitsOutput("create serial FITS output", outputFilename, status);
         }
         return true;
     }
 
+    // ==========================================
+    // Function: Append one image HDU to a serial FITS output
+    // Method: Validate writer initialization and terminate all MPI ranks on
+    //         any CFITSIO image-header or pixel-write failure.
+    // ==========================================
     bool FitsSerialWriter::writeStamp(int nx, int ny, const std::vector<float>& data, bool newHdu) {
         fitsfile* f = static_cast<fitsfile*>(fptr);
-        if (!f) return false;
+        if (!f) {
+            MainIO::failOutput(
+                "write serial FITS output", outputFilename, "serial writer is not initialized");
+        }
 
         if (newHdu) {
             fits_create_img(f, -32, 2, nullptr, &status); // create extension HDU
@@ -420,29 +499,45 @@ namespace FitsIO {
         fits_write_pix(f, TFLOAT, fpixel, nx * ny, const_cast<float*>(data.data()), &status);
 
         if (status != 0) {
-            printError(status);
-            return false;
+            failFitsOutput("write serial FITS output", outputFilename, status);
         }
         return true;
     }
 
+    // ==========================================
+    // Function: Append one integer keyword to a serial FITS output
+    // Method: Validate writer initialization and terminate all MPI ranks on
+    //         any CFITSIO keyword-write failure.
+    // ==========================================
     bool FitsSerialWriter::writeKey(const std::string& keyName, int val, const std::string& comment) {
         fitsfile* f = static_cast<fitsfile*>(fptr);
-        if (!f) return false;
+        if (!f) {
+            MainIO::failOutput(
+                "write serial FITS keyword", outputFilename, "serial writer is not initialized");
+        }
 
         fits_write_key(f, TINT, keyName.c_str(), &val, comment.c_str(), &status);
         if (status != 0) {
-            printError(status);
-            return false;
+            failFitsOutput("write serial FITS keyword", outputFilename, status);
         }
         return true;
     }
 
+    // ==========================================
+    // Function: Close one serial FITS output
+    // Method: Use a fresh close status and terminate all MPI ranks when buffered
+    //         output cannot be finalized.
+    // ==========================================
     void FitsSerialWriter::close() {
         fitsfile* f = static_cast<fitsfile*>(fptr);
         if (f) {
-            fits_close_file(f, &status);
+            int close_status = 0;
+            fits_close_file(f, &close_status);
             fptr = nullptr;
+            if (close_status != 0) {
+                failFitsOutput("close serial FITS output", outputFilename, close_status);
+            }
+            status = 0;
         }
     }
 }

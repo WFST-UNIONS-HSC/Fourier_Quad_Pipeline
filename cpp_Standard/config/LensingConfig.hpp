@@ -12,7 +12,6 @@ namespace LensingConfig {
     // Image/CCD size parameters
     constexpr int npx = 3000;
     constexpr int npy = 5000;
-    constexpr int strl = 150;
 
     // Stage control parameters
     constexpr int ASTROMETRY_trivial = 0;

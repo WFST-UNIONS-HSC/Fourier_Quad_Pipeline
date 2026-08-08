@@ -1,4 +1,6 @@
 #include "FourierTransformSt2.hpp"
+#include "OutputFile.hpp"
+#include "OutputLayout.hpp"
 #include "LensingConfig.hpp"
 #include "UniversalUtils.hpp"
 #include "FitsIO.hpp"
@@ -16,6 +18,11 @@ extern std::vector<std::string> EXPO_FILE;
 
 namespace FourierTransformSt2 {
 
+// ==========================================
+// Function: Transform one chip's source stamps into Fourier-space products
+// Method: Read Stage-3 source data, update source diagnostics, and publish all
+//         text/FITS outputs through checked main-process writers.
+// ==========================================
 void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dirOutput) {
     int ns = LensingConfig::ns;
 
@@ -23,7 +30,8 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
     // PREFIX inlined: per-type stamps/ subdirs (reorganized layout)
 
     int nsource = 0;
-    std::string info_filename = dirOutput + "/stamps/dat_SrcInfo/" + raw_prefix + "_source_info.dat";
+    std::string info_filename = OutputLayout::chipPath(
+        dirOutput, "stamps/dat_SrcInfo", raw_prefix, "_source_info.dat");
     std::vector<std::vector<float>> source_para;
 
     std::ifstream fin(info_filename);
@@ -57,7 +65,7 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
     nsource = source_para.size();
     if (nsource == 0) {
         // Write header and return
-        std::ofstream fout(info_filename);
+        MainIO::OutputFile fout(info_filename);
         fout << "ig xp yp sigma peak imax jmax half_light_flux half_light_area flag flux2 SNR_F\n";
         fout.close();
         return;
@@ -69,14 +77,16 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
     int nn2 = ns * (nsource / len_g + 1);
 
     std::vector<float> source_coll;
-    std::string source_fits = dirOutput + "/stamps/fits_Src/" + raw_prefix + "_source.fits";
+    std::string source_fits = OutputLayout::chipPath(
+        dirOutput, "stamps/fits_Src", raw_prefix, "_source.fits");
     if (!FitsIO::readStamps(ngal_max, 1, nsource, ns, ns, source_coll, nn1, nn2, source_fits)) {
         std::cerr << "Error reading source stamps: " << source_fits << std::endl;
         return;
     }
 
     std::vector<float> noise_coll;
-    std::string noise_fits = dirOutput + "/stamps/fits_Noise/" + raw_prefix + "_noise.fits";
+    std::string noise_fits = OutputLayout::chipPath(
+        dirOutput, "stamps/fits_Noise", raw_prefix, "_noise.fits");
     if (!FitsIO::readStamps(ngal_max, 1, nsource, ns, ns, noise_coll, nn1, nn2, noise_fits)) {
         std::cerr << "Error reading noise stamps: " << noise_fits << std::endl;
         return;
@@ -110,7 +120,7 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
         std::copy(source_p.begin(), source_p.end(), power_coll.begin() + i * ns * ns);
     }
 
-    std::ofstream fout(info_filename);
+    MainIO::OutputFile fout(info_filename);
     if (!fout.is_open()) {
         std::cerr << "Error opening " << info_filename << " for output" << std::endl;
         return;
@@ -124,7 +134,8 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
     }
     fout.close();
 
-    std::string power_fits = dirOutput + "/stamps/fits_SrcP/" + raw_prefix + "_source_p.fits";
+    std::string power_fits = OutputLayout::chipPath(
+        dirOutput, "stamps/fits_SrcP", raw_prefix, "_source_p.fits");
     if (!FitsIO::writeStamps(ngal_max, 1, nsource, ns, ns, power_coll, nn1, nn2, power_fits)) {
         std::cerr << "Error / FFT2 source_p FITS write failed: " << power_fits << std::endl;
         std::exit(EXIT_FAILURE);

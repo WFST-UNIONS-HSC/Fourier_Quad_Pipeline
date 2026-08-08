@@ -1,4 +1,6 @@
 #include "ShearMeasurement.hpp"
+#include "OutputFile.hpp"
+#include "OutputLayout.hpp"
 #include "LensingConfig.hpp"
 #include "UniversalUtils.hpp"
 #include "FitsIO.hpp"
@@ -218,11 +220,9 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
     for (int ichip = 0; ichip < nchip; ++ichip) {
         proc_error = 0;
         std::string PREFIX = UniversalUtils::getPrefix(imageFiles[ichip]);
-        // PREFIX1 inlined: per-type stamps/ subdirs (reorganized layout)
-        std::string PREFIX2 = dirOutput + "/stamps/dat_Shear/" + PREFIX;
-
         {
-            std::string filename = dirOutput + "/stamps/dat_PsfFit/" + PREFIX + "_PSF_coe_local.dat";
+            std::string filename = OutputLayout::chipPath(
+                dirOutput, "stamps/dat_PsfFit", PREFIX, "_PSF_coe_local.dat");
             std::ifstream fin(filename);
             if (!fin.is_open()) {
                 proc_error = 1;
@@ -251,8 +251,9 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
             }
         }
 
-        std::string out_filename = PREFIX2 + "_shear.dat";
-        std::ofstream fout10;
+        std::string out_filename = OutputLayout::chipPath(
+            dirOutput, "stamps/dat_Shear", PREFIX, "_shear.dat");
+        MainIO::OutputFile fout10;
 
         auto write_empty_output = [&]() {
             fout10.open(out_filename);
@@ -281,7 +282,8 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
         }
 
         int ngal = 0;
-        std::string info_filename = dirOutput + "/stamps/dat_SrcInfo/" + PREFIX + "_source_info.dat";
+        std::string info_filename = OutputLayout::chipPath(
+            dirOutput, "stamps/dat_SrcInfo", PREFIX, "_source_info.dat");
         std::ifstream fin(info_filename);
         if (!fin.is_open()) {
             std::cerr << "Error / proc_shear source_info catalog file error!! " << info_filename << std::endl;
@@ -322,7 +324,8 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
         int nn2 = ns * (ngal / len_g + 1);
 
         std::vector<float> gal_p_coll;
-        std::string power_fits = dirOutput + "/stamps/fits_SrcP/" + PREFIX + "_source_p.fits";
+        std::string power_fits = OutputLayout::chipPath(
+            dirOutput, "stamps/fits_SrcP", PREFIX, "_source_p.fits");
         if (!FitsIO::readStamps(ngal_max, 1, ngal, ns, ns, gal_p_coll, nn1, nn2, power_fits)) {
             std::cerr << "Error / proc_shear source_p FITS file error!! " << power_fits << std::endl;
             std::exit(1);

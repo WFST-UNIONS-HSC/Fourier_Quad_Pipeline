@@ -1,4 +1,6 @@
 #include "PSFModel.hpp"
+#include "OutputFile.hpp"
+#include "OutputLayout.hpp"
 #include "LensingConfig.hpp"
 #include "FitsIO.hpp"
 #include "Astrometry.hpp"
@@ -374,7 +376,8 @@ namespace PSFModel {
             p_chip[nc - 1][3] = yy;
 
             std::string prefix = UniversalUtils::getPrefix(imageFiles[k]);
-            std::string filepath = dirOutput + "/stamps/dat_StarCanInfo/" + prefix + "_star_can_info.dat";
+            std::string filepath = OutputLayout::chipPath(
+                dirOutput, "stamps/dat_StarCanInfo", prefix, "_star_can_info.dat");
 
             std::ifstream infile(filepath);
             if (!infile.is_open()) {
@@ -407,7 +410,8 @@ namespace PSFModel {
             if (state.nstar[k] > 0) {
                 int nn1 = ns * len_s;
                 int nn2 = ns * ((state.nstar[k] / len_s) + 1);
-                std::string stampPath = dirOutput + "/stamps/fits_StarCanP/" + prefix + "_star_can_power.fits";
+                std::string stampPath = OutputLayout::chipPath(
+                    dirOutput, "stamps/fits_StarCanP", prefix, "_star_can_power.fits");
                 std::vector<float> star(static_cast<size_t>(nstar_max) * ns * ns, 0.0f);
                 if (!FitsIO::readStamps(nstar_max, 1, state.nstar[k], ns, ns, star, nn1, nn2, stampPath)) {
                     std::cerr << "readInCandidates: readStamps failed for " << stampPath << std::endl;
@@ -656,7 +660,8 @@ namespace PSFModel {
             int nn2 = ns * ((state.nstar[ichip] / len_s) + 1);
 
             std::string prefix = UniversalUtils::getPrefix(imageFiles[ichip]);
-            std::string filepath = dirOutput + "/stamps/fits_StarCanP/" + prefix + "_star_can_power.fits";
+            std::string filepath = OutputLayout::chipPath(
+                dirOutput, "stamps/fits_StarCanP", prefix, "_star_can_power.fits");
 
             if (!FitsIO::readStamps(nstar_max, 1, state.nstar[ichip], ns, ns, star, nn1, nn2, filepath)) {
                 std::cerr << "plotStarExpo: readStamps failed for " << filepath << std::endl;
@@ -692,6 +697,11 @@ namespace PSFModel {
         }
     }
 
+    // ==========================================
+    // Function: Publish exposure-level star diagnostics and PSF visualization
+    // Method: Aggregate selected stars and route text/FITS products through
+    //         checked main-process writers.
+    // ==========================================
     void plotStars(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, int nc, const std::vector<std::array<double, 4>>& p_chip, ExposurePSFState& state) {
         int nm = 1000;
         int nstar_max = LensingConfig::nstar_max;
@@ -701,7 +711,7 @@ namespace PSFModel {
         // prefix_dir inlined: per-type stamps/ subdirs (reorganized layout)
 
         std::string info_filename = dirOutput + "/stamps/dat_StarInfo/" + prefix_e + "_star_info_expo.dat";
-        std::ofstream outfile(info_filename);
+        MainIO::OutputFile outfile(info_filename);
         if (!outfile.is_open()) {
             std::cerr << "plotStars: Error opening " << info_filename << std::endl;
             return;
@@ -765,6 +775,11 @@ namespace PSFModel {
         FitsIO::writeImage(fits_filename, nm, nm, PSFmap);
     }
 
+    // ==========================================
+    // Function: Publish one exposure's PSF residual rescale factor
+    // Method: Average valid stellar sizes and serialize the derived factor with
+    //         the checked main-process text writer.
+    // ==========================================
     void saveRescaleFactor(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, ExposurePSFState& state) {
         double summ = 0.0;
         double ntot = 0.0;
@@ -785,7 +800,7 @@ namespace PSFModel {
 
         std::string prefix = UniversalUtils::getPrefixExpo(imageFiles[0]);
         std::string filename = dirOutput + "/stamps/dat_Rescale/" + prefix + "_factor.dat";
-        std::ofstream outfile(filename);
+        MainIO::OutputFile outfile(filename);
         if (outfile.is_open()) {
             outfile << std::scientific << std::setprecision(10) << summ << std::endl;
             outfile.close();
@@ -807,7 +822,7 @@ namespace PSFModel {
 
         std::string prefix_e = UniversalUtils::getPrefixExpo(imageFiles[0]);
         std::string comp_filename = dirOutput + "/stamps/dat_StarComp/" + prefix_e + "_star_comp_expo.dat";
-        std::ofstream file90(comp_filename);
+        MainIO::OutputFile file90(comp_filename);
         if (!file90.is_open()) {
             std::cerr << "makePSFLocalFit: Error opening " << comp_filename << std::endl;
             return;
@@ -835,15 +850,17 @@ namespace PSFModel {
             if (state.nstar[k] > 0) {
                 int nn1 = ns * len_s;
                 int nn2 = ns * ((state.nstar[k] / len_s) + 1);
-                std::string filepath = dirOutput + "/stamps/fits_StarCanP/" + prefix + "_star_can_power.fits";
+                std::string filepath = OutputLayout::chipPath(
+                    dirOutput, "stamps/fits_StarCanP", prefix, "_star_can_power.fits");
                 if (!FitsIO::readStamps(nstar_max, 1, state.nstar[k], ns, ns, star, nn1, nn2, filepath)) {
                     std::cerr << "makePSFLocalFit: readStamps failed for " << filepath << std::endl;
                     std::exit(1);
                 }
             }
 
-            std::string coe_filename = dirOutput + "/stamps/dat_PsfFit/" + prefix + "_PSF_coe_local.dat";
-            std::ofstream file10(coe_filename);
+            std::string coe_filename = OutputLayout::chipPath(
+                dirOutput, "stamps/dat_PsfFit", prefix, "_PSF_coe_local.dat");
+            MainIO::OutputFile file10(coe_filename);
             if (!file10.is_open()) {
                 std::cerr << "makePSFLocalFit: Error opening " << coe_filename << std::endl;
                 continue;
@@ -875,12 +892,14 @@ namespace PSFModel {
                     star_local.push_back(star[star_offset + idx]);
                 }
             }
-            std::ofstream file20;
+            MainIO::OutputFile file20;
             std::string ccd_id;
             if (LensingConfig::PSF_Ms == 1) {
                 int chip_index = UniversalUtils::getChipId(imageFiles[k]);
                 ccd_id = std::to_string(chip_index);
-                std::string star_xy_filename = dirOutput + "/stamps/dat_StarXY/" + prefix_e + "_" + ccd_id + "_star_xy.dat";
+                std::string star_xy_filename = OutputLayout::chipPath(
+                    dirOutput, "stamps/dat_StarXY", prefix_e + "_" + ccd_id,
+                    "_star_xy.dat");
                 file20.open(star_xy_filename);
                 file20 << std::setprecision(10);
             }
@@ -962,7 +981,9 @@ namespace PSFModel {
                 if (LensingConfig::PSF_Ms == 1) {
                     int nn1 = ns * len_s;
                     int nn2 = ns * ((nums / len_s) + 1);
-                    std::string resi_fits = dirOutput + "/stamps/fits_PsfResi/" + prefix_e + "_" + ccd_id + "_psf_p_resi.fits";
+                    std::string resi_fits = OutputLayout::chipPath(
+                        dirOutput, "stamps/fits_PsfResi", prefix_e + "_" + ccd_id,
+                        "_psf_p_resi.fits");
                     FitsIO::writeStamps(nstar_max, 1, nums, ns, ns, psf_residual, nn1, nn2, resi_fits);
                 }
             } else {
@@ -1012,7 +1033,7 @@ namespace PSFModel {
 
         std::string prefix_e = UniversalUtils::getPrefixExpo(imageFiles[0]);
         std::string comp_filename = dirOutput + "/stamps/dat_StarComp/" + prefix_e + "_star_comp_expo.dat";
-        std::ofstream file90(comp_filename);
+        MainIO::OutputFile file90(comp_filename);
         if (!file90.is_open()) {
             std::cerr << "makePSFHybrid: Error opening " << comp_filename << std::endl;
             return;
@@ -1026,14 +1047,16 @@ namespace PSFModel {
             std::vector<float> star(static_cast<size_t>(nstar_max) * ns * ns, 0.0f);
             int nn1 = ns * len_s;
             int nn2 = ns * ((state.nstar[k] / len_s) + 1);
-            std::string filepath = dirOutput + "/stamps/fits_StarCanP/" + prefix + "_star_can_power.fits";
+            std::string filepath = OutputLayout::chipPath(
+                dirOutput, "stamps/fits_StarCanP", prefix, "_star_can_power.fits");
             if (!FitsIO::readStamps(nstar_max, 1, state.nstar[k], ns, ns, star, nn1, nn2, filepath)) {
                 std::cerr << "makePSFHybrid: readStamps failed for " << filepath << std::endl;
                 std::exit(1);
             }
 
-            std::string coe_filename = dirOutput + "/stamps/dat_PsfFit/" + prefix + "_PSF_coe_local.dat";
-            std::ofstream file10(coe_filename);
+            std::string coe_filename = OutputLayout::chipPath(
+                dirOutput, "stamps/dat_PsfFit", prefix, "_PSF_coe_local.dat");
+            MainIO::OutputFile file10(coe_filename);
             if (!file10.is_open()) {
                 std::cerr << "makePSFHybrid: Error opening " << coe_filename << std::endl;
                 continue;
@@ -1129,7 +1152,8 @@ namespace PSFModel {
                 nx = (nx / step_psf + 1) * step_psf;
                 ny = (ny / step_psf + 1) * step_psf;
 
-                std::string out_fits = dirOutput + "/stamps/fits_PsfLocal/" + prefix + "_PSF_local.fits";
+                std::string out_fits = OutputLayout::chipPath(
+                    dirOutput, "stamps/fits_PsfLocal", prefix, "_PSF_local.fits");
                 std::vector<float> sub_psfmap(static_cast<size_t>(nx) * ny);
                 for (int y = 0; y < ny; ++y) {
                     for (int x = 0; x < nx; ++x) {
@@ -1184,7 +1208,8 @@ namespace PSFModel {
                 int nx = 3 * step_psf;
                 int ny = 3 * step_psf;
 
-                std::string out_fits = dirOutput + "/stamps/fits_PsfLocal/" + prefix + "_PSF_local.fits";
+                std::string out_fits = OutputLayout::chipPath(
+                    dirOutput, "stamps/fits_PsfLocal", prefix, "_PSF_local.fits");
                 std::vector<float> sub_psfmap(static_cast<size_t>(nx) * ny);
                 for (int y = 0; y < ny; ++y) {
                     for (int x = 0; x < nx; ++x) {

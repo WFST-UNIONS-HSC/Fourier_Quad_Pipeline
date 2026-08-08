@@ -1,4 +1,5 @@
 #include "ExposureInfo.hpp"
+#include "OutputFile.hpp"
 #include "LensingConfig.hpp"
 #include "UniversalUtils.hpp"
 #include "Astrometry.hpp"
@@ -26,7 +27,7 @@ void getExpoInfo(const std::vector<std::string>& imageFiles, int nchip, const st
     std::string fastro = dirOutput + "/astrometry/Head/" + prefix_expo + ".head";
     std::string fexpo = dirOutput + "/stamps/dat_ExpoInfo/" + prefix_expo + "_expo_info.dat";
 
-    std::ofstream fout10(fexpo);
+    MainIO::OutputFile fout10(fexpo);
     if (!fout10.is_open()) {
         std::cerr << "Error: cannot open output expo info file: " << fexpo << std::endl;
         std::exit(1);

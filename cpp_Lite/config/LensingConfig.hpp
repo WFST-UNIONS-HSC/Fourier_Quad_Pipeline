@@ -12,7 +12,6 @@ namespace LensingConfig {
     // Image/CCD size parameters
     constexpr int npx = 3000;
     constexpr int npy = 5000;
-    constexpr int strl = 150;
 
     // ==========================================
     // cpp_lite: the following build-time branch selectors of the full pipeline are FROZEN and

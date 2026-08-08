@@ -223,7 +223,12 @@ inline const std::vector<std::string> CONTAINS = {"v1", "v2"};
 | `--dataset TARGET:PREFIX` | 可重复的 target/prefix 对；首个 `--dataset` 清除编译期列表。 |
 | `--contains TOKEN` | 可重复的 basename token（OR 匹配）。 |
 | `--existing fail\|resume\|overwrite` | 既有输出策略。 |
+| `--f77-max-path N` | 仅 initializer 使用的生成路径长度上限；`0` 禁用检查。 |
 | `--expo-list PATH` | 单条曝光表（main/rearr-only 模式）。 |
+
+`--f77-max-path` 只属于 `process_init`：默认值 150 用于保持与旧 Fortran 工作流的路径兼容性，
+不会截断或拒绝 `process_main` 的路径。main 中的路径是 `std::string`，其实际边界来自所用
+文件系统和 I/O 库（FITS 产物还受 CFITSIO 文件名容量约束）。
 
 ## 运行模式
 
@@ -273,7 +278,7 @@ mpirun -np 4 ./Fourier_Quad_Pipe   --run-init true --run-main true --run-rearr t
 
 ## 初始化输出契约
 
-对每个 `--output-root OUTPUT --dataset TARGET:PREFIX`，初始化在 `OUTPUT/TARGET` 下构建流水线目录树，将 Science/DQ chip 图像抽取到 per-exposure 子目录，并发布顶层曝光表。源 `.fits.fz` 归档原位读取，从不复制或删除。
+对每个 `--output-root OUTPUT --dataset TARGET:PREFIX`，初始化严格按以下顺序执行：幂等创建固定类型目录；抽取 Science/DQ chip；为每个成功的 Science 曝光写 `stamps/<EXPOSURE>.list`；由 rank 0 发布两个顶层 list；从已发布的 expo list 创建 chip 产品曝光子目录；最后发布 manifest。源 `.fits.fz` 归档原位读取，从不复制或删除。两个变体均在 `include/OutputLayout.hpp` 中集中声明完整固定目录契约及其 chip 产品子集。
 
 ### `OUTPUT/TARGET` 下的输出布局
 
@@ -293,15 +298,34 @@ mpirun -np 4 ./Fourier_Quad_Pipe   --run-init true --run-main true --run-rearr t
 `fits_StarCanP/`、`fits_StarP/`、`fits_Src/`、`fits_Noise/`、`fits_SrcP/`、
 `fits_PsfLocal/`、`fits_PsfSrc/`、`fits_PsfResi/`。
 
+所有 chip 级产物均在类型目录下再按曝光分一层：
+`<类型>/<EXPOSURE>/<CHIP><后缀>`。例如归一化 chip 写入
+`stamps/Norm/<EXPOSURE>/<CHIP>_norm.fits`，对应天体测量解写入
+`astrometry/dat_Astro/<EXPOSURE>/<CHIP>_astro.dat`。`.head`、
+`_star_info_expo.dat`、`_star_power_expo.fits`、`_PSF_source.fits`、
+`_expo_info.dat`、`_all.cat` 等曝光级产物仍直接位于原有类型目录中。rank 0 仅在发布并重新读取 `expo_TARGET.list` 后，才幂等创建这些 chip 产品的 `<EXPOSURE>/` 目录。
+
+### process_main 路径与输出失败契约
+
+已按上述布局审计 Stage 1--9 的生产者/消费者链。chip 产物在写入与读取两侧均通过
+`OutputLayout::chipPath` 构造；曝光级产物仍直接位于其声明的类型目录。已核对的链路包括：
+天体测量/归一化、WCS/check、源与星候选提取、星功率、PSF 产物、源功率、shear、曝光信息和
+最终星表合并。DQ 输入读取路径与 initializer 发布的
+`dqmask/<EXPOSURE>/<EXPOSURE>_<CCDNUM>.fits` 契约一致；未发现目录层级或后缀不匹配。
+
+`process_main` 的全部文本输出统一使用 checked `MainIO::OutputFile`，FITS 输出统一由 checked
+`FitsIO` 创建、写入和关闭。create、write、flush 或 close 任一失败时，程序输出一条
+`Output creation failed` 信息，包含 MPI rank、操作、输出路径及 OS/CFITSIO 原因，随后调用
+`MPI_Abort` 终止整个作业，避免 master 或其他 worker 留在动态调度等待中。
+
 ### 曝光表生成
 
-抽取期间每个 rank 直接从抽取结果写出 `stamps/<EXPOSURE>.list`（其产出的 chip 图像路径）- 不进行事后磁盘反查。所有 rank 完成后，rank 0 扫描 `stamps/`、排序 per-exposure 表，并原子发布：
+抽取期间每个 rank 直接从抽取结果写出 `stamps/<EXPOSURE>.list`（其产出的 chip 图像路径）- 不进行事后磁盘反查。所有 rank 完成后，rank 0 扫描 `stamps/`、排序 per-exposure 表，并先原子发布：
 
 - `OUTPUT/expo_TARGET.list` - 顶层表；每行为 `"<OUTPUT/TARGET/stamps/<EXPOSURE>.list>"  <chip 数>`。
 - `OUTPUT/fits_TARGET.list` - 全部 Science chip 图像路径的扁平表。
-- `OUTPUT/init_TARGET_manifest.json` - 初始化清单。
 
-清单 schema 版本 2 在 `filename_tokens` 数组中记录所有启用的 basename 过滤器。Science chip 按二维 HDU 出现编号；DQ chip 按 `CCDNUM` 编号。下游阶段通过 `getDir(image, 3)`（向上三层：`science/<EXPOSURE>/<file>` -> `science` -> `OUTPUT/TARGET`）从 Science chip 路径推导 dataset root，per-chip DQ mask 从 `dqmask/<EXPOSURE>/<EXPOSURE>_<CCDNUM>.fits` 读取。
+随后 rank 0 读取已发布的 expo list 并创建各 chip 产品曝光子目录；该步骤成功后才原子发布 `OUTPUT/init_TARGET_manifest.json`。清单 schema 版本 2 记录 `exposure_directories_created` 完成标志，并在 `filename_tokens` 数组中记录所有启用的 basename 过滤器。Science chip 按二维 HDU 出现编号；DQ chip 按 `CCDNUM` 编号。下游阶段通过 `getDir(image, 3)`（向上三层：`science/<EXPOSURE>/<file>` -> `science` -> `OUTPUT/TARGET`）从 Science chip 路径推导 dataset root，per-chip DQ mask 从 `dqmask/<EXPOSURE>/<EXPOSURE>_<CCDNUM>.fits` 读取。
 
 ## Docker 环境
 
@@ -399,5 +423,3 @@ HPC runner 详细文档请参见：
 - [`cpp_docker/runner/README.md`](cpp_docker/runner/README.md) / [`cpp_docker/runner/README-CN.md`](cpp_docker/runner/README-CN.md)
 
 ---
-
-

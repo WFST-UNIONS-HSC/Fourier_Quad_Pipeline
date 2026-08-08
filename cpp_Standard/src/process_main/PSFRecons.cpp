@@ -1,4 +1,6 @@
 #include "PSFRecons.hpp"
+#include "OutputFile.hpp"
+#include "OutputLayout.hpp"
 #include "LensingConfig.hpp"
 #include "PSFModel.hpp"
 #include "FitsIO.hpp"
@@ -231,7 +233,9 @@ namespace PSFRecons {
             UniversalUtils::getImageList(EXPO_FILE[i - 1], image_files, dir_out);
             std::string prefix_e = UniversalUtils::getPrefixExpo(image_files[0]);
             
-            std::string filename_xy = dir_out + "/stamps/dat_StarXY/" + prefix_e + "_" + std::to_string(ichip) + "_star_xy.dat";
+            std::string filename_xy = OutputLayout::chipPath(
+                dir_out, "stamps/dat_StarXY",
+                prefix_e + "_" + std::to_string(ichip), "_star_xy.dat");
             std::ifstream xy_file(filename_xy);
             if (!xy_file.is_open()) {
                 continue;
@@ -243,7 +247,9 @@ namespace PSFRecons {
                     std::vector<float> psf_residual;
                     int nn1 = ns * LensingConfig::len_s;
                     int nn2 = ns * ((nstar_file / LensingConfig::len_s) + 1);
-                    std::string fits_filename = dir_out + "/stamps/fits_PsfResi/" + prefix_e + "_" + std::to_string(ichip) + "_psf_p_resi.fits";
+                    std::string fits_filename = OutputLayout::chipPath(
+                        dir_out, "stamps/fits_PsfResi",
+                        prefix_e + "_" + std::to_string(ichip), "_psf_p_resi.fits");
                     
                     if (FitsIO::readStamps(nstar_file, 1, nstar_file, ns, ns, psf_residual, nn1, nn2, fits_filename)) {
                         double px = 0.0, py = 0.0;
@@ -399,7 +405,7 @@ namespace PSFRecons {
 
         // Write PCA results to disk
         std::string filename_pcs = dirOutput + "/stamps/dat_Pcs/pcs_ccd" + c_chip_2digit + ".dat";
-        std::ofstream pcs_file(filename_pcs);
+        MainIO::OutputFile pcs_file(filename_pcs);
         if (pcs_file.is_open()) {
             for (int k = 0; k < nsns; ++k) {
                 for (int j = 0; j < LensingConfig::n_pcs; ++j) {
@@ -426,7 +432,9 @@ namespace PSFRecons {
                 std::string dir_out;
                 UniversalUtils::getImageList(EXPO_FILE[i - 1], image_files, dir_out);
                 std::string prefix_e = UniversalUtils::getPrefixExpo(image_files[0]);
-                std::string filename_xy = dir_out + "/stamps/dat_StarXY/" + prefix_e + "_" + std::to_string(ichip) + "_star_xy.dat";
+                std::string filename_xy = OutputLayout::chipPath(
+                    dir_out, "stamps/dat_StarXY",
+                    prefix_e + "_" + std::to_string(ichip), "_star_xy.dat");
 
                 std::ifstream xy_file(filename_xy);
                 if (xy_file.is_open()) {
@@ -436,7 +444,10 @@ namespace PSFRecons {
                             std::vector<float> psf_residual;
                             int nn1 = ns * LensingConfig::len_s;
                             int nn2 = ns * ((nstar_file / LensingConfig::len_s) + 1);
-                            std::string fits_filename = dir_out + "/stamps/fits_PsfResi/" + prefix_e + "_" + std::to_string(ichip) + "_psf_p_resi.fits";
+                            std::string fits_filename = OutputLayout::chipPath(
+                                dir_out, "stamps/fits_PsfResi",
+                                prefix_e + "_" + std::to_string(ichip),
+                                "_psf_p_resi.fits");
                             
                             if (FitsIO::readStamps(nstar_file, 1, nstar_file, ns, ns, psf_residual, nn1, nn2, fits_filename)) {
                                 double px = 0.0, py = 0.0;
@@ -507,7 +518,7 @@ namespace PSFRecons {
                 }
 
                 std::string filename_coeff = dirOutput + "/stamps/dat_Pcs/coeff_ccd" + c_chip_2digit + "_" + std::to_string(j) + std::to_string(k) + ".dat";
-                std::ofstream coeff_file(filename_coeff);
+                MainIO::OutputFile coeff_file(filename_coeff);
                 if (!coeff_file.is_open()) {
                     std::cerr << "Error writing coeff file: " << filename_coeff << std::endl;
                     continue;
@@ -634,7 +645,7 @@ namespace PSFRecons {
         }
 
         std::string out_filename = dir_output + "/stamps/dat_StarCompV2/" + prefix_e + "_star_comp_expo_v2.dat";
-        std::ofstream file11(out_filename);
+        MainIO::OutputFile file11(out_filename);
         if (!file11.is_open()) {
             std::cerr << "plotResidualsV2: Error opening " << out_filename << std::endl;
             return;
@@ -671,7 +682,8 @@ namespace PSFRecons {
             }
 
             std::string prefix_c = UniversalUtils::getPrefix(image_files[ichip - 1]);
-            std::string coe_filename = dir_output + "/stamps/dat_PsfFit/" + prefix_c + "_PSF_coe_local.dat";
+            std::string coe_filename = OutputLayout::chipPath(
+                dir_output, "stamps/dat_PsfFit", prefix_c, "_PSF_coe_local.dat");
             std::ifstream file13(coe_filename);
             int nstar_coe = 0, status = 0;
             int ns = LensingConfig::ns;
