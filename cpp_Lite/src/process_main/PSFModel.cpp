@@ -1,11 +1,14 @@
 #include "PSFModel.hpp"
+#include "PSFModelState.hpp"
 #include "OutputFile.hpp"
+#include "MPIFailure.hpp"
 #include "OutputLayout.hpp"
 #include "LensingConfig.hpp"
 #include "FitsIO.hpp"
 #include "Astrometry.hpp"
 #include "NumericalRecipes.hpp"
 #include "UniversalUtils.hpp"
+#include "Universalblock.hpp"
 #include "ImageProcessing.hpp"
 #include "ExStar.hpp"
 #include "LinearSolve.hpp"
@@ -17,6 +20,8 @@
 #include <iomanip>
 #include <cmath>
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <complex>
 #include <memory>
 
@@ -25,30 +30,8 @@ extern std::vector<std::string> EXPO_FILE;
 
 namespace PSFModel {
 
-    // Heap-allocated structure representing the exposure-wide star catalog & chi^2 grid to prevent stack overflow
-    struct ExposurePSFState {
-        std::vector<int> nstar;
-        std::vector<double> star_para; // Size: NMAX_CHIP * nstar_max * npara
-        std::vector<float> chi_d;      // Size: NMAX_CHIP * nstar_max * nstar_max
-
-        ExposurePSFState() {
-            nstar.assign(LensingConfig::NMAX_CHIP, 0);
-            star_para.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * LensingConfig::nstar_max * LensingConfig::npara, 0.0);
-            chi_d.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * LensingConfig::nstar_max * LensingConfig::nstar_max, 0.0f);
-        }
-
-        double& getStarPara(int chip, int star, int para) {
-            return star_para[((static_cast<size_t>(chip) * LensingConfig::nstar_max) + star) * LensingConfig::npara + para];
-        }
-
-        const double& getStarPara(int chip, int star, int para) const {
-            return star_para[((static_cast<size_t>(chip) * LensingConfig::nstar_max) + star) * LensingConfig::npara + para];
-        }
-
-        float& getChiD(int chip, int star1, int star2) {
-            return chi_d[((static_cast<size_t>(chip) * LensingConfig::nstar_max) + star1) * LensingConfig::nstar_max + star2];
-        }
-    };
+    using Internal::ChipPSFState;
+    using Internal::ExposurePSFState;
 
     // Forward declarations of local helper functions
     void readInCandidates(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, int& nc, std::vector<std::array<double, 4>>& p_chip, ExposurePSFState& state);
@@ -88,7 +71,11 @@ namespace PSFModel {
         return true;
     }
 
-    // Stage 5 main entry
+    // ==========================================
+    // Function: Run Stage-5 Lite PSF modeling for one exposure
+    // Method: Execute dynamic candidate loading, selection, diagnostics, and
+    //         only the retained local-polynomial fitting path.
+    // ==========================================
     void procPSF(int iexpo) {
         if (iexpo <= 0 || iexpo > static_cast<int>(EXPO_FILE.size())) {
             std::cerr << "Error: invalid iexpo index: " << iexpo << std::endl;
@@ -101,11 +88,12 @@ namespace PSFModel {
 
         int nchip = static_cast<int>(imageFiles.size());
 
-        auto state_ptr = std::make_unique<ExposurePSFState>();
+        auto state_ptr = std::make_unique<ExposurePSFState>(nchip);
         ExposurePSFState& state = *state_ptr;
 
         int nc = 0;
-        std::vector<std::array<double, 4>> p_chip(LensingConfig::NMAX_CHIP, {0.0, 0.0, 0.0, 0.0});
+        std::vector<std::array<double, 4>> p_chip(
+            static_cast<std::size_t>(nchip), {0.0, 0.0, 0.0, 0.0});
 
         readInCandidates(nchip, imageFiles, dirOutput, nc, p_chip, state);
 
@@ -120,27 +108,45 @@ namespace PSFModel {
 
     // Local Helper Routines
 
+    // ==========================================
+    // Function: Load one Lite exposure's PSF candidates and power stamps
+    // Method: Gate each chip with the shared norm sentinel, retain every catalog
+    //         row, and size the pairwise chi matrix from the live candidate count.
+    // ==========================================
     void readInCandidates(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, int& nc, std::vector<std::array<double, 4>>& p_chip, ExposurePSFState& state) {
-        int ns = LensingConfig::ns;
-        int len_s = LensingConfig::len_s;
-        int nstar_max = LensingConfig::nstar_max;
+        const int ns = LensingConfig::ns;
+        const int len_s = LensingConfig::len_s;
 
         std::string prefix_e = UniversalUtils::getPrefixExpo(imageFiles[0]);
         std::string headname = dirOutput + "/astrometry/Head/" + prefix_e + ".head";
-
         nc = 0;
 
         for (int k = 0; k < nchip; ++k) {
-            state.nstar[k] = 0;
+            ChipPSFState& chip = state.chips[k];
+            chip.stars.clear();
+            chip.stars.reserve(LensingConfig::nstar_max);
+            chip.chi_d.clear();
+
+            const Universalblock::NormStatus norm_status =
+                Universalblock::checkNorm(imageFiles[k], dirOutput);
+            if (norm_status == Universalblock::NormStatus::Invalid) {
+                continue;
+            }
+            if (norm_status != Universalblock::NormStatus::Valid) {
+                MPIFailure::abortWorld(
+                    "validate PSF chip norm",
+                    Universalblock::normErrorDetail(
+                        norm_status, imageFiles[k], dirOutput));
+            }
 
             double cRPIX[2] = {0.0, 0.0};
             double cD[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
             double cRVAL[2] = {0.0, 0.0};
             double PU[2][LensingConfig::npd];
             int ierror = 0;
-
-            Astrometry::readAstrometryPara(headname, k + 1, cRPIX, cD, cRVAL, PU, LensingConfig::npd, ierror);
-
+            Astrometry::readAstrometryPara(
+                headname, k + 1, cRPIX, cD, cRVAL, PU,
+                LensingConfig::npd, ierror);
             if (ierror == 1) continue;
 
             nc++;
@@ -150,7 +156,6 @@ namespace PSFModel {
             Astrometry::xyToXxyy(x, y, xx, yy, cRPIX, cD);
             p_chip[nc - 1][0] = xx;
             p_chip[nc - 1][1] = yy;
-
             x = 2046.0;
             y = 4094.0;
             Astrometry::xyToXxyy(x, y, xx, yy, cRPIX, cD);
@@ -159,54 +164,62 @@ namespace PSFModel {
 
             std::string prefix = UniversalUtils::getPrefix(imageFiles[k]);
             std::string filepath = OutputLayout::chipPath(
-                dirOutput, "stamps/dat_StarCanInfo", prefix, "_star_can_info.dat");
-
+                dirOutput, "stamps/dat_StarCanInfo", prefix,
+                "_star_can_info.dat");
             std::ifstream infile(filepath);
             if (!infile.is_open()) {
-                std::cerr << filepath << "\n";
-                std::cerr << "Error / PSF star_can_info catalog file error!!" << std::endl;
-                std::exit(1);
+                MPIFailure::abortWorld(
+                    "read PSF star-candidate info", filepath);
             }
-
-            // Skip header line
             std::string header;
-            std::getline(infile, header);
+            if (!std::getline(infile, header)) {
+                MPIFailure::abortWorld(
+                    "read PSF star-candidate header", filepath);
+            }
 
             std::string line;
             while (std::getline(infile, line)) {
                 std::istringstream iss(line);
                 float aa[4] = {0.0f, 0.0f, 0.0f, 0.0f};
                 if (iss >> aa[0] >> aa[1] >> aa[2] >> aa[3]) {
-                    int star_idx = state.nstar[k];
-                    if (star_idx < nstar_max) {
-                        state.getStarPara(k, star_idx, 0) = aa[0];
-                        state.getStarPara(k, star_idx, 1) = aa[1];
-                        state.getStarPara(k, star_idx, 2) = aa[2];
-                        state.getStarPara(k, star_idx, 3) = aa[3];
-                        state.nstar[k]++;
-                    }
+                    ChipPSFState::StarRow row{};
+                    row[0] = aa[0];
+                    row[1] = aa[1];
+                    row[2] = aa[2];
+                    row[3] = aa[3];
+                    chip.stars.push_back(row);
                 }
             }
             infile.close();
 
-            if (state.nstar[k] > 0) {
+            const int nstar = state.getNStar(k);
+            chip.allocateChiD();
+            std::cout << "PSF candidates: chip=" << (k + 1)
+                      << " count=" << nstar
+                      << " chi_elements=" << chip.chi_d.size() << std::endl;
+
+            if (nstar > 0) {
                 int nn1 = ns * len_s;
-                int nn2 = ns * ((state.nstar[k] / len_s) + 1);
+                int nn2 = ns * ((nstar / len_s) + 1);
                 std::string stampPath = OutputLayout::chipPath(
-                    dirOutput, "stamps/fits_StarCanP", prefix, "_star_can_power.fits");
-                std::vector<float> star(static_cast<size_t>(nstar_max) * ns * ns, 0.0f);
-                if (!FitsIO::readStamps(nstar_max, 1, state.nstar[k], ns, ns, star, nn1, nn2, stampPath)) {
-                    std::cerr << "readInCandidates: readStamps failed for " << stampPath << std::endl;
-                    std::exit(1);
+                    dirOutput, "stamps/fits_StarCanP", prefix,
+                    "_star_can_power.fits");
+                std::vector<float> star;
+                if (!FitsIO::readStamps(
+                        nstar, 1, nstar, ns, ns, star, nn1, nn2,
+                        stampPath)) {
+                    MPIFailure::abortWorld(
+                        "read PSF star-candidate power", stampPath);
                 }
 
-                for (int i = 0; i < state.nstar[k]; ++i) {
+                for (int i = 0; i < nstar; ++i) {
                     state.getStarPara(k, i, 4) = 1.0;
-
                     std::vector<float> source_p(ns * ns);
                     for (int v = 0; v < ns; ++v) {
                         for (int u = 0; u < ns; ++u) {
-                            source_p[v * ns + u] = star[static_cast<size_t>(i) * ns * ns + v * ns + u];
+                            source_p[v * ns + u] =
+                                star[static_cast<std::size_t>(i) * ns * ns
+                                     + v * ns + u];
                         }
                     }
 
@@ -226,7 +239,6 @@ namespace PSFModel {
                     double FWHM = 0.0;
                     getPSFFWHM(source_p, FWHM);
                     state.getStarPara(k, i, 10) = FWHM;
-
                     double temp = 0.0;
                     for (int idx = 0; idx < ns * ns; ++idx) {
                         temp += source_p[idx];
@@ -234,25 +246,25 @@ namespace PSFModel {
                     state.getStarPara(k, i, 11) = 1.0 / temp;
                 }
 
-                for (int i = 0; i < nstar_max; ++i) {
-                    for (int j = 0; j < nstar_max; ++j) {
-                        state.getChiD(k, i, j) = 0.0f;
-                    }
-                }
-
-                for (int i = 0; i < state.nstar[k] - 1; ++i) {
-                    for (int j = i + 1; j < state.nstar[k]; ++j) {
+                for (int i = 0; i < nstar - 1; ++i) {
+                    for (int j = i + 1; j < nstar; ++j) {
                         std::vector<float> map1(ns * ns);
                         std::vector<float> map2(ns * ns);
                         double sp_i_12 = state.getStarPara(k, i, 11);
                         double sp_j_12 = state.getStarPara(k, j, 11);
                         for (int idx = 0; idx < ns * ns; ++idx) {
-                            map1[idx] = static_cast<float>(star[static_cast<size_t>(i) * ns * ns + idx] * sp_i_12);
-                            map2[idx] = static_cast<float>(star[static_cast<size_t>(j) * ns * ns + idx] * sp_j_12);
+                            map1[idx] = static_cast<float>(
+                                star[static_cast<std::size_t>(i) * ns * ns + idx]
+                                * sp_i_12);
+                            map2[idx] = static_cast<float>(
+                                star[static_cast<std::size_t>(j) * ns * ns + idx]
+                                * sp_j_12);
                         }
                         double temp_chi = 0.0;
-                        UniversalUtils::anaChi2(ns, map1, map2, temp_chi);
-                        float temp_val = static_cast<float>(std::sqrt(temp_chi));
+                        UniversalUtils::anaChi2(
+                            ns, map1, map2, temp_chi);
+                        float temp_val =
+                            static_cast<float>(std::sqrt(temp_chi));
                         state.getChiD(k, i, j) = temp_val;
                         state.getChiD(k, j, i) = temp_val;
                     }
@@ -267,17 +279,16 @@ namespace PSFModel {
     // ==========================================
     void starSelection(int nchip, ExposurePSFState& state) {
         int nstar_min = LensingConfig::nstar_min;
-        int nstar_max = LensingConfig::nstar_max;
         int nstar_min_local = LensingConfig::nstar_min_local;
 
         int ntot = 0;
         for (int k = 0; k < nchip; ++k) {
-            ntot += state.nstar[k];
+            ntot += state.getNStar(k);
         }
 
         if (ntot < nstar_min * 2) {
             for (int k = 0; k < nchip; ++k) {
-                for (int i = 0; i < state.nstar[k]; ++i) {
+                for (int i = 0; i < state.getNStar(k); ++i) {
                     state.getStarPara(k, i, 4) = -1.0;
                 }
             }
@@ -288,7 +299,7 @@ namespace PSFModel {
         std::vector<float> tmp_size;
         tmp_size.reserve(ntot);
         for (int k = 0; k < nchip; ++k) {
-            for (int i = 0; i < state.nstar[k]; ++i) {
+            for (int i = 0; i < state.getNStar(k); ++i) {
                 tmp_size.push_back(static_cast<float>(state.getStarPara(k, i, 7))); // F77 index 8 size
             }
         }
@@ -298,15 +309,19 @@ namespace PSFModel {
         float thresh_size = tmp_size[thresh_size_idx];
 
         // Determine chi^2 threshold
-        std::vector<float> chimin(static_cast<size_t>(LensingConfig::NMAX_CHIP) * nstar_max, 1000.0f);
+        std::vector<std::vector<float>> chimin(static_cast<std::size_t>(nchip));
+        for (int k = 0; k < nchip; ++k) {
+            chimin[k].assign(
+                static_cast<std::size_t>(state.getNStar(k)), 1000.0f);
+        }
         std::vector<float> tmp_chi;
 
         for (int k = 0; k < nchip; ++k) {
-            for (int i = 0; i < state.nstar[k] - 1; ++i) {
-                for (int j = i + 1; j < state.nstar[k]; ++j) {
+            for (int i = 0; i < state.getNStar(k) - 1; ++i) {
+                for (int j = i + 1; j < state.getNStar(k); ++j) {
                     float temp = state.getChiD(k, i, j);
-                    chimin[k * nstar_max + i] = std::min(temp, chimin[k * nstar_max + i]);
-                    chimin[k * nstar_max + j] = std::min(temp, chimin[k * nstar_max + j]);
+                    chimin[k][i] = std::min(temp, chimin[k][i]);
+                    chimin[k][j] = std::min(temp, chimin[k][j]);
 
                     if (state.getStarPara(k, i, 7) < thresh_size) continue;
                     if (state.getStarPara(k, j, 7) < thresh_size) continue;
@@ -322,8 +337,8 @@ namespace PSFModel {
 
         for (int k = 0; k < nchip; ++k) {
             int n_valid_local = 0;
-            for (int i = 0; i < state.nstar[k]; ++i) {
-                if (chimin[k * nstar_max + i] > thresh_chi) {
+            for (int i = 0; i < state.getNStar(k); ++i) {
+                if (chimin[k][i] > thresh_chi) {
                     state.getStarPara(k, i, 4) = -1.0;
                     continue;
                 }
@@ -331,14 +346,14 @@ namespace PSFModel {
             }
 
             if (n_valid_local < nstar_min_local) {
-                for (int i = 0; i < state.nstar[k]; ++i) {
+                for (int i = 0; i < state.getNStar(k); ++i) {
                     state.getStarPara(k, i, 4) = -1.0;
                 }
                 continue;
             }
 
             std::vector<int> id;
-            for (int i = 0; i < state.nstar[k]; ++i) {
+            for (int i = 0; i < state.getNStar(k); ++i) {
                 if (state.getStarPara(k, i, 4) < 0.0) continue;
                 id.push_back(i);
             }
@@ -380,7 +395,7 @@ namespace PSFModel {
             int max2_gsize = 0;
             int max2_gid = 0;
 
-            if (state.nstar[k] > 0 && max_group_id > 0) {
+            if (state.getNStar(k) > 0 && max_group_id > 0) {
                 max_gsize = group_size[1];
                 max_gid = 1;
                 for (int i = 2; i <= max_group_id; ++i) {
@@ -407,75 +422,68 @@ namespace PSFModel {
         // Final local star counts pass
         for (int k = 0; k < nchip; ++k) {
             int n = 0;
-            for (int i = 0; i < state.nstar[k]; ++i) {
+            for (int i = 0; i < state.getNStar(k); ++i) {
                 if (state.getStarPara(k, i, 4) < 0.0) continue;
                 n++;
             }
             if (n < nstar_min_local) {
-                for (int i = 0; i < state.nstar[k]; ++i) {
+                for (int i = 0; i < state.getNStar(k); ++i) {
                     state.getStarPara(k, i, 4) = -1.0;
                 }
             }
         }
     }
 
+    // ==========================================
+    // Function: Assemble exposure-wide selected-star power stamps
+    // Method: Append each live chip buffer and retain every selected star while
+    //         preserving the legacy two-dimensional FITS mosaic layout.
+    // ==========================================
     void plotStarExpo(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, ExposurePSFState& state) {
-        int ns = LensingConfig::ns;
-        int len_s = LensingConfig::len_s;
-        int nstar_max = LensingConfig::nstar_max;
-        int nmax_stamp = 5000;
-
-        size_t total_stars_limit = static_cast<size_t>(LensingConfig::NMAX_CHIP) * nstar_max;
-        std::vector<int> opt(total_stars_limit, 0);
-
-        // star_test size: 62 * 2000 * 64 * 64 floats (Heap allocated)
-        std::vector<float> star_test(total_stars_limit * ns * ns, 0.0f);
-        std::vector<float> star(static_cast<size_t>(nstar_max) * ns * ns, 0.0f);
-
+        const int ns = LensingConfig::ns;
+        const int len_s = LensingConfig::len_s;
+        std::vector<int> opt;
+        std::vector<float> star_test;
         int ntot = 0;
-        int w = 0;
         int start = 0;
 
         for (int ichip = 0; ichip < nchip; ++ichip) {
-            if (state.nstar[ichip] == 0) continue;
+            const int nstar = state.getNStar(ichip);
+            if (nstar == 0) continue;
             int nn1 = ns * len_s;
-            int nn2 = ns * ((state.nstar[ichip] / len_s) + 1);
+            int nn2 = ns * ((nstar / len_s) + 1);
 
             std::string prefix = UniversalUtils::getPrefix(imageFiles[ichip]);
             std::string filepath = OutputLayout::chipPath(
-                dirOutput, "stamps/fits_StarCanP", prefix, "_star_can_power.fits");
-
-            if (!FitsIO::readStamps(nstar_max, 1, state.nstar[ichip], ns, ns, star, nn1, nn2, filepath)) {
-                std::cerr << "plotStarExpo: readStamps failed for " << filepath << std::endl;
-                std::exit(1);
+                dirOutput, "stamps/fits_StarCanP", prefix,
+                "_star_can_power.fits");
+            std::vector<float> star;
+            if (!FitsIO::readStamps(
+                    nstar, 1, nstar, ns, ns, star, nn1, nn2, filepath)) {
+                MPIFailure::abortWorld(
+                    "read exposure PSF star power", filepath);
             }
+            star_test.insert(star_test.end(), star.begin(), star.end());
+            opt.resize(static_cast<std::size_t>(start + nstar), 0);
 
-            for (int i = 0; i < state.nstar[ichip]; ++i) {
-                for (int u = 0; u < ns; ++u) {
-                    for (int v = 0; v < ns; ++v) {
-                        size_t srcIdx = static_cast<size_t>(i) * ns * ns + v * ns + u;
-                        size_t destIdx = static_cast<size_t>(start + i) * ns * ns + v * ns + u;
-                        star_test[destIdx] = star[srcIdx];
-                    }
-                }
-                w = start + i;
+            for (int i = 0; i < nstar; ++i) {
                 if (state.getStarPara(ichip, i, 4) <= 0.0) continue;
                 ntot++;
-                if (ntot < nmax_stamp) {
-                    opt[w] = 1;
-                }
+                opt[start + i] = 1;
             }
-            start += state.nstar[ichip];
+            start += nstar;
         }
 
         std::string prefix_e = UniversalUtils::getPrefixExpo(imageFiles[0]);
-        std::string out_filename = dirOutput + "/stamps/fits_StarP/" + prefix_e + "_star_power_expo.fits";
-
+        std::string out_filename = dirOutput + "/stamps/fits_StarP/"
+            + prefix_e + "_star_power_expo.fits";
         if (ntot > 0) {
             int len_sam = LensingConfig::len_sam;
             int nn1 = ns * len_sam;
-            int nn2 = ns * ((std::min(ntot, nmax_stamp) / len_sam) + 1);
-            FitsIO::writeStamps2(total_stars_limit, w + 1, ns, ns, star_test, opt, 1, nn1, nn2, out_filename);
+            int nn2 = ns * ((ntot / len_sam) + 1);
+            FitsIO::writeStamps2(
+                start, start, ns, ns, star_test, opt, 1, nn1, nn2,
+                out_filename);
         }
     }
 
@@ -486,7 +494,6 @@ namespace PSFModel {
     // ==========================================
     void plotStars(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, int nc, const std::vector<std::array<double, 4>>& p_chip, ExposurePSFState& state) {
         int nm = 1000;
-        int nstar_max = LensingConfig::nstar_max;
         int nstar_min_local = LensingConfig::nstar_min_local;
 
         std::string prefix_e = UniversalUtils::getPrefixExpo(imageFiles[0]);
@@ -502,9 +509,12 @@ namespace PSFModel {
 
         outfile << "# ichip nstar FWHM e1 e2 chi_d\n";
 
-        size_t total_stars_limit = static_cast<size_t>(LensingConfig::NMAX_CHIP) * nstar_max;
         std::vector<std::array<double, 5>> sk;
-        sk.reserve(total_stars_limit);
+        std::size_t total_candidates = 0;
+        for (int k = 0; k < nchip; ++k) {
+            total_candidates += static_cast<std::size_t>(state.getNStar(k));
+        }
+        sk.reserve(total_candidates);
 
         for (int k = 0; k < nchip; ++k) {
             double FWHM_ave = 0.0;
@@ -514,7 +524,7 @@ namespace PSFModel {
             int nums = 0;
             int prev_idx = -1;
 
-            for (int i = 0; i < state.nstar[k]; ++i) {
+            for (int i = 0; i < state.getNStar(k); ++i) {
                 if (state.getStarPara(k, i, 4) <= 0.0) continue;
                 nums++;
                 sk.push_back({
@@ -564,7 +574,6 @@ namespace PSFModel {
     void makePSFLocalFit(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, ExposurePSFState& state) {
         int ns = LensingConfig::ns;
         int len_s = LensingConfig::len_s;
-        int nstar_max = LensingConfig::nstar_max;
         int npl = LensingConfig::npl;
         int nplx = LensingConfig::nplx;
 
@@ -581,15 +590,17 @@ namespace PSFModel {
             int nums = 0;
             std::string prefix = UniversalUtils::getPrefix(imageFiles[k]);
 
-            std::vector<float> star(static_cast<size_t>(nstar_max) * ns * ns, 0.0f);
-            if (state.nstar[k] > 0) {
+            std::vector<float> star;
+            if (state.getNStar(k) > 0) {
                 int nn1 = ns * len_s;
-                int nn2 = ns * ((state.nstar[k] / len_s) + 1);
+                int nn2 = ns * ((state.getNStar(k) / len_s) + 1);
                 std::string filepath = OutputLayout::chipPath(
                     dirOutput, "stamps/fits_StarCanP", prefix, "_star_can_power.fits");
-                if (!FitsIO::readStamps(nstar_max, 1, state.nstar[k], ns, ns, star, nn1, nn2, filepath)) {
-                    std::cerr << "makePSFLocalFit: readStamps failed for " << filepath << std::endl;
-                    std::exit(1);
+                if (!FitsIO::readStamps(
+                        state.getNStar(k), 1, state.getNStar(k), ns, ns,
+                        star, nn1, nn2, filepath)) {
+                    MPIFailure::abortWorld(
+                        "read local-fit PSF star power", filepath);
                 }
             }
 
@@ -607,7 +618,7 @@ namespace PSFModel {
             std::vector<float> star_local;
             int removed_non_finite = 0;
 
-            for (int i = 0; i < state.nstar[k]; ++i) {
+            for (int i = 0; i < state.getNStar(k); ++i) {
                 if (state.getStarPara(k, i, 4) < 0.0) continue;
                 double px = state.getStarPara(k, i, 1);
                 double py = state.getStarPara(k, i, 2);

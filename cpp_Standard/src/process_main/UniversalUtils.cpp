@@ -1,6 +1,7 @@
 #include "UniversalUtils.hpp"
 #include "FitsIO.hpp"
 #include "LinearSolve.hpp"
+#include "MPIFailure.hpp"
 #include <cmath>
 #include <iostream>
 #include <fstream>
@@ -607,8 +608,7 @@ namespace UniversalUtils {
         size_t p_slash = imagefile.find_last_of('/');
         size_t p_dot = imagefile.find_last_of('.');
         if (p_dot == std::string::npos || p_slash == std::string::npos || p_dot <= p_slash + 1) {
-            std::cerr << "Image_file name is NOT normal: " << imagefile << std::endl;
-            std::exit(1);
+            MPIFailure::abortWorld("extract image prefix", imagefile);
         }
         return imagefile.substr(p_slash + 1, p_dot - p_slash - 1);
     }
@@ -629,8 +629,9 @@ namespace UniversalUtils {
                 }
             }
         }
-        std::cerr << "Image_file name is NOT normal for level " << level << ": " << imagefile << std::endl;
-        std::exit(1);
+        MPIFailure::abortWorld(
+            "extract parent directory",
+            imagefile + " level=" + std::to_string(level));
     }
 
     // ==========================================
@@ -641,8 +642,7 @@ namespace UniversalUtils {
         size_t p_slash = imagefile.find_last_of('/');
         size_t p_under = imagefile.find_last_of('_');
         if (p_under == std::string::npos || p_slash == std::string::npos || p_under <= p_slash + 1) {
-            std::cerr << "Image_file name is NOT normal: " << imagefile << std::endl;
-            std::exit(1);
+            MPIFailure::abortWorld("extract exposure prefix", imagefile);
         }
         return imagefile.substr(p_slash + 1, p_under - p_slash - 1);
     }
@@ -716,8 +716,7 @@ namespace UniversalUtils {
         image_files.clear();
         std::ifstream infile(expo_file_path);
         if (!infile.is_open()) {
-            std::cerr << "EXPO_FILE reading error: " << expo_file_path << std::endl;
-            std::exit(1);
+            MPIFailure::abortWorld("read exposure image list", expo_file_path);
         }
         std::string line;
         while (std::getline(infile, line)) {
@@ -736,8 +735,9 @@ namespace UniversalUtils {
         infile.close();
 
         if (image_files.empty()) {
-            std::cerr << "EXPO_FILE contains no image entries: " << expo_file_path << std::endl;
-            std::exit(1);
+            MPIFailure::abortWorld(
+                "validate exposure image list",
+                expo_file_path + " contains no image entries");
         }
 
         dir_output = getDir(image_files[0], 3);

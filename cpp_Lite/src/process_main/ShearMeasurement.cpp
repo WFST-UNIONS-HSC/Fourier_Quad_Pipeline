@@ -3,7 +3,9 @@
 #include "OutputLayout.hpp"
 #include "LensingConfig.hpp"
 #include "UniversalUtils.hpp"
+#include "Universalblock.hpp"
 #include "FitsIO.hpp"
+#include "MPIFailure.hpp"
 #include "Astrometry.hpp"
 #include "PSFModel.hpp"
 #include "ExStar.hpp"
@@ -200,7 +202,8 @@ void getPSFArea(const float* model, float& FWHM) {
 
 // ==========================================
 // Function: Measure shear for every source in one exposure.
-// Method: Mirrors F77 expo_shear chip loop, PSF model evaluation, FQ estimator, and catalog write.
+// Method: Apply the shared norm gate per chip, then preserve the F77 PSF evaluation,
+//         Fourier_Quad estimator, and catalog-write sequence.
 // ==========================================
 void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, int chipnx, int chipny) {
     int ns = LensingConfig::ns;
@@ -218,6 +221,18 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
     std::vector<double> local_coe(ns * ns * (npl + 1), 0.0);
 
     for (int ichip = 0; ichip < nchip; ++ichip) {
+        const Universalblock::NormStatus norm_status =
+            Universalblock::checkNorm(imageFiles[ichip], dirOutput);
+        if (norm_status == Universalblock::NormStatus::Invalid) {
+            continue;
+        }
+        if (norm_status != Universalblock::NormStatus::Valid) {
+            MPIFailure::abortWorld(
+                "check Stage 1 norm before shear measurement",
+                Universalblock::normErrorDetail(
+                    norm_status, imageFiles[ichip], dirOutput));
+        }
+
         proc_error = 0;
         std::string PREFIX = UniversalUtils::getPrefix(imageFiles[ichip]);
         {
@@ -286,8 +301,8 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
             dirOutput, "stamps/dat_SrcInfo", PREFIX, "_source_info.dat");
         std::ifstream fin(info_filename);
         if (!fin.is_open()) {
-            std::cerr << "Error / proc_shear source_info catalog file error!! " << info_filename << std::endl;
-            std::exit(1);
+            MPIFailure::abortWorld(
+                "read shear source-info catalog", info_filename);
         }
 
         std::string header;
@@ -319,16 +334,14 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
         }
 
         int len_g = LensingConfig::len_g;
-        int ngal_max = LensingConfig::ngal_max;
         int nn1 = ns * len_g;
         int nn2 = ns * (ngal / len_g + 1);
 
         std::vector<float> gal_p_coll;
         std::string power_fits = OutputLayout::chipPath(
             dirOutput, "stamps/fits_SrcP", PREFIX, "_source_p.fits");
-        if (!FitsIO::readStamps(ngal_max, 1, ngal, ns, ns, gal_p_coll, nn1, nn2, power_fits)) {
-            std::cerr << "Error / proc_shear source_p FITS file error!! " << power_fits << std::endl;
-            std::exit(1);
+        if (!FitsIO::readStamps(ngal, 1, ngal, ns, ns, gal_p_coll, nn1, nn2, power_fits)) {
+            MPIFailure::abortWorld("read galaxy power stamps for shear", power_fits);
         }
 
         fout10.open(out_filename);

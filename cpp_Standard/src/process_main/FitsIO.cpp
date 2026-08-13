@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
+#include <limits>
 #include <sstream>
 
 namespace FitsIO {
@@ -65,6 +67,30 @@ namespace FitsIO {
         if (fptr == nullptr) return;
         int closeStatus = 0;
         fits_close_file(fptr, &closeStatus);
+    }
+
+    // ==========================================
+    // Function: Compute a checked non-negative element product
+    // Method: Reject negative dimensions and guard size_t multiplication before allocation.
+    // ==========================================
+    static bool checkedElementCount(int first, int second, int third,
+                                    std::size_t& count) {
+        count = 0;
+        if (first < 0 || second < 0 || third < 0) {
+            return false;
+        }
+        const std::size_t a = static_cast<std::size_t>(first);
+        const std::size_t b = static_cast<std::size_t>(second);
+        const std::size_t c = static_cast<std::size_t>(third);
+        if (a != 0 && b > std::numeric_limits<std::size_t>::max() / a) {
+            return false;
+        }
+        const std::size_t ab = a * b;
+        if (ab != 0 && c > std::numeric_limits<std::size_t>::max() / ab) {
+            return false;
+        }
+        count = ab * c;
+        return true;
     }
 
     bool readCCDNUM(const std::string& filename, int& ccdNum) {
@@ -143,6 +169,60 @@ namespace FitsIO {
             return false;
         }
         return true;
+    }
+
+    // ==========================================
+    // Function: Read the first pixel of one two-dimensional FITS image
+    // Method: Distinguish a missing path, validate positive 2D axes, and read exactly one float.
+    // ==========================================
+    PixelReadStatus readFirstPixel(const std::string& filename, float& value) {
+        std::error_code filesystem_error;
+        const bool exists = std::filesystem::exists(filename, filesystem_error);
+        if (filesystem_error) {
+            return PixelReadStatus::ReadError;
+        }
+        if (!exists) {
+            return PixelReadStatus::Missing;
+        }
+
+        fitsfile* fptr = nullptr;
+        int status = 0;
+        fits_open_file(&fptr, filename.c_str(), READONLY, &status);
+        if (status != 0) {
+            fits_clear_errmsg();
+            return PixelReadStatus::ReadError;
+        }
+
+        int naxis = 0;
+        long naxes[2] = {0, 0};
+        fits_get_img_dim(fptr, &naxis, &status);
+        if (status == 0 && naxis == 2) {
+            fits_get_img_size(fptr, 2, naxes, &status);
+        }
+        if (status != 0 || naxis != 2 || naxes[0] <= 0 || naxes[1] <= 0) {
+            closeAfterFailure(fptr);
+            fits_clear_errmsg();
+            return PixelReadStatus::ReadError;
+        }
+
+        long first_pixel[2] = {1, 1};
+        float null_value = std::numeric_limits<float>::quiet_NaN();
+        int any_null = 0;
+        fits_read_pix(fptr, TFLOAT, first_pixel, 1, &null_value, &value,
+                      &any_null, &status);
+        if (status != 0) {
+            closeAfterFailure(fptr);
+            fits_clear_errmsg();
+            return PixelReadStatus::ReadError;
+        }
+
+        int close_status = 0;
+        fits_close_file(fptr, &close_status);
+        if (close_status != 0) {
+            fits_clear_errmsg();
+            return PixelReadStatus::ReadError;
+        }
+        return PixelReadStatus::Ok;
     }
 
     // ==========================================
@@ -327,7 +407,19 @@ namespace FitsIO {
         return true;
     }
 
+    // ==========================================
+    // Function: Unpack a collection of legacy two-dimensional FITS stamps
+    // Method: Validate live dimensions, allocate the requested count, and copy
+    //         from the unchanged row-major NAXIS=2 mosaic layout.
+    // ==========================================
     bool readStamps(int np, int nstart, int n, int nsx, int nsy, std::vector<float>& stamps, int n1, int n2, const std::string& filename) {
+        std::size_t stamp_elements = 0;
+        if (np < n || nstart < 1 || n < 0 || nstart > n + 1
+            || nsx <= 0 || nsy <= 0 || n1 <= 0 || n2 <= 0
+            || !checkedElementCount(np, nsx, nsy, stamp_elements)) {
+            std::cerr << "Invalid stamp geometry for reading: " << filename << std::endl;
+            return false;
+        }
         int lnx = 0, lny = 0;
         std::vector<float> largeStamp;
         if (!readImage(filename, lnx, lny, largeStamp)) {
@@ -339,14 +431,14 @@ namespace FitsIO {
             std::cerr << "Warning: FITS size (" << lnx << "x" << lny << ") does not match requested (" << n1 << "x" << n2 << ")." << std::endl;
         }
 
-        stamps.resize(static_cast<size_t>(np) * nsx * nsy, 0.0f);
+        stamps.resize(stamp_elements, 0.0f);
 
         int offx = 0;
         int offy = 0;
 
         // Fortran nstart is 1-based, we map to 0-based k
         for (int k = nstart - 1; k < n; ++k) {
-            if (offy + nsy > lny) {
+            if (offx + nsx > lnx || offy + nsy > lny) {
                 std::cerr << "large_stamp is too small for reading!" << std::endl;
                 return false;
             }
@@ -368,23 +460,32 @@ namespace FitsIO {
 
     // ==========================================
     // Function: Pack and write a collection of image stamps.
-    // Method: Match F77 write_stamps packing and terminate on fixed-buffer overflow.
+    // Method: Preserve the legacy NAXIS=2 mosaic while validating dynamic dimensions and buffers.
     // ==========================================
     bool writeStamps(int np, int nstart, int n, int nsx, int nsy, const std::vector<float>& stamps, int n1, int n2, const std::string& filename) {
-        constexpr int f77Nmax = 7000;
-        if (n2 > f77Nmax) {
+        std::size_t required_stamp_elements = 0;
+        std::size_t mosaic_elements = 0;
+        if (np < n || nstart < 1 || n < 0 || nstart > n + 1
+            || nsx <= 0 || nsy <= 0 || n1 <= 0 || n2 <= 0
+            || !checkedElementCount(n, nsx, nsy, required_stamp_elements)
+            || !checkedElementCount(n1, n2, 1, mosaic_elements)) {
             MainIO::failOutput(
                 "pack FITS stamps", filename,
-                "requested output height exceeds the retained 7000-row stamp buffer contract");
+                "invalid or overflowing legacy mosaic dimensions");
+        }
+        if (stamps.size() < required_stamp_elements) {
+            MainIO::failOutput(
+                "pack FITS stamps", filename,
+                "input stamp buffer is smaller than the live stamp count");
         }
 
-        std::vector<float> largeStamp(static_cast<size_t>(n1) * n2, 0.0f);
+        std::vector<float> largeStamp(mosaic_elements, 0.0f);
 
         int offx = 0;
         int offy = 0;
 
         for (int k = nstart - 1; k < n; ++k) {
-            if (offy + nsy > n2) {
+            if (offx + nsx > n1 || offy + nsy > n2) {
                 MainIO::failOutput(
                     "pack FITS stamps", filename,
                     "stamp collection exceeds the requested FITS image dimensions");
@@ -412,14 +513,29 @@ namespace FitsIO {
     //         creation/write failure handling to writeImage.
     // ==========================================
     bool writeStamps2(int np, int n, int nsx, int nsy, const std::vector<float>& stamps, const std::vector<int>& opt, int val, int n1, int n2, const std::string& filename) {
-        std::vector<float> largeStamp(static_cast<size_t>(n1) * n2, 0.0f);
+        std::size_t required_stamp_elements = 0;
+        std::size_t mosaic_elements = 0;
+        if (np < n || n < 0 || nsx <= 0 || nsy <= 0 || n1 <= 0 || n2 <= 0
+            || opt.size() < static_cast<std::size_t>(n)
+            || !checkedElementCount(n, nsx, nsy, required_stamp_elements)
+            || !checkedElementCount(n1, n2, 1, mosaic_elements)) {
+            MainIO::failOutput(
+                "pack selected FITS stamps", filename,
+                "invalid or overflowing selected-mosaic dimensions");
+        }
+        if (stamps.size() < required_stamp_elements) {
+            MainIO::failOutput(
+                "pack selected FITS stamps", filename,
+                "input stamp buffer is smaller than the live stamp count");
+        }
+        std::vector<float> largeStamp(mosaic_elements, 0.0f);
 
         int offx = 0;
         int offy = 0;
 
         for (int k = 0; k < n; ++k) {
             if (opt[k] != val) continue;
-            if (offy + nsy > n2) {
+            if (offx + nsx > n1 || offy + nsy > n2) {
                 MainIO::failOutput(
                     "pack selected FITS stamps", filename,
                     "selected stamp collection exceeds the requested FITS image dimensions");

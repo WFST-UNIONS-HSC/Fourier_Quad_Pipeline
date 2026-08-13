@@ -1,8 +1,11 @@
 #include "CatalogCombiner.hpp"
+#include "CatalogRowCount.hpp"
+#include "MPIFailure.hpp"
 #include "OutputFile.hpp"
 #include "OutputLayout.hpp"
 #include "LensingConfig.hpp"
 #include "UniversalUtils.hpp"
+#include "Universalblock.hpp"
 #include "ExposureInfo.hpp"
 #include <iostream>
 #include <vector>
@@ -12,6 +15,8 @@
 #include <iomanip>
 #include <cmath>
 #include <algorithm>
+#include <filesystem>
+#include <system_error>
 
 extern std::vector<std::string> EXPO_FILE;
 
@@ -26,38 +31,28 @@ static inline std::string trimRight(std::string str) {
 
 // ==========================================
 // Function: Combine one exposure's chip catalogs into the final result catalog
-// Method: Read aligned original/shear rows and publish the merged text output
-//         through the checked main-process writer.
+// Method: Remove stale output first, gate every chip on Stage-1 validity, validate
+//         external row pairing, and open the final catalog only for live shear data.
 // ==========================================
 void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, float chi2) {
+    if (nchip <= 0 || imageFiles.empty()) {
+        MPIFailure::abortWorld(
+            "combine exposure catalog", "exposure contains no chip paths");
+    }
+
     std::string prefix_expo = UniversalUtils::getPrefixExpo(imageFiles[0]);
     std::string out_filename = dirOutput + "/result/" + prefix_expo + "_all.cat";
 
-    MainIO::OutputFile fout20(out_filename);
-    if (!fout20.is_open()) {
-        std::cerr << "Error: cannot open combined catalog output: " << out_filename << std::endl;
-        std::exit(1);
+    std::error_code remove_error;
+    std::filesystem::remove(out_filename, remove_error);
+    if (remove_error) {
+        MPIFailure::abortWorld(
+            "remove stale combined catalog",
+            out_filename + ": " + remove_error.message());
     }
-    fout20 << std::setprecision(10);
 
-    std::string cat_list2;
-    for (int ichip = 0; ichip < nchip; ++ichip) {
-        std::string prefix = UniversalUtils::getPrefix(imageFiles[ichip]);
-        std::string filename = OutputLayout::chipPath(
-            dirOutput, "stamps/cat_Orig", prefix, "_orig.cat");
-        std::ifstream fin15(filename);
-        if (fin15.is_open()) {
-            if (std::getline(fin15, cat_list2)) {
-                std::string cat_content;
-                if (std::getline(fin15, cat_content)) {
-                    cat_list2 = trimRight(cat_list2);
-                    fin15.close();
-                    break;
-                }
-            }
-            fin15.close();
-        }
-    }
+    MainIO::OutputFile fout20;
+    bool output_opened = false;
 
     int n = 0;
     int m = 0;
@@ -66,6 +61,18 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
     std::string last_prefix;
 
     for (int ichip = 0; ichip < nchip; ++ichip) {
+        const Universalblock::NormStatus norm_status =
+            Universalblock::checkNorm(imageFiles[ichip], dirOutput);
+        if (norm_status == Universalblock::NormStatus::Invalid) {
+            continue;
+        }
+        if (norm_status != Universalblock::NormStatus::Valid) {
+            MPIFailure::abortWorld(
+                "check Stage 1 norm before catalog combination",
+                Universalblock::normErrorDetail(
+                    norm_status, imageFiles[ichip], dirOutput));
+        }
+
         int chip_index = UniversalUtils::getChipId(imageFiles[ichip]);
         std::string prefix = UniversalUtils::getPrefix(imageFiles[ichip]);
         last_prefix = prefix;
@@ -74,38 +81,58 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
             dirOutput, "stamps/dat_Shear", prefix, "_shear.dat");
         std::ifstream fin10(filename_shear);
         if (!fin10.is_open()) {
-            std::cerr << filename_shear << " is missing!" << std::endl;
-            std::exit(1);
+            MPIFailure::abortWorld("read Stage 7 shear catalog", filename_shear);
         }
 
         std::string cat_list1;
-        std::getline(fin10, cat_list1);
+        if (!std::getline(fin10, cat_list1)) {
+            MPIFailure::abortWorld(
+                "read Stage 7 shear catalog header", filename_shear);
+        }
         cat_list1 = trimRight(cat_list1);
+        if (cat_list1.empty()) {
+            MPIFailure::abortWorld(
+                "parse Stage 7 shear catalog header", filename_shear);
+        }
 
         std::string filename_orig = OutputLayout::chipPath(
             dirOutput, "stamps/cat_Orig", prefix, "_orig.cat");
+        Internal::requireMatchingCatalogDataRows(filename_shear, filename_orig);
+
         std::ifstream fin15(filename_orig);
         if (!fin15.is_open()) {
-            std::cerr << filename_orig << " is missing!" << std::endl;
-            std::exit(1);
+            MPIFailure::abortWorld("read external source catalog", filename_orig);
         }
 
-        std::string dummy_orig_header;
-        std::getline(fin15, dummy_orig_header);
-
-        if (ichip == 0) {
-            fout20 << cat_list2 << " ccD_NUM " << cat_list1 << " Chi2\n";
-            if (chi2 > LensingConfig::chi2_thresh) {
-                fin10.close();
-                fin15.close();
-                fout20.close();
-                std::cout << prefix << " contains no valid sources!" << std::endl;
-                return;
-            }
+        std::string cat_list2;
+        if (!std::getline(fin15, cat_list2)) {
+            MPIFailure::abortWorld(
+                "read external source catalog header", filename_orig);
+        }
+        cat_list2 = trimRight(cat_list2);
+        if (cat_list2.empty()) {
+            MPIFailure::abortWorld(
+                "parse external source catalog header", filename_orig);
         }
 
         std::string line10;
-        while (std::getline(fin10, line10)) {
+        if (!std::getline(fin10, line10)) {
+            continue;
+        }
+
+        if (chi2 > LensingConfig::chi2_thresh) {
+            std::cout << prefix << " contains no valid sources!" << std::endl;
+            return;
+        }
+
+        if (!output_opened) {
+            fout20.open(out_filename);
+            fout20 << std::setprecision(10);
+            fout20 << cat_list2 << " ccD_NUM " << cat_list1 << " Chi2\n";
+            output_opened = true;
+        }
+
+        do {
             if (line10.empty()) continue;
             std::stringstream ss(line10);
             std::vector<float> cat(num_cols);
@@ -120,7 +147,8 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
 
             std::string cat_content;
             if (!std::getline(fin15, cat_content)) {
-                break;
+                MPIFailure::abortWorld(
+                    "read paired external catalog row", prefix);
             }
             cat_content = trimRight(cat_content);
 
@@ -146,15 +174,24 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
                 fout20 << " " << cat[u];
             }
             fout20 << " " << chi2 << "\n";
+        } while (std::getline(fin10, line10));
+
+        if (fin10.bad()) {
+            MPIFailure::abortWorld("read Stage 7 shear catalog", filename_shear);
         }
-        fin15.close();
-        fin10.close();
     }
 
-    std::cout << last_prefix << " " << n << " " << m << std::endl;
-    fout20.close();
+    std::cout << (last_prefix.empty() ? prefix_expo : last_prefix)
+              << " " << n << " " << m << std::endl;
+    if (output_opened) {
+        fout20.close();
+    }
 }
 
+// ==========================================
+// Function: Run Stage 9 for one exposure
+// Method: Resolve chip paths, obtain reduced Stage-8 chi2, and invoke the combiner.
+// ==========================================
 void procComb(int iexpo) {
     if (iexpo <= 0 || iexpo > static_cast<int>(EXPO_FILE.size())) {
         std::cerr << "Error: invalid iexpo index: " << iexpo << std::endl;

@@ -5,9 +5,11 @@
 #include "PSFModel.hpp"
 #include "FitsIO.hpp"
 #include "UniversalUtils.hpp"
+#include "Universalblock.hpp"
 #include "MPIScheduler.hpp"
 #include "NumericalRecipes.hpp"
 #include "LinearSolve.hpp"
+#include "MPIFailure.hpp"
 #include <Eigen/Dense>
 #include <mpi.h>
 #include <iostream>
@@ -232,6 +234,20 @@ namespace PSFRecons {
             std::string dir_out;
             UniversalUtils::getImageList(EXPO_FILE[i - 1], image_files, dir_out);
             std::string prefix_e = UniversalUtils::getPrefixExpo(image_files[0]);
+            if (ichip > static_cast<int>(image_files.size())) {
+                continue;
+            }
+            const Universalblock::NormStatus norm_status =
+                Universalblock::checkNorm(image_files[ichip - 1], dir_out);
+            if (norm_status == Universalblock::NormStatus::Invalid) {
+                continue;
+            }
+            if (norm_status != Universalblock::NormStatus::Valid) {
+                MPIFailure::abortWorld(
+                    "validate PCA residual chip norm",
+                    Universalblock::normErrorDetail(
+                        norm_status, image_files[ichip - 1], dir_out));
+            }
             
             std::string filename_xy = OutputLayout::chipPath(
                 dir_out, "stamps/dat_StarXY",
@@ -281,7 +297,8 @@ namespace PSFRecons {
                             }
                         }
                     } else {
-                        std::exit(1);
+                        MPIFailure::abortWorld(
+                            "read PCA residual stamps", fits_filename);
                     }
                 }
             }
@@ -432,6 +449,20 @@ namespace PSFRecons {
                 std::string dir_out;
                 UniversalUtils::getImageList(EXPO_FILE[i - 1], image_files, dir_out);
                 std::string prefix_e = UniversalUtils::getPrefixExpo(image_files[0]);
+                if (ichip > static_cast<int>(image_files.size())) {
+                    continue;
+                }
+                const Universalblock::NormStatus norm_status =
+                    Universalblock::checkNorm(image_files[ichip - 1], dir_out);
+                if (norm_status == Universalblock::NormStatus::Invalid) {
+                    continue;
+                }
+                if (norm_status != Universalblock::NormStatus::Valid) {
+                    MPIFailure::abortWorld(
+                        "validate PCA projection chip norm",
+                        Universalblock::normErrorDetail(
+                            norm_status, image_files[ichip - 1], dir_out));
+                }
                 std::string filename_xy = OutputLayout::chipPath(
                     dir_out, "stamps/dat_StarXY",
                     prefix_e + "_" + std::to_string(ichip), "_star_xy.dat");
@@ -640,8 +671,8 @@ namespace PSFRecons {
         if (rescale_file.is_open() && (rescale_file >> res_factor)) {
             rescale_file.close();
         } else {
-            std::cerr << "cannot find rescale factor file" << std::endl;
-            std::exit(1);
+            MPIFailure::abortWorld(
+                "read reconstructed-PSF rescale factor", rescale_filename);
         }
 
         std::string out_filename = dir_output + "/stamps/dat_StarCompV2/" + prefix_e + "_star_comp_expo_v2.dat";
@@ -721,7 +752,8 @@ namespace PSFRecons {
 
             int chip_index = UniversalUtils::getChipId(image_files[ichip - 1]);
             if (chip_index < 0) {
-                std::exit(1);
+                MPIFailure::abortWorld(
+                    "read reconstructed-PSF chip id", image_files[ichip - 1]);
             }
             file11 << ichip << " " << nstar << " " << valid << "\n";
 
@@ -784,8 +816,8 @@ namespace PSFRecons {
         psf_model.assign(ns * ns, 0.0f);
 
         if (!PSFModel::is_data_loaded) {
-            std::cerr << "Error: PSF data not loaded! Call init first." << std::endl;
-            std::exit(1);
+            MPIFailure::abortWorld(
+                "evaluate hierarchical PSF", "PCA data are not loaded");
         }
 
         double xx_norm = 2.0 * (x / static_cast<double>(LensingConfig::chipnx)) - 1.0;

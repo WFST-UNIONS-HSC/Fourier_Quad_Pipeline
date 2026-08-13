@@ -11,6 +11,16 @@ struct WCSParams {
 };
 
 namespace FitsIO {
+    // ==========================================
+    // Enum: Classify a focused FITS pixel read
+    // Method: Separate an absent path from an existing file that cannot supply a pixel.
+    // ==========================================
+    enum class PixelReadStatus {
+        Ok,
+        Missing,
+        ReadError
+    };
+
     // Utility to print cfitsio errors
     void printError(int status);
 
@@ -22,6 +32,12 @@ namespace FitsIO {
 
     // Read 2D image data
     bool readImage(const std::string& filename, int& nx, int& ny, std::vector<float>& data);
+
+    // ==========================================
+    // Function: Read the first pixel of one two-dimensional FITS image
+    // Method: Validate the image shape and transfer one float without loading the CCD.
+    // ==========================================
+    PixelReadStatus readFirstPixel(const std::string& filename, float& value);
 
     // Read 2D image data and WCS WCSParams
     bool readImagePara(const std::string& filename, int& nx, int& ny, std::vector<float>& data, WCSParams& wcs);

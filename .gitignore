@@ -4,6 +4,8 @@
 *.mod
 *.smod
 Fourier_Quad_Pipe
+cpp_Standard/tests/test_*
+cpp_Lite/tests/test_*
 
 # Superplan planning workspace
 .planning/

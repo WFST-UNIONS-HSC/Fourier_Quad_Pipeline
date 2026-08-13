@@ -3,8 +3,10 @@
 #include "OutputLayout.hpp"
 #include "LensingConfig.hpp"
 #include "UniversalUtils.hpp"
+#include "Universalblock.hpp"
 #include "FitsIO.hpp"
 #include "ImageProcessing.hpp"
+#include "MPIFailure.hpp"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -20,10 +22,21 @@ namespace FourierTransformSt2 {
 
 // ==========================================
 // Function: Transform one chip's source stamps into Fourier-space products
-// Method: Read Stage-3 source data, update source diagnostics, and publish all
-//         text/FITS outputs through checked main-process writers.
+// Method: Apply the shared norm gate, size buffers from live rows, update diagnostics,
+//         and publish text/FITS outputs through checked main-process writers.
 // ==========================================
 void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dirOutput) {
+    const Universalblock::NormStatus norm_status =
+        Universalblock::checkNorm(imageFile, dirOutput);
+    if (norm_status == Universalblock::NormStatus::Invalid) {
+        return;
+    }
+    if (norm_status != Universalblock::NormStatus::Valid) {
+        MPIFailure::abortWorld(
+            "check Stage 1 norm before galaxy FFT",
+            Universalblock::normErrorDetail(norm_status, imageFile, dirOutput));
+    }
+
     int ns = LensingConfig::ns;
 
     std::string raw_prefix = UniversalUtils::getPrefix(imageFile);
@@ -36,8 +49,7 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
 
     std::ifstream fin(info_filename);
     if (!fin.is_open()) {
-        std::cerr << "Error / FFT2 source_info catalog file error!! " << info_filename << std::endl;
-        return;
+        MPIFailure::abortWorld("read source info for galaxy FFT", info_filename);
     }
 
     std::string header;
@@ -72,27 +84,25 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
     }
 
     int len_g = LensingConfig::len_g;
-    int ngal_max = LensingConfig::ngal_max;
     int nn1 = ns * len_g;
     int nn2 = ns * (nsource / len_g + 1);
 
     std::vector<float> source_coll;
     std::string source_fits = OutputLayout::chipPath(
         dirOutput, "stamps/fits_Src", raw_prefix, "_source.fits");
-    if (!FitsIO::readStamps(ngal_max, 1, nsource, ns, ns, source_coll, nn1, nn2, source_fits)) {
-        std::cerr << "Error reading source stamps: " << source_fits << std::endl;
-        return;
+    if (!FitsIO::readStamps(nsource, 1, nsource, ns, ns, source_coll, nn1, nn2, source_fits)) {
+        MPIFailure::abortWorld("read source stamps for galaxy FFT", source_fits);
     }
 
     std::vector<float> noise_coll;
     std::string noise_fits = OutputLayout::chipPath(
         dirOutput, "stamps/fits_Noise", raw_prefix, "_noise.fits");
-    if (!FitsIO::readStamps(ngal_max, 1, nsource, ns, ns, noise_coll, nn1, nn2, noise_fits)) {
-        std::cerr << "Error reading noise stamps: " << noise_fits << std::endl;
-        return;
+    if (!FitsIO::readStamps(nsource, 1, nsource, ns, ns, noise_coll, nn1, nn2, noise_fits)) {
+        MPIFailure::abortWorld("read noise stamps for galaxy FFT", noise_fits);
     }
 
-    std::vector<float> power_coll(static_cast<size_t>(ngal_max) * ns * ns, 0.0f);
+    std::vector<float> power_coll(
+        static_cast<size_t>(nsource) * ns * ns, 0.0f);
 
     for (int i = 0; i < nsource; ++i) {
         std::vector<float> source(ns * ns);
@@ -136,12 +146,13 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
 
     std::string power_fits = OutputLayout::chipPath(
         dirOutput, "stamps/fits_SrcP", raw_prefix, "_source_p.fits");
-    if (!FitsIO::writeStamps(ngal_max, 1, nsource, ns, ns, power_coll, nn1, nn2, power_fits)) {
-        std::cerr << "Error / FFT2 source_p FITS write failed: " << power_fits << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
+    FitsIO::writeStamps(nsource, 1, nsource, ns, ns, power_coll, nn1, nn2, power_fits);
 }
 
+// ==========================================
+// Function: Run Stage 6 for every chip in one exposure
+// Method: Resolve the exposure list and delegate each chip to the norm-gated transformer.
+// ==========================================
 void procFourierTSt2(int iexpo) {
     if (iexpo <= 0 || iexpo > static_cast<int>(EXPO_FILE.size())) {
         std::cerr << "Error: invalid iexpo index: " << iexpo << std::endl;
