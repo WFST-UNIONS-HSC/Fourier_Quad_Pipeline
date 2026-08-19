@@ -126,9 +126,16 @@ are from `ProcessConfig.hpp`; all others are compile-time constants from
 | `ext_cat` | — | `0`, `1*` (Std only; Lite frozen to `1`) | `0` disables external source catalog; `1` enables `SOURCE_CAT` usage. Lite implements only `1`. |
 | `ext_PSF` | — | `0*`, `1` (Std only; Lite frozen to `0`) | `0` measures PSF from frame stars; `1` uses external PSF image from `PSF_PATH`. Lite implements only `0`. |
 | `CCD_split` | — | `1`, `2*` | `1` whole-chip amplifier region for background/noise fits; `2` two-amplifier split. Other values are unsafe. |
-| `blocksize` | — | `200*` | Pixel width/height of blocks sampled for background estimation. |
+| `blocksize` | — | `200*` | Target pixel width/height for balanced background blocks; the implementation rounds the amplifier dimensions to a block count and covers the complete region. |
 | `nct` | — | `12*` | Number of rectangular-monomial terms in the background surface fit. Must not exceed available stable background samples. |
 | `ncx` | — | `3*` | Number of successive x powers in the background basis before y power increments. With `nct=12`, the basis spans `x^0..2` for `y^0..3`. |
+| `bg_rough_grid_x` / `bg_rough_grid_y` | — | `32*` / `32*` | Deterministic rough-fit sampling grid. The rough bilinear fit is a residual preconditioner and is not subtracted from the image. |
+| `bg_min_block_pixels` | — | `1000*` | Minimum weight-valid, finite pixels required for one background block point. |
+| `bg_min_valid_frac` | — | `0.25*` | Minimum valid-pixel fraction required for one background block point. |
+| `bg_clip_low` / `bg_clip_high` | — | `4.0*` / `2.5*` | Asymmetric lower/upper MAD clipping thresholds for block residuals. |
+| `bg_fit_clip_sigma` | — | `3.0*` | MAD clipping threshold applied to residuals of the final 12-term model. |
+| `bg_fit_max_iter` | — | `4*` | Maximum iterative final-model MAD clipping passes. |
+| `bg_min_fit_factor` | — | `3*` | Minimum final-fit block count factor relative to `nct`; the absolute minimum is 30. |
 
 ### 3e. PSF selection and configuration (compile-time)
 
@@ -182,6 +189,7 @@ are from `ProcessConfig.hpp`; all others are compile-time constants from
 |:---|:---|:---|:---|
 | `len_g` | — | `40*` | Galaxy stamps per FITS layout row/block used by stamp I/O. |
 | `len_s` | — | `15*` | Star stamps per FITS layout row/block. |
+| `n_user_max` | — | `200*` | Maximum number of flux-ranked image-side astrometry detections passed to `patternMatching()`. Detection, sorting, and dynamic catalog storage remain uncapped; Standard and Lite use the same compile-time value. |
 | `ngal_max` | — | `4000*` | Maximum galaxies stored per chip. Larger detected catalogs are truncated at this limit. |
 | `nstar_max` | — | `2000*` | Maximum stars stored per chip. Memory use includes arrays scaling as `nstar_max²`. |
 | `npara` | — | `25*` | Number of per-source/per-star parameter slots in internal tables. Must cover all configured indices. |
