@@ -46,6 +46,13 @@ correction, and reconstructs the sigma map from the header. Missing or
 malformed metadata is a chip failure; there is no legacy pixel-metadata
 fallback.
 
+When `include_FLAT=1`, Standard Stage 3 reuses the Stage-1 flat filename
+`<flat_path>/flat_<two-digit-chip>_weight.fits` (the compiled
+`LensingConfig::FLAT_PATH` in this repository). Flat read failures and dimension
+mismatches are fatal chip errors. For each pixel, `flat < 0.5` masks the weight;
+otherwise the science array is multiplied by the flat before the recorded
+background model is subtracted.
+
 Local WSL2 verification used GCC 15.2.0, Open MPI 5.0.10, CFITSIO, FFTW3,
 LAPACK, BLAS, and Eigen3. The portable build command remains:
 
