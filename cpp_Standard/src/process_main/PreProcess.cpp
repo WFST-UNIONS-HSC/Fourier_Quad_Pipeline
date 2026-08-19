@@ -616,6 +616,20 @@ namespace PreProcess {
             return 0.5 * (lower + upper);
         };
 
+        constexpr double fit_zero_epsilon = 1.0e-14;
+        constexpr double mad_epsilon = 1.0e-12;
+        const auto fitFailed = [fit_zero_epsilon](const std::vector<double>& coeffs,
+                                                   int expected_size) {
+            if (coeffs.size() != static_cast<size_t>(expected_size)) return true;
+
+            bool all_zero = true;
+            for (double value : coeffs) {
+                if (!std::isfinite(value)) return true;
+                if (std::abs(value) > fit_zero_epsilon) all_zero = false;
+            }
+            return all_zero;
+        };
+
         const SubRegionFrame frame(x_start, x_end, y_start, y_end);
         const int width = x_end - x_start;
         const int height = y_end - y_start;
@@ -669,9 +683,7 @@ namespace PreProcess {
         }
         std::vector<double> rough_coeffs;
         UniversalUtils::fit2D(rough_points, 4, 2, rough_coeffs);
-        if (rough_coeffs.size() != 4
-            || !std::all_of(rough_coeffs.begin(), rough_coeffs.end(),
-                            [](double value) { return std::isfinite(value); })) {
+        if (fitFailed(rough_coeffs, 4)) {
             std::cerr << "Error / setBackground rough fit failed" << std::endl;
             ierror = 1;
             return;
@@ -734,11 +746,12 @@ namespace PreProcess {
                 }
                 const double sigma_mad = 1.4826 * medianNthElement(deviations);
 
-                clipped_values.clear();
                 if (!std::isfinite(sigma_mad)) continue;
-                if (sigma_mad <= 0.0) {
-                    clipped_values = residual_values;
+                double block_residual = 0.0;
+                if (sigma_mad <= mad_epsilon) {
+                    block_residual = residual_median;
                 } else {
+                    clipped_values.clear();
                     const double lower = residual_median
                                        - LensingConfig::bg_clip_low * sigma_mad;
                     const double upper = residual_median
@@ -748,16 +761,20 @@ namespace PreProcess {
                             clipped_values.push_back(residual);
                         }
                     }
-                }
-                if (clipped_values.empty()) continue;
+                    if (clipped_values.size()
+                        < static_cast<size_t>(LensingConfig::bg_min_clipped_pixels)) {
+                        continue;
+                    }
 
-                double residual_sum = 0.0;
-                for (double residual : clipped_values) residual_sum += residual;
-                const double clipped_mean = residual_sum
-                                          / static_cast<double>(clipped_values.size());
+                    double residual_sum = 0.0;
+                    for (double residual : clipped_values) residual_sum += residual;
+                    block_residual = residual_sum
+                                   / static_cast<double>(clipped_values.size());
+                }
+                if (!std::isfinite(block_residual)) continue;
                 const double x_center = 0.5 * (frame.normX(xmin) + frame.normX(xmax - 1));
                 const double y_center = 0.5 * (frame.normY(ymin) + frame.normY(ymax - 1));
-                const double z = evaluateRough(x_center, y_center) + clipped_mean;
+                const double z = evaluateRough(x_center, y_center) + block_residual;
                 if (!std::isfinite(x_center) || !std::isfinite(y_center) || !std::isfinite(z)) {
                     continue;
                 }
@@ -794,9 +811,7 @@ namespace PreProcess {
 
         for (int iter = 0; iter < LensingConfig::bg_fit_max_iter; ++iter) {
             UniversalUtils::fit2D(fit_points, nct, ncx, final_coeffs);
-            if (final_coeffs.size() != static_cast<size_t>(nct)
-                || !std::all_of(final_coeffs.begin(), final_coeffs.end(),
-                                [](double value) { return std::isfinite(value); })) {
+            if (fitFailed(final_coeffs, nct)) {
                 std::cerr << "Error / setBackground final fit failed" << std::endl;
                 ierror = 1;
                 return;
@@ -820,7 +835,12 @@ namespace PreProcess {
                 deviations[i] = std::abs(fit_residuals[i] - final_residual_median);
             }
             final_sigma_mad = 1.4826 * medianNthElement(deviations);
-            if (!std::isfinite(final_sigma_mad) || final_sigma_mad <= 0.0) break;
+            if (!std::isfinite(final_sigma_mad)) {
+                std::cerr << "Error / setBackground nonfinite final MAD" << std::endl;
+                ierror = 1;
+                return;
+            }
+            if (final_sigma_mad <= mad_epsilon) break;
 
             const double clip_limit = LensingConfig::bg_fit_clip_sigma * final_sigma_mad;
             std::vector<Point3D> filtered_points;
@@ -833,18 +853,14 @@ namespace PreProcess {
             if (filtered_points.size() == fit_points.size()) break;
             if (filtered_points.size() < static_cast<size_t>(min_fit_blocks)
                 || !hasQuadrantCoverage(filtered_points)) {
-                std::cerr << "Error / setBackground clipping removed required coverage"
-                          << std::endl;
-                ierror = 1;
-                return;
+                // Reject this clipping step and retain the previous valid fit_points.
+                break;
             }
             fit_points.swap(filtered_points);
         }
 
         UniversalUtils::fit2D(fit_points, nct, ncx, final_coeffs);
-        if (final_coeffs.size() != static_cast<size_t>(nct)
-            || !std::all_of(final_coeffs.begin(), final_coeffs.end(),
-                            [](double value) { return std::isfinite(value); })) {
+        if (fitFailed(final_coeffs, nct)) {
             std::cerr << "Error / setBackground final refit failed" << std::endl;
             ierror = 1;
             return;

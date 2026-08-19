@@ -131,6 +131,7 @@ are from `ProcessConfig.hpp`; all others are compile-time constants from
 | `ncx` | — | `3*` | Number of successive x powers in the background basis before y power increments. With `nct=12`, the basis spans `x^0..2` for `y^0..3`. |
 | `bg_rough_grid_x` / `bg_rough_grid_y` | — | `32*` / `32*` | Deterministic rough-fit sampling grid. The rough bilinear fit is a residual preconditioner and is not subtracted from the image. |
 | `bg_min_block_pixels` | — | `1000*` | Minimum weight-valid, finite pixels required for one background block point. |
+| `bg_min_clipped_pixels` | — | `200*` | Minimum pixels surviving asymmetric pixel-level clipping inside one background block before its clipped mean is accepted. |
 | `bg_min_valid_frac` | — | `0.25*` | Minimum valid-pixel fraction required for one background block point. |
 | `bg_clip_low` / `bg_clip_high` | — | `4.0*` / `2.5*` | Asymmetric lower/upper MAD clipping thresholds for block residuals. |
 | `bg_fit_clip_sigma` | — | `3.0*` | MAD clipping threshold applied to residuals of the final 12-term model. |

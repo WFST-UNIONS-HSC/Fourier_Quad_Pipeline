@@ -84,6 +84,8 @@ namespace LensingConfig {
     constexpr int bg_rough_grid_x = 32;
     constexpr int bg_rough_grid_y = 32;
     constexpr int bg_min_block_pixels = 1000;
+    constexpr int bg_min_clipped_pixels = 200;
+    static_assert(bg_min_clipped_pixels > 0, "bg_min_clipped_pixels must be positive");
     constexpr double bg_min_valid_frac = 0.25;
     constexpr double bg_clip_low = 4.0;
     constexpr double bg_clip_high = 2.5;
