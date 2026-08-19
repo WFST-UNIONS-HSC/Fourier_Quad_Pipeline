@@ -34,3 +34,29 @@ make test-universalblock test-catalog-row-count test-psf-model-state \
 The MPI integration target treats a quick nonzero two-rank termination as
 success after one worker reports the injected fatal error; a zero status or
 ten-second timeout fails the target.
+
+## Stage-1 norm FITS coefficient contract
+
+Stage 1 writes its final background polynomial coefficients and sigma-plane
+coefficients into the `norm.fits` primary header. `CCD_split=1` uses the
+long-string keywords `BGCO` and `SIGCO`; `CCD_split=2` uses `BG1CO`, `BG2CO`,
+`SIG1CO`, and `SIG2CO`. Stage 3 reads the image and these keywords through one
+FITS open, subtracts the Stage-1 background model after the retained Lite
+preprocessing state, and reconstructs the sigma map from the header. Missing or
+malformed metadata is a chip failure; there is no legacy pixel-metadata
+fallback. Lite's frozen branches remain unchanged.
+
+Local WSL2 verification used GCC 15.2.0, Open MPI 5.0.10, CFITSIO, FFTW3,
+LAPACK, BLAS, and Eigen3. The portable build command remains:
+
+```bash
+make CXX=mpicxx STACK_PREFIX=/path/to/dependency-prefix \
+     EIGEN_INCLUDE=/path/to/eigen3
+./Fourier_Quad_Pipe --help
+```
+
+The local override used for this checkout was
+`CXX=/home/alatrion/.pixi/bin/mpicxx`,
+`STACK_PREFIX=/home/alatrion/.pixi/envs/base`, and
+`EIGEN_INCLUDE=/usr/include/eigen3`. The production target should provide
+equivalent compiler/library modules on Linux HPC.
