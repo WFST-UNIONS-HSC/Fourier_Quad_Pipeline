@@ -113,21 +113,23 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
         std::vector<float> noise_p;
         double pc = 0.0;
 
-        // SNR calculation uses star_smooth (2)
-        ImageProcessing::getPower(ns, ns, source, source_p, 2, pc);
+        // SNR calculation retains its source-only definition but uses raw source power.
+        ImageProcessing::getPower(ns, ns, source, source_p, 0, pc);
 
         int ns_2 = LensingConfig::ns_2;
         float cen_val = source_p[ns_2 * ns + ns_2];
         source_para[i][10] = std::sqrt(std::max(static_cast<float>(pc), cen_val));
         source_para[i][11] = source_para[i][10] / source_para[i][3] * ns;
 
-        // Main power spectrum computation uses gal_smooth
-        ImageProcessing::getPower(ns, ns, source, source_p, LensingConfig::gal_smooth, pc);
         if (!NoiseCovariance::copyStoredNoisePower(
                 noise_coll, static_cast<std::size_t>(i) * ns * ns, ns, noise_p)) {
             MPIFailure::abortWorld("load stored galaxy noise power", noise_fits);
         }
-        ImageProcessing::processPowers(ns, source_p, noise_p);
+        if (!ImageProcessing::buildCorrectedPower(
+                ns, ns, source, noise_p, LensingConfig::gal_smooth,
+                source_p, pc)) {
+            MPIFailure::abortWorld("build corrected galaxy power", source_fits);
+        }
 
         std::copy(source_p.begin(), source_p.end(), power_coll.begin() + i * ns * ns);
     }

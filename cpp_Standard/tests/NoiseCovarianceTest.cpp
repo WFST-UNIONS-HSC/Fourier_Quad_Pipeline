@@ -1,4 +1,5 @@
 #include "NoiseCovariance.hpp"
+#include "LensingConfig.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -111,11 +112,13 @@ namespace {
     bool compareCovariance(const std::vector<double>& residual,
                            const std::vector<unsigned char>& mask,
                            int regionSize,
+                           int paddedSize,
                            int maxLag,
                            const char* label) {
         std::vector<double> fftCovariance;
         if (!NoiseCovariance::computeMaskedCovarianceFFT(
-                regionSize, maxLag, 0.25, residual, mask, fftCovariance)) {
+                regionSize, paddedSize, maxLag, 0.25,
+                residual, mask, fftCovariance)) {
             std::cerr << label << ": FFT covariance failed\n";
             return false;
         }
@@ -140,7 +143,8 @@ namespace {
         }
 
         std::vector<unsigned char> mask(regionSize * regionSize, 1U);
-        if (!compareCovariance(residual, mask, regionSize, maxLag, "unmasked")) {
+        if (!compareCovariance(residual, mask, regionSize, 2 * regionSize,
+                               maxLag, "unmasked")) {
             return false;
         }
 
@@ -151,7 +155,8 @@ namespace {
                 }
             }
         }
-        if (!compareCovariance(residual, mask, regionSize, maxLag, "random mask")) {
+        if (!compareCovariance(residual, mask, regionSize, 2 * regionSize + 1,
+                               maxLag, "random mask and rebuilt cache")) {
             return false;
         }
 
@@ -165,7 +170,8 @@ namespace {
                 }
             }
         }
-        return compareCovariance(residual, mask, regionSize, maxLag,
+        return compareCovariance(residual, mask, regionSize, 2 * regionSize,
+                                 maxLag,
                                  "inner exclusion, DQ holes, and amplifier clipping");
     }
 
@@ -186,7 +192,8 @@ namespace {
         }
         std::vector<double> covariance;
         if (!NoiseCovariance::computeMaskedCovarianceFFT(
-                regionSize, maxLag, 0.5, residual, mask, covariance)) {
+                regionSize, 2 * regionSize, maxLag, 0.5,
+                residual, mask, covariance)) {
             return false;
         }
         return std::abs(covariance[lagIndex(1, 0, maxLag)]
@@ -267,6 +274,60 @@ namespace {
             && copied == expected;
     }
 
+    // ==========================================
+    // Function: Verify the production 384-side padding contract
+    // Method: Check the compile-time derivation, reject undersized padding, and compare the full
+    //         192-side masked FFT covariance with direct pair summation at short lags.
+    // ==========================================
+    bool testProductionPadding() {
+        static_assert(LensingConfig::noise_region_size == 192,
+                      "production covariance region changed unexpectedly");
+        static_assert(LensingConfig::noise_cov_padding_factor == 2.0,
+                      "production covariance padding factor changed unexpectedly");
+        static_assert(LensingConfig::noise_cov_fft_size == 384,
+                      "production covariance FFT side must be 384");
+        constexpr int regionSize = LensingConfig::noise_region_size;
+        constexpr int maxLag = 2;
+        std::vector<double> residual(regionSize * regionSize, 0.0);
+        std::vector<unsigned char> mask(regionSize * regionSize, 1U);
+        for (int y = 0; y < regionSize; ++y) {
+            for (int x = 0; x < regionSize; ++x) {
+                const std::size_t index = static_cast<std::size_t>(y) * regionSize + x;
+                residual[index] = std::sin(0.031 * x) + std::cos(0.047 * y)
+                                + 0.0003 * x * y;
+                if ((5 * x + 7 * y) % 29 == 0) mask[index] = 0U;
+            }
+        }
+        std::vector<double> rejected;
+        if (NoiseCovariance::computeMaskedCovarianceFFT(
+                regionSize, 2 * regionSize - 2, maxLag, 0.25,
+                residual, mask, rejected)) {
+            return false;
+        }
+        return compareCovariance(
+            residual, mask, regionSize, LensingConfig::noise_cov_fft_size,
+            maxLag, "production 384 padding");
+    }
+
+    // ==========================================
+    // Function: Verify source-stamp amplifier-boundary rejection
+    // Method: Exercise half-open intervals immediately left/right of the midpoint and one stamp
+    //         that straddles it, while confirming single-amplifier mode remains unrestricted.
+    // ==========================================
+    bool testAmplifierBoundary() {
+        constexpr int chipWidth = 2048;
+        constexpr int stampSize = 64;
+        constexpr int boundary = chipWidth / 2;
+        return !NoiseCovariance::sourceStampCrossesAmplifier(
+                   chipWidth, 2, boundary - stampSize, stampSize)
+            && !NoiseCovariance::sourceStampCrossesAmplifier(
+                   chipWidth, 2, boundary, stampSize)
+            && NoiseCovariance::sourceStampCrossesAmplifier(
+                   chipWidth, 2, boundary - stampSize / 2, stampSize)
+            && !NoiseCovariance::sourceStampCrossesAmplifier(
+                   chipWidth, 1, boundary - stampSize / 2, stampSize);
+    }
+
 }
 
 // ==========================================
@@ -289,6 +350,14 @@ int main() {
     }
     if (!testStoredPowerCopy()) {
         std::cerr << "stored-power contract test failed\n";
+        return 1;
+    }
+    if (!testProductionPadding()) {
+        std::cerr << "production padding test failed\n";
+        return 1;
+    }
+    if (!testAmplifierBoundary()) {
+        std::cerr << "amplifier-boundary test failed\n";
         return 1;
     }
     std::cout << "Noise covariance tests passed\n";

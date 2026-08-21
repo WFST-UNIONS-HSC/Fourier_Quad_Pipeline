@@ -545,42 +545,125 @@ namespace ImageProcessing {
         map = std::move(temp);
     }
 
+    // ==========================================
+    // Function: Smooth a signed power map in logarithmic space
+    // Method: Add the smallest scale-aware offset that makes every log argument positive, smooth
+    //         a temporary log map, and commit only a fully finite inverse transform.
+    // ==========================================
     void smoothImage55HoleLn(int nx, int ny, std::vector<float>& map) {
-        if (map.empty()) return;
-        float mapmin = map[0];
-        float mapmax = map[0];
-        for (float val : map) {
-            if (val < mapmin) mapmin = val;
-            if (val > mapmax) mapmax = val;
+        if (nx <= 0 || ny <= 0
+            || map.size() != static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny)
+            || map.empty()) {
+            return;
         }
 
-        float delta = 0.0001f * (mapmax - mapmin);
-        for (float& val : map) {
-            val = std::log(val + delta);
+        double minimum = static_cast<double>(map.front());
+        double maximum = minimum;
+        for (float value : map) {
+            if (!std::isfinite(value)) return;
+            minimum = std::min(minimum, static_cast<double>(value));
+            maximum = std::max(maximum, static_cast<double>(value));
         }
 
-        smoothImage55Hole(nx, ny, map);
+        const double span = maximum - minimum;
+        const double scale = std::max({std::abs(minimum), std::abs(maximum),
+                                       span, 1.0e-20});
+        const double legacyOffset = 1.0e-4 * span;
+        const double epsilon = 1.0e-4 * scale;
+        const double offset = std::max(legacyOffset, -minimum + epsilon);
 
-        for (float& val : map) {
-            val = std::exp(val) - delta;
+        std::vector<float> transformed(map.size(), 0.0f);
+        for (std::size_t i = 0; i < map.size(); ++i) {
+            const double argument = static_cast<double>(map[i]) + offset;
+            if (!(argument > 0.0) || !std::isfinite(argument)) return;
+            const double logged = std::log(argument);
+            if (!std::isfinite(logged)) return;
+            transformed[i] = static_cast<float>(logged);
+        }
+
+        smoothImage55Hole(nx, ny, transformed);
+
+        for (float& value : transformed) {
+            const double restored = std::exp(static_cast<double>(value)) - offset;
+            if (!std::isfinite(restored)) return;
+            value = static_cast<float>(restored);
+        }
+        map = std::move(transformed);
+    }
+
+    // ==========================================
+    // Function: Subtract stored noise power from raw source power
+    // Method: Apply one element-wise linear subtraction after validating matching square grids.
+    // ==========================================
+    void subtractNoisePower(int n, std::vector<float>& sourcePower,
+                            const std::vector<float>& noisePower) {
+        if (n <= 0) return;
+        const std::size_t elements = static_cast<std::size_t>(n)
+                                   * static_cast<std::size_t>(n);
+        if (sourcePower.size() != elements || noisePower.size() != elements) return;
+        for (std::size_t i = 0; i < elements; ++i) {
+            sourcePower[i] -= noisePower[i];
         }
     }
 
-    void processPowers(int n, std::vector<float>& sourcep, const std::vector<float>& noisep) {
-        for (int i = 0; i < n * n; ++i) {
-            sourcep[i] -= noisep[i];
+    // ==========================================
+    // Function: Apply configured smoothing to corrected power
+    // Method: Dispatch mode 1 to linear hole smoothing, mode 2 to signed-safe log smoothing, and
+    //         leave mode 0 or unsupported values unchanged.
+    // ==========================================
+    void smoothPower(int nx, int ny, std::vector<float>& power, int smoothMode) {
+        if (smoothMode == 1) {
+            smoothImage55Hole(nx, ny, power);
+        } else if (smoothMode == 2) {
+            smoothImage55HoleLn(nx, ny, power);
         }
+    }
 
-        double temp = 0.0;
+    // ==========================================
+    // Function: Remove the outer-edge mean from corrected power
+    // Method: Average the four boundary sides without double-counting corners and subtract the
+    //         resulting floor from every Fourier pixel.
+    // ==========================================
+    void subtractPowerEdgeMean(int n, std::vector<float>& power) {
+        if (n < 3 || power.size() != static_cast<std::size_t>(n) * n) return;
+        double edgeMean = 0.0;
         for (int i = 1; i < n - 1; ++i) {
-            temp += sourcep[i * n + 0] + sourcep[i * n + (n - 1)] + sourcep[0 * n + i] + sourcep[(n - 1) * n + i];
+            edgeMean += power[static_cast<std::size_t>(i) * n]
+                      + power[static_cast<std::size_t>(i) * n + (n - 1)]
+                      + power[i]
+                      + power[static_cast<std::size_t>(n - 1) * n + i];
         }
-
-        temp /= (4.0 * (n - 2));
-
-        for (int i = 0; i < n * n; ++i) {
-            sourcep[i] -= static_cast<float>(temp);
+        edgeMean /= 4.0 * static_cast<double>(n - 2);
+        for (float& value : power) {
+            value -= static_cast<float>(edgeMean);
         }
+    }
+
+    // ==========================================
+    // Function: Build one noise-corrected source power spectrum
+    // Method: Compute raw source power with literal smooth mode 0, subtract stored noise, apply
+    //         configured corrected-power smoothing, then remove the smoothed outer-edge mean.
+    // ==========================================
+    bool buildCorrectedPower(int nx, int ny,
+                             const std::vector<float>& sourceStamp,
+                             const std::vector<float>& storedNoisePower,
+                             int smoothMode,
+                             std::vector<float>& correctedPower,
+                             double& pc) {
+        if (nx <= 0 || ny <= 0 || nx != ny || smoothMode < 0 || smoothMode > 2) {
+            return false;
+        }
+        const std::size_t elements = static_cast<std::size_t>(nx)
+                                   * static_cast<std::size_t>(ny);
+        if (sourceStamp.size() != elements || storedNoisePower.size() != elements) {
+            return false;
+        }
+        getPower(nx, ny, sourceStamp, correctedPower, 0, pc);
+        subtractNoisePower(nx, correctedPower, storedNoisePower);
+        smoothPower(nx, ny, correctedPower, smoothMode);
+        subtractPowerEdgeMean(nx, correctedPower);
+        return std::all_of(correctedPower.begin(), correctedPower.end(),
+                           [](float value) { return std::isfinite(value); });
     }
 
     // ==========================================

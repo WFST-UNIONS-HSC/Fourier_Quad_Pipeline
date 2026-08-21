@@ -31,7 +31,16 @@ namespace ImageProcessing {
     void smoothImage55HoleLn(int nx, int ny, std::vector<float>& map);
 
     // Power spectrum utilities
-    void processPowers(int n, std::vector<float>& sourcep, const std::vector<float>& noisep);
+    void subtractNoisePower(int n, std::vector<float>& sourcePower,
+                            const std::vector<float>& noisePower);
+    void smoothPower(int nx, int ny, std::vector<float>& power, int smoothMode);
+    void subtractPowerEdgeMean(int n, std::vector<float>& power);
+    bool buildCorrectedPower(int nx, int ny,
+                             const std::vector<float>& sourceStamp,
+                             const std::vector<float>& storedNoisePower,
+                             int smoothMode,
+                             std::vector<float>& correctedPower,
+                             double& pc);
     void regularizePower(int nx, int ny, std::vector<float>& power, int star_smooth);
     void getPowerShape(int nx, int ny, const std::vector<float>& power, double& e, double thresh_ratio);
 

@@ -865,6 +865,17 @@ namespace SourceExtractor {
             return;
         }
 
+        const int finalLocalCenterX = sourceOffset + sourceCenterX;
+        const int finalLocalCenterY = sourceOffset + sourceCenterY;
+        const int finalChipCenterX = localStartX + finalLocalCenterX;
+        const int sourceStampStartX = finalChipCenterX - LensingConfig::ns_2;
+        if (NoiseCovariance::sourceStampCrossesAmplifier(
+                nx, LensingConfig::CCD_split,
+                sourceStampStartX, LensingConfig::ns)) {
+            flag = -1;
+            return;
+        }
+
         sourceStamp.assign(LensingConfig::nsns, 0.0f);
         std::vector<int> sourceStampWeight(LensingConfig::nsns, 0);
         for (int y = 0; y < LensingConfig::ns; ++y) {
@@ -906,9 +917,6 @@ namespace SourceExtractor {
         ImageProcessing::decorateStamp(
             LensingConfig::ns, sig, sourceStampWeight, sourceStamp);
 
-        const int finalLocalCenterX = sourceOffset + sourceCenterX;
-        const int finalLocalCenterY = sourceOffset + sourceCenterY;
-        const int finalChipCenterX = localStartX + finalLocalCenterX;
         const int amplifierBoundary = nx / 2;
         const int sourceAmplifier = finalChipCenterX < amplifierBoundary ? 0 : 1;
         const int innerStartX = finalLocalCenterX - LensingConfig::noise_inner_size / 2;
@@ -949,7 +957,8 @@ namespace SourceExtractor {
 
         std::vector<double> covariance;
         if (!NoiseCovariance::computeMaskedCovarianceFFT(
-                regionSize, LensingConfig::noise_cov_max_lag,
+                regionSize, LensingConfig::noise_cov_fft_size,
+                LensingConfig::noise_cov_max_lag,
                 LensingConfig::noise_cov_min_pair_fraction,
                 residual, covarianceMask, covariance)) {
             flag = -1;

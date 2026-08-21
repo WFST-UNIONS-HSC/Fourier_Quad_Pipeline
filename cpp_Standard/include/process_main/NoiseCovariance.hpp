@@ -7,11 +7,19 @@
 namespace NoiseCovariance {
 
     bool computeMaskedCovarianceFFT(
-        int regionSize, int maxLag, double minPairFraction,
+        int regionSize, int paddedSize, int maxLag, double minPairFraction,
         const std::vector<double>& residual,
         const std::vector<unsigned char>& mask,
         std::vector<double>& covariance,
         std::vector<double>* pairCounts = nullptr);
+
+    // ==========================================
+    // Function: Detect a source stamp that straddles a two-amplifier boundary
+    // Method: Compare the half-open stamp x interval with the chip midpoint only when split mode 2
+    //         is active; single-amplifier mode never rejects on this geometry.
+    // ==========================================
+    bool sourceStampCrossesAmplifier(
+        int chipWidth, int ccdSplit, int stampStartX, int stampSize);
 
     bool covarianceToNoisePower(
         int outputSize, int maxLag,

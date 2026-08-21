@@ -22,12 +22,12 @@ namespace NoiseCovariance {
         public:
             // ==========================================
             // Function: Construct fixed-size forward/backward autocorrelation plans
-            // Method: Allocate full linear-correlation padding of side 2*N-1 and bind in-place
-            //         FFTW transforms for the residual and binary mask buffers.
+            // Method: Allocate caller-validated linear-correlation padding and bind in-place FFTW
+            //         transforms for the residual and binary mask buffers.
             // ==========================================
-            explicit AutocorrelationWorkspace(int regionSize)
+            AutocorrelationWorkspace(int regionSize, int paddedSize)
                 : regionSize_(regionSize),
-                  paddedSize_(2 * regionSize - 1),
+                  paddedSize_(paddedSize),
                   residualBuffer_(elementCount()),
                   maskBuffer_(elementCount()) {
                 residualForward_ = fftw_plan_dft_2d(
@@ -132,6 +132,14 @@ namespace NoiseCovariance {
             // ==========================================
             int regionSize() const {
                 return regionSize_;
+            }
+
+            // ==========================================
+            // Function: Return the configured autocorrelation FFT side length
+            // Method: Expose the second immutable plan key for thread-local cache reuse.
+            // ==========================================
+            int paddedSize() const {
+                return paddedSize_;
             }
 
         private:
@@ -261,12 +269,15 @@ namespace NoiseCovariance {
 
         // ==========================================
         // Function: Reuse the current thread's autocorrelation workspace
-        // Method: Rebuild the cached workspace only when the configured region size changes.
+        // Method: Rebuild the cached workspace when either the region or padded FFT side changes.
         // ==========================================
-        AutocorrelationWorkspace& autocorrelationWorkspace(int regionSize) {
+        AutocorrelationWorkspace& autocorrelationWorkspace(
+            int regionSize, int paddedSize) {
             thread_local std::unique_ptr<AutocorrelationWorkspace> workspace;
-            if (!workspace || workspace->regionSize() != regionSize) {
-                workspace = std::make_unique<AutocorrelationWorkspace>(regionSize);
+            if (!workspace || workspace->regionSize() != regionSize
+                || workspace->paddedSize() != paddedSize) {
+                workspace = std::make_unique<AutocorrelationWorkspace>(
+                    regionSize, paddedSize);
             }
             return *workspace;
         }
@@ -301,12 +312,13 @@ namespace NoiseCovariance {
     //         pair counts, retain qualified short lags, and enforce C(d)=C(-d) symmetry.
     // ==========================================
     bool computeMaskedCovarianceFFT(
-        int regionSize, int maxLag, double minPairFraction,
+        int regionSize, int paddedSize, int maxLag, double minPairFraction,
         const std::vector<double>& residual,
         const std::vector<unsigned char>& mask,
         std::vector<double>& covariance,
         std::vector<double>* pairCounts) {
-        if (regionSize <= 0 || maxLag < 0 || maxLag >= regionSize
+        if (regionSize <= 0 || paddedSize < 2 * regionSize - 1
+            || maxLag < 0 || maxLag >= regionSize
             || !std::isfinite(minPairFraction)
             || minPairFraction <= 0.0 || minPairFraction > 1.0) {
             return false;
@@ -323,7 +335,8 @@ namespace NoiseCovariance {
             }
         }
 
-        AutocorrelationWorkspace& workspace = autocorrelationWorkspace(regionSize);
+        AutocorrelationWorkspace& workspace = autocorrelationWorkspace(
+            regionSize, paddedSize);
         if (!workspace.valid()) {
             return false;
         }
@@ -381,6 +394,25 @@ namespace NoiseCovariance {
             *pairCounts = std::move(localPairCounts);
         }
         return true;
+    }
+
+    // ==========================================
+    // Function: Detect a source stamp that straddles a two-amplifier boundary
+    // Method: Treat the stamp x range as half-open and compare it with the chip midpoint only in
+    //         split mode 2; invalid geometry is conservatively rejected.
+    // ==========================================
+    bool sourceStampCrossesAmplifier(
+        int chipWidth, int ccdSplit, int stampStartX, int stampSize) {
+        if (ccdSplit != 2) {
+            return false;
+        }
+        if (chipWidth <= 0 || stampSize <= 0 || stampStartX < 0
+            || stampStartX > chipWidth - stampSize) {
+            return true;
+        }
+        const int amplifierBoundary = chipWidth / 2;
+        const int stampEndX = stampStartX + stampSize;
+        return stampStartX < amplifierBoundary && stampEndX > amplifierBoundary;
     }
 
     // ==========================================

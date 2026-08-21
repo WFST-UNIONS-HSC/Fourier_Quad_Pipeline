@@ -6,18 +6,27 @@ function extracts one large local region, fits the existing source-local first-o
 uses the same plane-subtracted residual for the recentered source and its surroundings, and
 estimates a masked two-dimensional covariance from valid outer pixels on the source amplifier.
 
-`NoiseCovariance` uses reusable FFTW plans and full `(2*N-1) x (2*N-1)` zero padding to compute
-the residual autocorrelation numerator and mask pair counts. It retains signed short-lag
-covariance, embeds the result in the existing `ns x ns` Fourier grid, and writes the real part of
-the normalized transform without absolute values, clipping, square roots, random phases, or a
-synthetic inverse transform.
+`NoiseCovariance` uses reusable FFTW plans and explicit factor-2 zero padding to compute the
+residual autocorrelation numerator and mask pair counts. For the 192-pixel production region this
+is a `384 x 384` FFT, with a compile-time check that the side remains at least `2*N-1`; workspace
+reuse is keyed by both region and padded sides. It retains signed short-lag covariance, embeds the
+result in the existing `ns x ns` Fourier grid, and writes the normalized real transform without
+absolute values, clipping, square roots, random phases, or a synthetic inverse transform.
+
+After recentering, a source is rejected when its final `ns x ns` stamp straddles the midpoint of a
+two-amplifier chip. Stamps ending at or starting on the boundary remain valid.
 
 ## FITS data contract
 
 - `*_source.fits`: real-space `ns x ns` source stamps, unchanged.
 - `*_noise.fits`: Fourier-space, signed `ns x ns` local noise-power stamps.
-- Stage 4 and Stage 6 copy the stored noise-power pixels directly into `noise_p`; only the source
-  stamp is transformed. `processPowers()` continues the linear `source_p - noise_p` subtraction.
+- Stage 4 and Stage 6 copy stored noise power directly. Source stamps always use raw
+  `getPower(..., 0)`, including the source-only SNR_F diagnostic path.
+- Measurement power follows one shared order: subtract stored noise, apply `star_smooth` or
+  `gal_smooth` to corrected power, then subtract its outer-edge mean. Noise power is never smoothed
+  separately. Stars are regularized after this sequence.
+- Log smoothing is signed-safe: it retains the legacy span offset when sufficient and otherwise
+  raises the offset above `-Pmin` by a scale-dependent epsilon before log/smooth/exp inversion.
 
 This is a producer/consumer contract change. Noise FITS files created by the old and new code
 must not be mixed within one pipeline run.
@@ -30,6 +39,8 @@ Both variants define the controls in `config/LensingConfig.hpp`:
 |---|---:|---|
 | `noise_region_size` | 192 | Full local cutout side |
 | `noise_inner_size` | 96 | Central square excluded from covariance |
+| `noise_cov_padding_factor` | 2.0 | Linear-autocorrelation FFT padding factor |
+| `noise_cov_fft_size` | 384 | Derived padded FFT side |
 | `noise_cov_max_lag` | 8 | Maximum retained signed x/y lag |
 | `noise_cov_min_valid_pixels` | 4096 | Minimum valid outer pixels |
 | `noise_cov_min_pair_fraction` | 0.50 | Minimum lag-pair count relative to zero lag |
@@ -51,6 +62,16 @@ bias validation before survey production tuning.
 - analytic covariance-to-power placement and normalization;
 - preservation of signed negative modes;
 - direct downstream copying of stored noise power without another FFT or magnitude square.
+- the production 192-to-384 padding derivation, undersized-padding rejection, and cache re-keying;
+- source stamps immediately beside or crossing the amplifier boundary.
+
+`make test-power-processing` covers:
+
+- finite signed-log smoothing for positive, zero, and negative corrected modes;
+- positive-only compatibility with the former logarithmic smoother;
+- raw source FFT followed by subtract, configured smooth mode 0/1/2, and edge subtraction;
+- rejection of the former smoothing-before-subtraction order;
+- zero post-subtraction outer-edge mean and final star regularization.
 
 ## Build environment
 
@@ -68,6 +89,7 @@ From either `cpp_Standard` or `cpp_Lite`:
 make clean
 make -j EIGEN_INCLUDE="$EIGEN_INCLUDE"
 make test-noise-covariance EIGEN_INCLUDE="$EIGEN_INCLUDE"
+make test-power-processing EIGEN_INCLUDE="$EIGEN_INCLUDE"
 ./Fourier_Quad_Pipe --help
 mpirun -np <ranks> ./Fourier_Quad_Pipe [options] [LEGACY_EXPO_LIST]
 ```
@@ -79,5 +101,5 @@ mpirun -np <ranks> ./Fourier_Quad_Pipe [options] [LEGACY_EXPO_LIST]
 The 2026-08-21 verification used the existing Pixi compiler/library stack through
 `STACK_PREFIX=/home/alatrion/.pixi/envs/base`, with `EIGEN_INCLUDE=/usr/include/eigen3` because
 the Pixi base include directory did not contain Eigen. Standard and Lite each passed a clean full
-build, `make test-noise-covariance`, all eight pre-existing Makefile regression targets, and
-`./Fourier_Quad_Pipe --help`.
+build, `make test-noise-covariance`, `make test-power-processing`, all eight pre-existing Makefile
+regression targets, and `./Fourier_Quad_Pipe --help`.

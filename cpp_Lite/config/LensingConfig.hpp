@@ -106,6 +106,9 @@ namespace LensingConfig {
     // ==========================================
     constexpr int noise_region_size = 192;
     constexpr int noise_inner_size = 96;
+    constexpr double noise_cov_padding_factor = 2.0;
+    constexpr int noise_cov_fft_size = static_cast<int>(
+        noise_region_size * noise_cov_padding_factor + 0.999999);
     constexpr int noise_cov_max_lag = 8;
     constexpr int noise_cov_min_valid_pixels = 4096;
     constexpr double noise_cov_min_pair_fraction = 0.50;
@@ -119,6 +122,10 @@ namespace LensingConfig {
                   "noise exclusion must cover the source plane-fit region");
     static_assert(noise_region_size % 2 == 0 && noise_inner_size % 2 == 0,
                   "noise region and exclusion sizes must be even");
+    static_assert(noise_cov_padding_factor > 0.0,
+                  "noise covariance padding factor must be positive");
+    static_assert(noise_cov_fft_size >= 2 * noise_region_size - 1,
+                  "noise covariance FFT padding is too small");
     static_assert(noise_cov_max_lag < ns / 2,
                   "covariance lags must embed uniquely in the source Fourier grid");
     static_assert(noise_cov_min_valid_pixels > 0,

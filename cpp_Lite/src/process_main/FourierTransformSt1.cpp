@@ -109,13 +109,17 @@ namespace FourierTransformSt1 {
                 std::vector<float> noise_p;
                 double source_pc = 0.0;
 
-                ImageProcessing::getPower(ns, ns, source, source_p, LensingConfig::star_smooth, source_pc);
                 if (!NoiseCovariance::copyStoredNoisePower(
                         noise_coll, static_cast<std::size_t>(i) * ns * ns, ns, noise_p)) {
                     MPIFailure::abortWorld(
                         "load stored star-candidate noise power", filename_star_can_noise);
                 }
-                ImageProcessing::processPowers(ns, source_p, noise_p);
+                if (!ImageProcessing::buildCorrectedPower(
+                        ns, ns, source, noise_p, LensingConfig::star_smooth,
+                        source_p, source_pc)) {
+                    MPIFailure::abortWorld(
+                        "build corrected star-candidate power", filename_star_can);
+                }
                 ImageProcessing::regularizePower(ns, ns, source_p, LensingConfig::star_smooth);
 
                 std::copy(source_p.begin(), source_p.end(), power_coll.begin() + i * ns * ns);

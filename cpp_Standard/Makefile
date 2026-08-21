@@ -64,6 +64,7 @@ ASTROMETRY_DYNAMIC_CAPACITY_TEST = tests/test_astrometry_dynamic_capacity
 CATALOG_LIFECYCLE_TEST = tests/test_catalog_lifecycle
 EXPOSURE_RUNTIME_SIZING_TEST = tests/test_exposure_runtime_sizing
 NOISE_COVARIANCE_TEST = tests/test_noise_covariance
+POWER_PROCESSING_TEST = tests/test_power_processing
 
 all: $(TARGET)
 
@@ -100,6 +101,9 @@ test-exposure-runtime-sizing: $(EXPOSURE_RUNTIME_SIZING_TEST)
 
 test-noise-covariance: $(NOISE_COVARIANCE_TEST)
 	./$(NOISE_COVARIANCE_TEST)
+
+test-power-processing: $(POWER_PROCESSING_TEST)
+	./$(POWER_PROCESSING_TEST)
 
 $(UNIVERSALBLOCK_TEST): tests/UniversalblockTest.cpp \
                        src/process_main/Universalblock.cpp \
@@ -172,10 +176,20 @@ $(EXPOSURE_RUNTIME_SIZING_TEST): tests/ExposureRuntimeSizingTest.cpp \
 
 $(NOISE_COVARIANCE_TEST): tests/NoiseCovarianceTest.cpp \
                           src/process_main/NoiseCovariance.cpp \
-                          include/process_main/NoiseCovariance.hpp
+                          include/process_main/NoiseCovariance.hpp \
+                          config/LensingConfig.hpp
 	$(CXX) $(CPPFLAGS) $(filter-out -MMD -MP,$(CXXFLAGS)) \
 		tests/NoiseCovarianceTest.cpp src/process_main/NoiseCovariance.cpp \
 		$(LDFLAGS) -o $@ -lfftw3 -lm
+
+$(POWER_PROCESSING_TEST): tests/PowerProcessingTest.cpp \
+                          src/process_main/ImageProcessing.cpp \
+                          src/process_main/NumericalRecipes.cpp \
+                          include/process_main/ImageProcessing.hpp
+	$(CXX) $(CPPFLAGS) $(filter-out -MMD -MP,$(CXXFLAGS)) \
+		tests/PowerProcessingTest.cpp src/process_main/ImageProcessing.cpp \
+		src/process_main/NumericalRecipes.cpp $(LDFLAGS) \
+		-o $@ -lfftw3f -lm
 
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
@@ -188,7 +202,8 @@ clean:
 	      $(CATALOG_ROW_COUNT_TEST) $(PSF_MODEL_STATE_TEST) \
 	      $(LEGACY_STAMP_CAPACITY_TEST) $(MPI_FAILURE_TEST) \
 	      $(ASTROMETRY_DYNAMIC_CAPACITY_TEST) $(CATALOG_LIFECYCLE_TEST) \
-	      $(EXPOSURE_RUNTIME_SIZING_TEST) $(NOISE_COVARIANCE_TEST)
+	      $(EXPOSURE_RUNTIME_SIZING_TEST) $(NOISE_COVARIANCE_TEST) \
+	      $(POWER_PROCESSING_TEST)
 
 -include $(DEPS)
 
@@ -196,4 +211,4 @@ clean:
 	        test-psf-model-state test-legacy-stamp-capacity \
 	        test-astrometry-dynamic-capacity test-mpi-failure \
 	        test-catalog-lifecycle test-exposure-runtime-sizing \
-	        test-noise-covariance
+	        test-noise-covariance test-power-processing
