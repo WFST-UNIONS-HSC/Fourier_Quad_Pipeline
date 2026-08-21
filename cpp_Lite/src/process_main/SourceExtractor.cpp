@@ -982,7 +982,7 @@ namespace SourceExtractor {
 
         double maxImaginary = 0.0;
         double negativeFraction = 0.0;
-        if (!NoiseCovariance::covarianceToNoisePower(
+        if (!NoiseCovariance::covarianceToFiniteStampNoisePower(
                 LensingConfig::ns, LensingConfig::noise_cov_max_lag,
                 covariance, noisePower, maxImaginary, negativeFraction)) {
             flag = -1;
@@ -999,11 +999,33 @@ namespace SourceExtractor {
             flag = -1;
             return;
         }
-        if (!ImageProcessing::decorateStampCorrelated(
-                LensingConfig::ns, noisePower, zeroLagCovariance,
-                sourceStampWeight, sourceStamp)) {
-            flag = -1;
-            return;
+        const bool hasMaskedSourcePixel = std::any_of(
+            sourceStampWeight.begin(), sourceStampWeight.end(),
+            [](int value) { return value == 0; });
+        if (hasMaskedSourcePixel) {
+            int synthesisSize = 0;
+            std::vector<float> synthesisPower;
+            double synthesisMaxImaginary = 0.0;
+            if (!NoiseCovariance::covarianceToSynthesisPower(
+                    LensingConfig::ns, LensingConfig::noise_cov_max_lag,
+                    covariance, synthesisSize, synthesisPower,
+                    synthesisMaxImaginary)) {
+                flag = -1;
+                return;
+            }
+            double maximumSynthesisMagnitude = 0.0;
+            for (float value : synthesisPower) {
+                maximumSynthesisMagnitude = std::max(
+                    maximumSynthesisMagnitude, std::abs(static_cast<double>(value)));
+            }
+            if (synthesisMaxImaginary > LensingConfig::noise_cov_imag_tolerance
+                                           * std::max(1.0e-20, maximumSynthesisMagnitude)
+                || !ImageProcessing::decorateStampCorrelated(
+                    LensingConfig::ns, synthesisSize, synthesisPower,
+                    zeroLagCovariance, sourceStampWeight, sourceStamp)) {
+                flag = -1;
+                return;
+            }
         }
     }
 

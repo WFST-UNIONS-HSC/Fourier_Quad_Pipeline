@@ -2,12 +2,17 @@
 #include "LensingConfig.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <complex>
 #include <cstddef>
 #include <iostream>
+#include <utility>
 #include <vector>
 
 namespace {
+
+    constexpr double pi = 3.14159265358979323846;
 
     // ==========================================
     // Function: Map a signed lag into a compact test covariance grid
@@ -99,6 +104,72 @@ namespace {
             if (std::abs(first[i] - second[i]) > tolerance * scale) {
                 std::cerr << label << ": mismatch at " << i << " ("
                           << first[i] << " vs " << second[i] << ")\n";
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // ==========================================
+    // Function: Evaluate the finite-stamp covariance transform by direct DFT
+    // Method: Apply the exact pair window to every nonzero physical lag and write shifted power
+    //         using the same normalized-amplitude convention as production.
+    // ==========================================
+    std::vector<double> directFiniteStampPower(
+        int outputSize, int maxLag, const std::vector<double>& covariance) {
+        struct LagValue {
+            int dx = 0;
+            int dy = 0;
+            double weightedValue = 0.0;
+        };
+        std::vector<LagValue> nonzeroLags;
+        for (int dy = -maxLag; dy <= maxLag; ++dy) {
+            if (std::abs(dy) >= outputSize) continue;
+            const double wy = 1.0 - static_cast<double>(std::abs(dy)) / outputSize;
+            for (int dx = -maxLag; dx <= maxLag; ++dx) {
+                if (std::abs(dx) >= outputSize) continue;
+                const double value = covariance[lagIndex(dx, dy, maxLag)];
+                if (value == 0.0) continue;
+                const double wx = 1.0 - static_cast<double>(std::abs(dx)) / outputSize;
+                nonzeroLags.push_back({dx, dy, value * wx * wy});
+            }
+        }
+
+        std::vector<double> power(
+            static_cast<std::size_t>(outputSize) * outputSize, 0.0);
+        const int half = outputSize / 2;
+        const double normalization = 1.0 / static_cast<double>(outputSize * outputSize);
+        for (int shiftedY = 0; shiftedY < outputSize; ++shiftedY) {
+            const int ky = (shiftedY + half) % outputSize;
+            for (int shiftedX = 0; shiftedX < outputSize; ++shiftedX) {
+                const int kx = (shiftedX + half) % outputSize;
+                std::complex<double> sum(0.0, 0.0);
+                for (const LagValue& lag : nonzeroLags) {
+                    const double phase = -2.0 * pi
+                        * static_cast<double>(kx * lag.dx + ky * lag.dy) / outputSize;
+                    sum += lag.weightedValue
+                         * std::complex<double>(std::cos(phase), std::sin(phase));
+                }
+                power[static_cast<std::size_t>(shiftedY) * outputSize + shiftedX]
+                    = sum.real() * normalization;
+            }
+        }
+        return power;
+    }
+
+    // ==========================================
+    // Function: Compare production float power with a direct double-precision reference
+    // Method: Use one absolute tolerance appropriate for normalized 64-side Fourier power.
+    // ==========================================
+    bool powerNear(const std::vector<float>& actual,
+                   const std::vector<double>& expected,
+                   double tolerance,
+                   const char* label) {
+        if (actual.size() != expected.size()) return false;
+        for (std::size_t i = 0; i < actual.size(); ++i) {
+            if (std::abs(static_cast<double>(actual[i]) - expected[i]) > tolerance) {
+                std::cerr << label << ": mismatch at " << i << " ("
+                          << actual[i] << " vs " << expected[i] << ")\n";
                 return false;
             }
         }
@@ -218,7 +289,7 @@ namespace {
         std::vector<float> power;
         double maxImaginary = 0.0;
         double negativeFraction = 0.0;
-        if (!NoiseCovariance::covarianceToNoisePower(
+        if (!NoiseCovariance::covarianceToFiniteStampNoisePower(
                 outputSize, maxLag, covariance, power,
                 maxImaginary, negativeFraction)) {
             return false;
@@ -227,14 +298,14 @@ namespace {
             return false;
         }
 
-        constexpr double pi = 3.14159265358979323846;
         for (int y = 0; y < outputSize; ++y) {
             const int kyIndex = (y + outputSize / 2) % outputSize;
             const double ky = 2.0 * pi * kyIndex / outputSize;
             for (int x = 0; x < outputSize; ++x) {
                 const int kxIndex = (x + outputSize / 2) % outputSize;
                 const double kx = 2.0 * pi * kxIndex / outputSize;
-                const double expected = (2.0 + std::cos(kx) + 0.5 * std::cos(ky))
+                const double expected = (2.0 + 0.875 * std::cos(kx)
+                                      + 0.4375 * std::cos(ky))
                                       / static_cast<double>(outputSize * outputSize);
                 const double actual = power[static_cast<std::size_t>(y) * outputSize + x];
                 if (std::abs(actual - expected) > 2.0e-8) {
@@ -248,13 +319,177 @@ namespace {
         covariance[lagIndex(0, 0, maxLag)] = 0.1;
         covariance[lagIndex(-1, 0, maxLag)] = 1.0;
         covariance[lagIndex(1, 0, maxLag)] = 1.0;
-        if (!NoiseCovariance::covarianceToNoisePower(
+        if (!NoiseCovariance::covarianceToFiniteStampNoisePower(
                 outputSize, maxLag, covariance, power,
                 maxImaginary, negativeFraction)) {
             return false;
         }
         return std::any_of(power.begin(), power.end(), [](float value) { return value < 0.0f; })
             && negativeFraction > 0.0 && maxImaginary <= 1.0e-12;
+    }
+
+    // ==========================================
+    // Function: Verify finite-stamp windows, modulo collisions, and large-lag support
+    // Method: Compare production FFT output with direct DFTs at L=8/24/32/40/64, including
+    //         white noise, axial/diagonal weights, Nyquist aliasing, modulo collisions, and zero
+    //         pair weight at the exact 64-pixel boundary.
+    // ==========================================
+    bool testFiniteStampExtensibility() {
+        constexpr int outputSize = 64;
+        {
+            constexpr int maxLag = 8;
+            std::vector<double> covariance((2 * maxLag + 1) * (2 * maxLag + 1), 0.0);
+            covariance[lagIndex(0, 0, maxLag)] = 2.5;
+            std::vector<float> power;
+            double maxImaginary = 0.0;
+            double negativeFraction = 0.0;
+            if (!NoiseCovariance::covarianceToFiniteStampNoisePower(
+                    outputSize, maxLag, covariance, power,
+                    maxImaginary, negativeFraction)) {
+                return false;
+            }
+            const double expected = 2.5 / static_cast<double>(outputSize * outputSize);
+            if (maxImaginary > 1.0e-12 || negativeFraction != 0.0
+                || !std::all_of(power.begin(), power.end(), [expected](float value) {
+                    return std::abs(static_cast<double>(value) - expected) < 2.0e-10;
+                })) {
+                return false;
+            }
+
+            covariance[lagIndex(8, 0, maxLag)] = 0.4;
+            covariance[lagIndex(-8, 0, maxLag)] = 0.4;
+            covariance[lagIndex(8, 8, maxLag)] = 0.2;
+            covariance[lagIndex(-8, -8, maxLag)] = 0.2;
+            if (!NoiseCovariance::covarianceToFiniteStampNoisePower(
+                    outputSize, maxLag, covariance, power,
+                    maxImaginary, negativeFraction)
+                || !powerNear(power, directFiniteStampPower(
+                    outputSize, maxLag, covariance), 3.0e-8,
+                    "finite axial/diagonal window")) {
+                return false;
+            }
+        }
+
+        const std::array<int, 5> lags = {8, 24, 32, 40, 64};
+        for (int maxLag : lags) {
+            const int side = 2 * maxLag + 1;
+            std::vector<double> covariance(
+                static_cast<std::size_t>(side) * side, 0.0);
+            covariance[lagIndex(0, 0, maxLag)] = 3.0;
+            auto setSymmetric = [&](int dx, int dy, double value) {
+                covariance[lagIndex(dx, dy, maxLag)] = value;
+                covariance[lagIndex(-dx, -dy, maxLag)] = value;
+            };
+            setSymmetric(1, 0, 0.20);
+            setSymmetric(0, 2, 0.10);
+            if (maxLag >= 8) setSymmetric(8, 0, 0.07);
+            if (maxLag >= 24) setSymmetric(24, 0, 0.04);
+            if (maxLag >= 32) setSymmetric(32, 0, 0.03);
+            if (maxLag >= 40) setSymmetric(40, 0, 0.02);
+            if (maxLag >= 64) {
+                setSymmetric(64, 0, 500.0);
+                setSymmetric(0, 64, 700.0);
+            }
+
+            std::vector<float> power;
+            double maxImaginary = 0.0;
+            double negativeFraction = 0.0;
+            if (!NoiseCovariance::covarianceToFiniteStampNoisePower(
+                    outputSize, maxLag, covariance, power,
+                    maxImaginary, negativeFraction)
+                || maxImaginary > 1.0e-10
+                || !powerNear(power, directFiniteStampPower(
+                    outputSize, maxLag, covariance), 3.0e-8,
+                    "finite direct DFT")) {
+                return false;
+            }
+
+            if (maxLag == 64) {
+                std::vector<double> withoutBoundary = covariance;
+                withoutBoundary[lagIndex(64, 0, maxLag)] = 0.0;
+                withoutBoundary[lagIndex(-64, 0, maxLag)] = 0.0;
+                withoutBoundary[lagIndex(0, 64, maxLag)] = 0.0;
+                withoutBoundary[lagIndex(0, -64, maxLag)] = 0.0;
+                std::vector<float> boundaryFreePower;
+                if (!NoiseCovariance::covarianceToFiniteStampNoisePower(
+                        outputSize, maxLag, withoutBoundary, boundaryFreePower,
+                        maxImaginary, negativeFraction)
+                    || power != boundaryFreePower) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // ==========================================
+    // Function: Verify dynamic synthesis-grid selection and signed power normalization
+    // Method: Check the prescribed FFT-friendly size table, no-wrap bounds, positive covariance
+    //         normalization to C(0,0), and retention of negative synthesis modes before fill.
+    // ==========================================
+    bool testSynthesisPower() {
+        constexpr int stampSize = 64;
+        const std::array<std::pair<int, int>, 6> cases = {{
+            {8, 72}, {16, 80}, {24, 90}, {32, 96}, {48, 120}, {64, 144}
+        }};
+        for (const auto& entry : cases) {
+            const int maxLag = entry.first;
+            const int side = 2 * maxLag + 1;
+            std::vector<double> covariance(
+                static_cast<std::size_t>(side) * side, 0.0);
+            covariance[lagIndex(0, 0, maxLag)] = 1.7;
+            covariance[lagIndex(1, 0, maxLag)] = 0.12;
+            covariance[lagIndex(-1, 0, maxLag)] = 0.12;
+            covariance[lagIndex(0, 1, maxLag)] = 0.06;
+            covariance[lagIndex(0, -1, maxLag)] = 0.06;
+
+            int synthesisSize = 0;
+            std::vector<float> synthesisPower;
+            double maxImaginary = 0.0;
+            if (!NoiseCovariance::covarianceToSynthesisPower(
+                    stampSize, maxLag, covariance, synthesisSize,
+                    synthesisPower, maxImaginary)
+                || synthesisSize != entry.second
+                || !NoiseCovariance::isFastEvenFFTSize(synthesisSize)
+                || synthesisSize < 2 * maxLag + 1
+                || synthesisSize < stampSize + maxLag
+                || synthesisPower.size() != static_cast<std::size_t>(synthesisSize)
+                                                * synthesisSize
+                || maxImaginary > 1.0e-10) {
+                return false;
+            }
+            double sum = 0.0;
+            for (float value : synthesisPower) {
+                if (!(value > 0.0f)) return false;
+                sum += value;
+            }
+            if (std::abs(sum - 1.7) > 2.0e-5) return false;
+        }
+
+        constexpr int maxLag = 8;
+        std::vector<double> signedCovariance(
+            (2 * maxLag + 1) * (2 * maxLag + 1), 0.0);
+        signedCovariance[lagIndex(0, 0, maxLag)] = 0.1;
+        signedCovariance[lagIndex(1, 0, maxLag)] = 1.0;
+        signedCovariance[lagIndex(-1, 0, maxLag)] = 1.0;
+        int synthesisSize = 0;
+        std::vector<float> synthesisPower;
+        double maxImaginary = 0.0;
+        if (!NoiseCovariance::covarianceToSynthesisPower(
+                stampSize, maxLag, signedCovariance, synthesisSize,
+                synthesisPower, maxImaginary)) {
+            return false;
+        }
+        double sum = 0.0;
+        bool hasNegative = false;
+        for (float value : synthesisPower) {
+            sum += value;
+            hasNegative = hasNegative || value < 0.0f;
+        }
+        return hasNegative && std::abs(sum - 0.1) < 2.0e-6
+            && NoiseCovariance::nextFastEvenFFTSize(72) == 72
+            && NoiseCovariance::nextFastEvenFFTSize(81) == 90
+            && !NoiseCovariance::isFastEvenFFTSize(98);
     }
 
     // ==========================================
@@ -346,6 +581,14 @@ int main() {
     }
     if (!testCovarianceToPower()) {
         std::cerr << "covariance-to-power tests failed\n";
+        return 1;
+    }
+    if (!testFiniteStampExtensibility()) {
+        std::cerr << "finite-stamp extensibility tests failed\n";
+        return 1;
+    }
+    if (!testSynthesisPower()) {
+        std::cerr << "synthesis-power tests failed\n";
         return 1;
     }
     if (!testStoredPowerCopy()) {

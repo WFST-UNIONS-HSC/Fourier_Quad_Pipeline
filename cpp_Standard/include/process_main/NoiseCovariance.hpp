@@ -21,12 +21,39 @@ namespace NoiseCovariance {
     bool sourceStampCrossesAmplifier(
         int chipWidth, int ccdSplit, int stampStartX, int stampSize);
 
-    bool covarianceToNoisePower(
+    // ==========================================
+    // Function: Identify an even FFT side composed only of factors 2, 3, and 5
+    // Method: Expose the synthesis-grid performance predicate for deterministic tests.
+    // ==========================================
+    bool isFastEvenFFTSize(int size);
+
+    // ==========================================
+    // Function: Select the smallest FFT-friendly even side at least as large as requested
+    // Method: Scan upward with overflow protection for dynamic correlated-fill grids.
+    // ==========================================
+    int nextFastEvenFFTSize(int requiredSize);
+
+    // ==========================================
+    // Function: Convert covariance into finite-stamp signed subtraction power
+    // Method: Apply pair-window weighting and modulo accumulation before the normalized FFT.
+    // ==========================================
+    bool covarianceToFiniteStampNoisePower(
         int outputSize, int maxLag,
         const std::vector<double>& covariance,
         std::vector<float>& noisePower,
         double& maxImaginary,
         double& negativeFraction);
+
+    // ==========================================
+    // Function: Convert unwindowed covariance into dynamic-grid signed synthesis power
+    // Method: Derive a no-wrap FFT-friendly grid and use a synthesis-only cached transform.
+    // ==========================================
+    bool covarianceToSynthesisPower(
+        int stampSize, int maxLag,
+        const std::vector<double>& covariance,
+        int& synthesisSize,
+        std::vector<float>& synthesisPower,
+        double& maxImaginary);
 
     bool copyStoredNoisePower(
         const std::vector<float>& storedNoisePower,

@@ -10,8 +10,15 @@ estimates a masked two-dimensional covariance from valid outer pixels on the sou
 residual autocorrelation numerator and mask pair counts. For the 192-pixel production region this
 is a `384 x 384` FFT, with a compile-time check that the side remains at least `2*N-1`; workspace
 reuse is keyed by both region and padded sides. It retains signed short-lag covariance, embeds the
-result in the existing `ns x ns` Fourier grid, and writes the normalized real transform without
-absolute values, clipping, square roots, random phases, or a synthetic inverse transform.
+finite pair-windowed result in the existing `ns x ns` Fourier grid with modulo accumulation, and
+writes `FFT[W_ns C]/ns^2` without clipping. The retained lag support is constrained only by the
+192-pixel covariance region, not by `ns/2`.
+
+Correlated filling branches at the unwindowed covariance rather than reading stored subtraction
+power. It derives the smallest even 2/3/5-smooth side satisfying
+`G >= max(2*maxLag+1, ns+maxLag)`, transforms signed synthesis power with an independent cached plan,
+clips and renormalizes only the temporary fill PSD to `C(0,0)`, executes a cached `G x G` inverse
+transform, and centrally crops `ns x ns`. Stamps without masked pixels skip synthesis FFT and RNG work.
 
 After recentering, a source is rejected when its final `ns x ns` stamp straddles the midpoint of a
 two-amplifier chip. Stamps ending at or starting on the boundary remain valid.
@@ -25,9 +32,10 @@ Decoration failure rejects the source and never falls back to independent white 
 
 ## FITS data contract
 
-- `*_source.fits`: real-space `ns x ns` source stamps; retained peripheral masked pixels contain a
-  local correlated-noise realization instead of independent white Gaussian draws.
-- `*_noise.fits`: Fourier-space, signed `ns x ns` local noise-power stamps.
+- `*_source.fits`: real-space `ns x ns` source stamps; retained peripheral masked pixels contain the
+  matching coordinates of a centrally cropped dynamic-grid correlated-noise realization.
+- `*_noise.fits`: Fourier-space, signed `ns x ns` expected finite-stamp noise power,
+  `FFT[W_ns C]/ns^2`.
 - Stage 4 and Stage 6 copy stored noise power directly. Source stamps always use raw
   `getPower(..., 0)`, including the source-only SNR_F diagnostic path.
 - Measurement power follows one shared order: subtract stored noise, apply `star_smooth` or
@@ -49,7 +57,7 @@ Both variants define the controls in `config/LensingConfig.hpp`:
 | `noise_inner_size` | 96 | Central square excluded from covariance |
 | `noise_cov_padding_factor` | 2.0 | Linear-autocorrelation FFT padding factor |
 | `noise_cov_fft_size` | 384 | Derived padded FFT side |
-| `noise_cov_max_lag` | 8 | Maximum retained signed x/y lag |
+| `noise_cov_max_lag` | 8 | Maximum retained signed x/y lag; code supports `0 <= L < 192` |
 | `noise_cov_min_valid_pixels` | 4096 | Minimum valid outer pixels |
 | `noise_cov_min_pair_fraction` | 0.50 | Minimum lag-pair count relative to zero lag |
 | `noise_cov_sigma_ratio_min/max` | 0.80 / 1.25 | Allowed `sqrt(C(0,0))/sig` interval |
@@ -67,7 +75,11 @@ bias validation before survey production tuning.
 - a deterministic random mask;
 - central exclusion, DQ holes, and same-amplifier clipping;
 - anisotropic two-dimensional covariance;
-- analytic covariance-to-power placement and normalization;
+- finite white-noise and axial/diagonal pair-window weighting;
+- direct finite-stamp DFT closure for `L=8,24,32,40,64`;
+- modulo and Nyquist collision accumulation plus exact `L=64` zero-pair boundary handling;
+- dynamic FFT-friendly synthesis sides `72,80,90,96,120,144` and no-wrap inequalities;
+- signed synthesis-power retention and normalization to `C(0,0)`;
 - preservation of signed negative modes;
 - direct downstream copying of stored noise power without another FFT or magnitude square.
 - the production 192-to-384 padding derivation, undersized-padding rejection, and cache re-keying;
@@ -84,10 +96,11 @@ bias validation before survey production tuning.
 `make test-correlated-decoration` covers:
 
 - bitwise no-mask and unmasked-pixel preservation, including no RNG consumption on the fast path;
-- finite same-coordinate masked replacement and hard failure without white-noise fallback;
+- finite masked-only replacement and hard failure without white-noise fallback;
 - source-core, connected-neighbor, and peripheral-mask protection in `markSource`;
-- signed stored-power immutability and clipped synthesis-PSD renormalization;
-- ensemble Fourier-power, real-space variance, and anisotropy closure.
+- formal subtraction/synthesis-power separation and clipped fill-PSD renormalization;
+- dynamic central-crop covariance, anisotropy, far-edge no-wrap, and finite-periodogram Monte Carlo
+  closure against production `covarianceToFiniteStampNoisePower`.
 
 ## Build environment
 

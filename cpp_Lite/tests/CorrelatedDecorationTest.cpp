@@ -1,4 +1,5 @@
 #include "ImageProcessing.hpp"
+#include "NoiseCovariance.hpp"
 #include "NumericalRecipes.hpp"
 
 #include <algorithm>
@@ -10,6 +11,15 @@
 namespace {
 
     constexpr double pi = 3.14159265358979323846;
+
+    // ==========================================
+    // Function: Map a signed lag into the compact covariance-test grid
+    // Method: Mirror the production (2*L+1)-side row-major layout.
+    // ==========================================
+    std::size_t lagIndex(int dx, int dy, int maxLag) {
+        const int side = 2 * maxLag + 1;
+        return static_cast<std::size_t>(dy + maxLag) * side + dx + maxLag;
+    }
 
     // ==========================================
     // Function: Build a shifted signed target power grid for decoration tests
@@ -62,7 +72,6 @@ namespace {
     // ==========================================
     bool testNoMaskBypass() {
         constexpr int n = 8;
-        const std::vector<float> storedPower = makeShiftedPower(n, true);
         std::vector<int> weights(n * n, 1);
         std::vector<float> stamp(n * n, 0.0f);
         for (std::size_t i = 0; i < stamp.size(); ++i) {
@@ -74,7 +83,7 @@ namespace {
         const double expectedNextGaussian = NumericalRecipes::gasdev();
         NumericalRecipes::seedRandom(73129U);
         if (!ImageProcessing::decorateStampCorrelated(
-                n, storedPower, 1.7, weights, stamp)) {
+                n, 0, {}, 1.7, weights, stamp)) {
             return false;
         }
         const double actualNextGaussian = NumericalRecipes::gasdev();
@@ -88,8 +97,9 @@ namespace {
     // ==========================================
     bool testMaskedOnlyReplacement() {
         constexpr int n = 8;
-        std::vector<float> storedPower = makeShiftedPower(n, true);
-        const std::vector<float> originalPower = storedPower;
+        constexpr int synthesisSize = 12;
+        std::vector<float> synthesisPower = makeShiftedPower(synthesisSize, true);
+        const std::vector<float> originalPower = synthesisPower;
         std::vector<int> weights(n * n, 1);
         weights[3] = 0;
         weights[37] = 0;
@@ -101,8 +111,8 @@ namespace {
 
         NumericalRecipes::seedRandom(991U);
         if (!ImageProcessing::decorateStampCorrelated(
-                n, storedPower, 2.3, weights, stamp)
-            || storedPower != originalPower) {
+                n, synthesisSize, synthesisPower, 2.3, weights, stamp)
+            || synthesisPower != originalPower) {
             return false;
         }
         for (std::size_t i = 0; i < stamp.size(); ++i) {
@@ -113,10 +123,10 @@ namespace {
             }
         }
 
-        std::vector<float> invalidPower(n * n, -1.0f);
+        std::vector<float> invalidPower(synthesisSize * synthesisSize, -1.0f);
         std::vector<float> rejectedStamp = originalStamp;
         return !ImageProcessing::decorateStampCorrelated(
-                   n, invalidPower, 2.3, weights, rejectedStamp)
+                   n, synthesisSize, invalidPower, 2.3, weights, rejectedStamp)
             && rejectedStamp == originalStamp;
     }
 
@@ -189,7 +199,7 @@ namespace {
         for (int sample = 0; sample < samples; ++sample) {
             std::vector<float> realization(n * n, 0.0f);
             if (!ImageProcessing::decorateStampCorrelated(
-                    n, storedPower, zeroLagCovariance, weights, realization)) {
+                    n, n, storedPower, zeroLagCovariance, weights, realization)) {
                 return false;
             }
             std::vector<float> power;
@@ -253,6 +263,137 @@ namespace {
             && meanCovarianceX > meanCovarianceY + 0.10;
     }
 
+    // ==========================================
+    // Function: Verify dynamic synthesis, central-crop covariance, and finite-periodogram closure
+    // Method: Transform one positive anisotropic compact covariance, generate cached 20-side fields,
+    //         crop 16-side stamps, and compare ensemble covariance/power with production expectations,
+    //         including a far-edge pair that would expose periodic wrap-around.
+    // ==========================================
+    bool testDynamicCropClosure() {
+        constexpr int stampSize = 16;
+        constexpr int maxLag = 3;
+        constexpr int samples = 2500;
+        constexpr double zeroLagCovariance = 1.7;
+        constexpr double covarianceX = 0.18;
+        constexpr double covarianceY = 0.07;
+        const int lagSide = 2 * maxLag + 1;
+        std::vector<double> covariance(
+            static_cast<std::size_t>(lagSide) * lagSide, 0.0);
+        covariance[lagIndex(0, 0, maxLag)] = zeroLagCovariance;
+        covariance[lagIndex(1, 0, maxLag)] = covarianceX;
+        covariance[lagIndex(-1, 0, maxLag)] = covarianceX;
+        covariance[lagIndex(0, 1, maxLag)] = covarianceY;
+        covariance[lagIndex(0, -1, maxLag)] = covarianceY;
+
+        std::vector<float> finitePower;
+        double finiteMaxImaginary = 0.0;
+        double negativeFraction = 0.0;
+        if (!NoiseCovariance::covarianceToFiniteStampNoisePower(
+                stampSize, maxLag, covariance, finitePower,
+                finiteMaxImaginary, negativeFraction)) {
+            return false;
+        }
+        int synthesisSize = 0;
+        std::vector<float> synthesisPower;
+        double synthesisMaxImaginary = 0.0;
+        if (!NoiseCovariance::covarianceToSynthesisPower(
+                stampSize, maxLag, covariance, synthesisSize,
+                synthesisPower, synthesisMaxImaginary)
+            || synthesisSize != 20 || finiteMaxImaginary > 1.0e-12
+            || synthesisMaxImaginary > 1.0e-12 || negativeFraction != 0.0) {
+            return false;
+        }
+        const std::vector<float> originalFinitePower = finitePower;
+        const std::vector<float> originalSynthesisPower = synthesisPower;
+
+        std::vector<double> meanPower(finitePower.size(), 0.0);
+        std::vector<int> weights(stampSize * stampSize, 0);
+        double meanVariance = 0.0;
+        double meanCovarianceX = 0.0;
+        double meanCovarianceY = 0.0;
+        double meanCovarianceTwoX = 0.0;
+        double meanFarEdgeCovariance = 0.0;
+
+        NumericalRecipes::seedRandom(8675309U);
+        for (int sample = 0; sample < samples; ++sample) {
+            std::vector<float> realization(stampSize * stampSize, 0.0f);
+            if (!ImageProcessing::decorateStampCorrelated(
+                    stampSize, synthesisSize, synthesisPower,
+                    zeroLagCovariance, weights, realization)) {
+                return false;
+            }
+
+            std::vector<float> measuredPower;
+            double centralPower = 0.0;
+            ImageProcessing::getPower(
+                stampSize, stampSize, realization, measuredPower, 0, centralPower);
+            for (std::size_t i = 0; i < meanPower.size(); ++i) {
+                meanPower[i] += measuredPower[i];
+            }
+
+            double variance = 0.0;
+            double covarianceOneX = 0.0;
+            double covarianceOneY = 0.0;
+            double covarianceTwoX = 0.0;
+            double farEdge = 0.0;
+            for (int y = 0; y < stampSize; ++y) {
+                for (int x = 0; x < stampSize; ++x) {
+                    const double value = realization[
+                        static_cast<std::size_t>(y) * stampSize + x];
+                    variance += value * value;
+                    if (x + 1 < stampSize) {
+                        covarianceOneX += value * realization[
+                            static_cast<std::size_t>(y) * stampSize + x + 1];
+                    }
+                    if (y + 1 < stampSize) {
+                        covarianceOneY += value * realization[
+                            static_cast<std::size_t>(y + 1) * stampSize + x];
+                    }
+                    if (x + 2 < stampSize) {
+                        covarianceTwoX += value * realization[
+                            static_cast<std::size_t>(y) * stampSize + x + 2];
+                    }
+                }
+                farEdge += realization[static_cast<std::size_t>(y) * stampSize]
+                         * realization[static_cast<std::size_t>(y) * stampSize
+                                       + stampSize - 1];
+            }
+            meanVariance += variance / static_cast<double>(stampSize * stampSize);
+            meanCovarianceX += covarianceOneX
+                / static_cast<double>(stampSize * (stampSize - 1));
+            meanCovarianceY += covarianceOneY
+                / static_cast<double>(stampSize * (stampSize - 1));
+            meanCovarianceTwoX += covarianceTwoX
+                / static_cast<double>(stampSize * (stampSize - 2));
+            meanFarEdgeCovariance += farEdge / stampSize;
+        }
+
+        for (double& value : meanPower) value /= samples;
+        meanVariance /= samples;
+        meanCovarianceX /= samples;
+        meanCovarianceY /= samples;
+        meanCovarianceTwoX /= samples;
+        meanFarEdgeCovariance /= samples;
+
+        double maximumRelativePowerError = 0.0;
+        for (std::size_t i = 0; i < meanPower.size(); ++i) {
+            if (!(finitePower[i] > 0.0f)) return false;
+            maximumRelativePowerError = std::max(
+                maximumRelativePowerError,
+                std::abs(meanPower[i] - finitePower[i]) / finitePower[i]);
+        }
+
+        return finitePower == originalFinitePower
+            && synthesisPower == originalSynthesisPower
+            && maximumRelativePowerError < 0.12
+            && std::abs(meanVariance - zeroLagCovariance) < 0.035
+            && std::abs(meanCovarianceX - covarianceX) < 0.035
+            && std::abs(meanCovarianceY - covarianceY) < 0.035
+            && std::abs(meanCovarianceTwoX) < 0.035
+            && std::abs(meanFarEdgeCovariance) < 0.035
+            && meanCovarianceX > meanCovarianceY + 0.07;
+    }
+
 }
 
 // ==========================================
@@ -275,6 +416,10 @@ int main() {
     }
     if (!testEnsembleClosure()) {
         std::cerr << "correlated ensemble closure test failed\n";
+        return 1;
+    }
+    if (!testDynamicCropClosure()) {
+        std::cerr << "dynamic crop closure test failed\n";
         return 1;
     }
     std::cout << "Correlated decoration tests passed\n";

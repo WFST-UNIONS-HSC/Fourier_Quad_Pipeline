@@ -126,8 +126,10 @@ namespace LensingConfig {
                   "noise covariance padding factor must be positive");
     static_assert(noise_cov_fft_size >= 2 * noise_region_size - 1,
                   "noise covariance FFT padding is too small");
-    static_assert(noise_cov_max_lag < ns / 2,
-                  "covariance lags must embed uniquely in the source Fourier grid");
+    static_assert(noise_cov_max_lag >= 0,
+                  "noise covariance max lag must be non-negative");
+    static_assert(noise_cov_max_lag < noise_region_size,
+                  "noise covariance max lag must fit inside the local covariance region");
     static_assert(noise_cov_min_valid_pixels > 0,
                   "noise covariance requires valid outer pixels");
 

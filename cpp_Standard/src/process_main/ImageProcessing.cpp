@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cmath>
 #include <complex>
+#include <memory>
 #include <vector>
 #include <array>
 #include <Eigen/Dense>
@@ -18,6 +19,94 @@ namespace ImageProcessing {
     namespace {
         inline std::size_t stampIndex(int x, int y, int n) {
             return static_cast<std::size_t>(y) * n + x;
+        }
+
+        // ==========================================
+        // Class: Reusable correlated-fill inverse FFT workspace
+        // Method: Bind one backward FFTW plan to a fixed synthesis grid and copy each Hermitian
+        //         realization into the persistent buffer before execution.
+        // ==========================================
+        class SynthesisInverseWorkspace {
+        public:
+            // ==========================================
+            // Function: Construct one fixed-side correlated-fill inverse transform
+            // Method: Allocate persistent complex storage and bind an in-place backward FFTW plan.
+            // ==========================================
+            explicit SynthesisInverseWorkspace(int size)
+                : size_(size),
+                  buffer_(static_cast<std::size_t>(size) * static_cast<std::size_t>(size)) {
+                backward_ = fftwf_plan_dft_2d(
+                    size_, size_, data(), data(), FFTW_BACKWARD, FFTW_ESTIMATE);
+            }
+
+            // ==========================================
+            // Function: Destroy the correlated-fill inverse transform
+            // Method: Release the plan while its bound vector storage is still alive.
+            // ==========================================
+            ~SynthesisInverseWorkspace() {
+                if (backward_ != nullptr) fftwf_destroy_plan(backward_);
+            }
+
+            SynthesisInverseWorkspace(const SynthesisInverseWorkspace&) = delete;
+            SynthesisInverseWorkspace& operator=(const SynthesisInverseWorkspace&) = delete;
+
+            // ==========================================
+            // Function: Report whether the inverse plan was created
+            // Method: Validate the sole FFTW handle required by execution.
+            // ==========================================
+            bool valid() const {
+                return backward_ != nullptr;
+            }
+
+            // ==========================================
+            // Function: Return the synthesis-grid side used as the cache key
+            // Method: Expose the immutable constructor size.
+            // ==========================================
+            int size() const {
+                return size_;
+            }
+
+            // ==========================================
+            // Function: Inverse-transform one normalized Hermitian spectrum
+            // Method: Copy into bound storage and execute the unnormalized backward plan.
+            // ==========================================
+            void execute(const std::vector<std::complex<float>>& fourierNoise) {
+                std::copy(fourierNoise.begin(), fourierNoise.end(), buffer_.begin());
+                fftwf_execute(backward_);
+            }
+
+            // ==========================================
+            // Function: Read one synthesized real-space complex sample
+            // Method: Return the immutable post-transform buffer value for validation/cropping.
+            // ==========================================
+            const std::complex<float>& value(std::size_t index) const {
+                return buffer_[index];
+            }
+
+        private:
+            // ==========================================
+            // Function: Access persistent storage through FFTW's complex ABI
+            // Method: Reinterpret the std::complex buffer used throughout ImageProcessing.
+            // ==========================================
+            fftwf_complex* data() {
+                return reinterpret_cast<fftwf_complex*>(buffer_.data());
+            }
+
+            int size_ = 0;
+            std::vector<std::complex<float>> buffer_;
+            fftwf_plan backward_ = nullptr;
+        };
+
+        // ==========================================
+        // Function: Reuse the current thread's correlated-fill inverse FFT plan
+        // Method: Rebuild only when the derived synthesis side changes, never once per source.
+        // ==========================================
+        SynthesisInverseWorkspace& synthesisInverseWorkspace(int size) {
+            thread_local std::unique_ptr<SynthesisInverseWorkspace> workspace;
+            if (!workspace || workspace->size() != size) {
+                workspace = std::make_unique<SynthesisInverseWorkspace>(size);
+            }
+            return *workspace;
         }
     }
 
@@ -233,20 +322,20 @@ namespace ImageProcessing {
 
     // ==========================================
     // Function: Fill masked stamp pixels with one local correlated-noise realization
-    // Method: Clip only a temporary synthesis PSD, renormalize it to C(0,0), ifftshift it,
-    //         generate Hermitian Gaussian Fourier coefficients, inverse transform, and copy only
-    //         same-coordinate masked pixels while preserving stored signed power and valid pixels.
+    // Method: Clip only a temporary dynamic-grid PSD, renormalize it to C(0,0), ifftshift it,
+    //         generate a cached Hermitian realization, centrally crop the source footprint, and
+    //         copy only masked coordinates while preserving every valid stamp pixel.
     // ==========================================
-    bool decorateStampCorrelated(int ns,
-                                 const std::vector<float>& storedNoisePower,
+    bool decorateStampCorrelated(int stampSize,
+                                 int synthesisSize,
+                                 const std::vector<float>& synthesisPower,
                                  double zeroLagCovariance,
                                  const std::vector<int>& weights,
                                  std::vector<float>& stamp) {
-        if (ns <= 0) return false;
-        const std::size_t elements = static_cast<std::size_t>(ns)
-                                   * static_cast<std::size_t>(ns);
-        if (storedNoisePower.size() != elements || weights.size() != elements
-            || stamp.size() != elements) {
+        if (stampSize <= 0) return false;
+        const std::size_t stampElements = static_cast<std::size_t>(stampSize)
+                                        * static_cast<std::size_t>(stampSize);
+        if (weights.size() != stampElements || stamp.size() != stampElements) {
             return false;
         }
         for (float value : stamp) {
@@ -256,12 +345,16 @@ namespace ImageProcessing {
         const bool hasMaskedPixel = std::any_of(
             weights.begin(), weights.end(), [](int value) { return value == 0; });
         if (!hasMaskedPixel) return true;
-        if (!std::isfinite(zeroLagCovariance) || zeroLagCovariance <= 0.0) {
+        if (synthesisSize < stampSize || synthesisSize % 2 != 0
+            || !std::isfinite(zeroLagCovariance) || zeroLagCovariance <= 0.0) {
             return false;
         }
+        const std::size_t synthesisElements = static_cast<std::size_t>(synthesisSize)
+                                            * static_cast<std::size_t>(synthesisSize);
+        if (synthesisPower.size() != synthesisElements) return false;
 
         double positivePowerSum = 0.0;
-        for (float value : storedNoisePower) {
+        for (float value : synthesisPower) {
             if (!std::isfinite(value)) return false;
             positivePowerSum += std::max(0.0, static_cast<double>(value));
         }
@@ -272,27 +365,34 @@ namespace ImageProcessing {
         const double powerScale = zeroLagCovariance / positivePowerSum;
         if (!std::isfinite(powerScale) || powerScale <= 0.0) return false;
 
-        const int half = ns / 2;
-        std::vector<double> fillPower(elements, 0.0);
-        for (int y = 0; y < ns; ++y) {
-            const int shiftedY = (y + half) % ns;
-            for (int x = 0; x < ns; ++x) {
-                const int shiftedX = (x + half) % ns;
-                const std::size_t unshiftedIndex = static_cast<std::size_t>(y) * ns + x;
-                const std::size_t shiftedIndex = static_cast<std::size_t>(shiftedY) * ns
+        const int half = synthesisSize / 2;
+        std::vector<double> fillPower(synthesisElements, 0.0);
+        for (int y = 0; y < synthesisSize; ++y) {
+            const int shiftedY = (y + half) % synthesisSize;
+            for (int x = 0; x < synthesisSize; ++x) {
+                const int shiftedX = (x + half) % synthesisSize;
+                const std::size_t unshiftedIndex = static_cast<std::size_t>(y)
+                                                 * synthesisSize + x;
+                const std::size_t shiftedIndex = static_cast<std::size_t>(shiftedY)
+                                               * synthesisSize
                                                + shiftedX;
                 fillPower[unshiftedIndex] = std::max(
-                    0.0, static_cast<double>(storedNoisePower[shiftedIndex])) * powerScale;
+                    0.0, static_cast<double>(synthesisPower[shiftedIndex])) * powerScale;
             }
         }
 
-        std::vector<std::complex<float>> fourierNoise(elements, {0.0f, 0.0f});
-        for (int y = 0; y < ns; ++y) {
-            const int conjugateY = (ns - y) % ns;
-            for (int x = 0; x < ns; ++x) {
-                const int conjugateX = (ns - x) % ns;
-                const std::size_t index = static_cast<std::size_t>(y) * ns + x;
-                const std::size_t conjugateIndex = static_cast<std::size_t>(conjugateY) * ns
+        SynthesisInverseWorkspace& inverseWorkspace = synthesisInverseWorkspace(synthesisSize);
+        if (!inverseWorkspace.valid()) return false;
+
+        std::vector<std::complex<float>> fourierNoise(
+            synthesisElements, {0.0f, 0.0f});
+        for (int y = 0; y < synthesisSize; ++y) {
+            const int conjugateY = (synthesisSize - y) % synthesisSize;
+            for (int x = 0; x < synthesisSize; ++x) {
+                const int conjugateX = (synthesisSize - x) % synthesisSize;
+                const std::size_t index = static_cast<std::size_t>(y) * synthesisSize + x;
+                const std::size_t conjugateIndex = static_cast<std::size_t>(conjugateY)
+                                                 * synthesisSize
                                                  + conjugateX;
                 if (index > conjugateIndex) continue;
 
@@ -323,10 +423,11 @@ namespace ImageProcessing {
             }
         }
 
-        FFT2D(ns, ns, fourierNoise, -1);
+        inverseWorkspace.execute(fourierNoise);
         double maximumRealMagnitude = 0.0;
         double maximumImaginaryMagnitude = 0.0;
-        for (const std::complex<float>& value : fourierNoise) {
+        for (std::size_t index = 0; index < synthesisElements; ++index) {
+            const std::complex<float>& value = inverseWorkspace.value(index);
             if (!std::isfinite(value.real()) || !std::isfinite(value.imag())) return false;
             maximumRealMagnitude = std::max(
                 maximumRealMagnitude, std::abs(static_cast<double>(value.real())));
@@ -338,8 +439,17 @@ namespace ImageProcessing {
             return false;
         }
 
-        for (std::size_t index = 0; index < elements; ++index) {
-            if (weights[index] == 0) stamp[index] = fourierNoise[index].real();
+        const int cropStart = (synthesisSize - stampSize) / 2;
+        for (int y = 0; y < stampSize; ++y) {
+            for (int x = 0; x < stampSize; ++x) {
+                const std::size_t stampPosition = static_cast<std::size_t>(y)
+                                                * stampSize + x;
+                if (weights[stampPosition] != 0) continue;
+                const std::size_t realizationPosition =
+                    static_cast<std::size_t>(cropStart + y) * synthesisSize
+                    + static_cast<std::size_t>(cropStart + x);
+                stamp[stampPosition] = inverseWorkspace.value(realizationPosition).real();
+            }
         }
         return true;
     }

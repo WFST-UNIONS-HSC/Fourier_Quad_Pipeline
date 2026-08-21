@@ -196,13 +196,15 @@ $(POWER_PROCESSING_TEST): tests/PowerProcessingTest.cpp \
 
 $(CORRELATED_DECORATION_TEST): tests/CorrelatedDecorationTest.cpp \
                               src/process_main/ImageProcessing.cpp \
+                              src/process_main/NoiseCovariance.cpp \
                               src/process_main/NumericalRecipes.cpp \
                               include/process_main/ImageProcessing.hpp \
+                              include/process_main/NoiseCovariance.hpp \
                               include/process_main/NumericalRecipes.hpp
 	$(CXX) $(CPPFLAGS) $(filter-out -MMD -MP,$(CXXFLAGS)) \
 		tests/CorrelatedDecorationTest.cpp src/process_main/ImageProcessing.cpp \
-		src/process_main/NumericalRecipes.cpp $(LDFLAGS) \
-		-o $@ -lfftw3f -lm
+		src/process_main/NoiseCovariance.cpp src/process_main/NumericalRecipes.cpp \
+		$(LDFLAGS) -o $@ -lfftw3 -lfftw3f -lm
 
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)

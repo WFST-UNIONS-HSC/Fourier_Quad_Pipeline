@@ -4,6 +4,7 @@
 #include <cmath>
 #include <complex>
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -283,13 +284,26 @@ namespace NoiseCovariance {
         }
 
         // ==========================================
-        // Function: Reuse the current thread's covariance-to-power workspace
-        // Method: Rebuild the cached workspace only when the output stamp size changes.
+        // Function: Reuse the current thread's finite-stamp covariance-to-power workspace
+        // Method: Keep subtraction-plan ownership separate from dynamic synthesis transforms.
         // ==========================================
-        PowerWorkspace& powerWorkspace(int outputSize) {
+        PowerWorkspace& finitePowerWorkspace(int outputSize) {
             thread_local std::unique_ptr<PowerWorkspace> workspace;
             if (!workspace || workspace->outputSize() != outputSize) {
                 workspace = std::make_unique<PowerWorkspace>(outputSize);
+            }
+            return *workspace;
+        }
+
+        // ==========================================
+        // Function: Reuse the current thread's synthesis covariance-to-power workspace
+        // Method: Cache the dynamic fill-grid plan independently so alternating ns/G transforms
+        //         never destroy and rebuild one another.
+        // ==========================================
+        PowerWorkspace& synthesisPowerWorkspace(int synthesisSize) {
+            thread_local std::unique_ptr<PowerWorkspace> workspace;
+            if (!workspace || workspace->outputSize() != synthesisSize) {
+                workspace = std::make_unique<PowerWorkspace>(synthesisSize);
             }
             return *workspace;
         }
@@ -304,6 +318,53 @@ namespace NoiseCovariance {
                  + static_cast<std::size_t>(dx + maxLag);
         }
 
+        // ==========================================
+        // Function: Map a signed lag onto one periodic Fourier-grid coordinate
+        // Method: Normalize the C++ remainder into [0, period) for both positive and negative lags.
+        // ==========================================
+        int positiveModulo(int value, int period) {
+            const int remainder = value % period;
+            return remainder >= 0 ? remainder : remainder + period;
+        }
+
+    }
+
+    // ==========================================
+    // Function: Identify an even FFT side composed only of factors 2, 3, and 5
+    // Method: Reject non-positive/odd sides, divide out FFTW-friendly factors, and require unity.
+    // ==========================================
+    bool isFastEvenFFTSize(int size) {
+        if (size <= 0 || size % 2 != 0) {
+            return false;
+        }
+        int remainder = size;
+        for (int factor : {2, 3, 5}) {
+            while (remainder % factor == 0) {
+                remainder /= factor;
+            }
+        }
+        return remainder == 1;
+    }
+
+    // ==========================================
+    // Function: Select the smallest even 2/3/5-smooth FFT side at least as large as requested
+    // Method: Round upward to even and scan by two with explicit signed-integer overflow guards.
+    // ==========================================
+    int nextFastEvenFFTSize(int requiredSize) {
+        if (requiredSize <= 0) {
+            return 0;
+        }
+        if (requiredSize == std::numeric_limits<int>::max()) {
+            return 0;
+        }
+        int candidate = requiredSize + requiredSize % 2;
+        while (!isFastEvenFFTSize(candidate)) {
+            if (candidate > std::numeric_limits<int>::max() - 2) {
+                return 0;
+            }
+            candidate += 2;
+        }
+        return candidate;
     }
 
     // ==========================================
@@ -416,23 +477,26 @@ namespace NoiseCovariance {
     }
 
     // ==========================================
-    // Function: Convert a short-lag covariance estimate into stored noise power
-    // Method: Embed signed lags at periodic indices, apply a normalized forward FFT matching
-    //         getPower(), fftshift the real result, and report imaginary/negative diagnostics.
+    // Function: Convert covariance into the expected power of one finite source stamp
+    // Method: Apply the finite pair window, accumulate signed lags modulo the stamp side, run the
+    //         normalized forward transform, fftshift, and retain signed modes for subtraction.
     // ==========================================
-    bool covarianceToNoisePower(
+    bool covarianceToFiniteStampNoisePower(
         int outputSize, int maxLag,
         const std::vector<double>& covariance,
         std::vector<float>& noisePower,
         double& maxImaginary,
         double& negativeFraction) {
-        if (outputSize <= 0 || maxLag < 0 || maxLag >= outputSize / 2) {
+        if (outputSize <= 0 || maxLag < 0
+            || maxLag > (std::numeric_limits<int>::max() - 1) / 2) {
             return false;
         }
         const int lagSide = 2 * maxLag + 1;
         const std::size_t expectedCovariance = static_cast<std::size_t>(lagSide)
                                                * static_cast<std::size_t>(lagSide);
-        if (covariance.size() != expectedCovariance) {
+        if (covariance.size() != expectedCovariance
+            || !std::all_of(covariance.begin(), covariance.end(),
+                            [](double value) { return std::isfinite(value); })) {
             return false;
         }
 
@@ -441,20 +505,23 @@ namespace NoiseCovariance {
         std::vector<std::complex<double>> covarianceGrid(
             outputElements, std::complex<double>(0.0, 0.0));
         for (int dy = -maxLag; dy <= maxLag; ++dy) {
-            const int y = dy >= 0 ? dy : outputSize + dy;
+            const int absoluteY = std::abs(dy);
+            if (absoluteY >= outputSize) continue;
+            const double windowY = 1.0 - static_cast<double>(absoluteY) / outputSize;
+            const int y = positiveModulo(dy, outputSize);
             for (int dx = -maxLag; dx <= maxLag; ++dx) {
-                const int x = dx >= 0 ? dx : outputSize + dx;
-                const double value = covariance[compactLagIndex(dx, dy, maxLag)];
-                if (!std::isfinite(value)) {
-                    return false;
-                }
+                const int absoluteX = std::abs(dx);
+                if (absoluteX >= outputSize) continue;
+                const double windowX = 1.0 - static_cast<double>(absoluteX) / outputSize;
+                const int x = positiveModulo(dx, outputSize);
                 covarianceGrid[static_cast<std::size_t>(y)
                                * static_cast<std::size_t>(outputSize)
-                               + static_cast<std::size_t>(x)] = value;
+                               + static_cast<std::size_t>(x)]
+                    += covariance[compactLagIndex(dx, dy, maxLag)] * windowX * windowY;
             }
         }
 
-        PowerWorkspace& workspace = powerWorkspace(outputSize);
+        PowerWorkspace& workspace = finitePowerWorkspace(outputSize);
         if (!workspace.valid()) {
             return false;
         }
@@ -495,6 +562,92 @@ namespace NoiseCovariance {
             negativeFraction = negativeMagnitude / totalMagnitude;
         }
         return std::isfinite(negativeFraction);
+    }
+
+    // ==========================================
+    // Function: Convert unwindowed covariance into signed dynamic-grid synthesis power
+    // Method: Select a no-wrap even 2/3/5-smooth grid, embed each retained lag uniquely, transform
+    //         with a synthesis-only cached plan, normalize by G squared, and fftshift the result.
+    // ==========================================
+    bool covarianceToSynthesisPower(
+        int stampSize, int maxLag,
+        const std::vector<double>& covariance,
+        int& synthesisSize,
+        std::vector<float>& synthesisPower,
+        double& maxImaginary) {
+        synthesisSize = 0;
+        synthesisPower.clear();
+        maxImaginary = 0.0;
+        if (stampSize <= 0 || maxLag < 0
+            || maxLag > (std::numeric_limits<int>::max() - 1) / 2) {
+            return false;
+        }
+        const int lagSide = 2 * maxLag + 1;
+        const std::size_t expectedCovariance = static_cast<std::size_t>(lagSide)
+                                               * static_cast<std::size_t>(lagSide);
+        if (covariance.size() != expectedCovariance
+            || !std::all_of(covariance.begin(), covariance.end(),
+                            [](double value) { return std::isfinite(value); })) {
+            return false;
+        }
+
+        const long long required = std::max(
+            2LL * maxLag + 1LL,
+            static_cast<long long>(stampSize) + maxLag);
+        if (required <= 0 || required > std::numeric_limits<int>::max()) {
+            return false;
+        }
+        synthesisSize = nextFastEvenFFTSize(static_cast<int>(required));
+        if (synthesisSize <= 0) {
+            return false;
+        }
+
+        const std::size_t synthesisElements = static_cast<std::size_t>(synthesisSize)
+                                            * static_cast<std::size_t>(synthesisSize);
+        std::vector<std::complex<double>> covarianceGrid(
+            synthesisElements, std::complex<double>(0.0, 0.0));
+        for (int dy = -maxLag; dy <= maxLag; ++dy) {
+            const int y = positiveModulo(dy, synthesisSize);
+            for (int dx = -maxLag; dx <= maxLag; ++dx) {
+                const int x = positiveModulo(dx, synthesisSize);
+                covarianceGrid[static_cast<std::size_t>(y)
+                               * static_cast<std::size_t>(synthesisSize)
+                               + static_cast<std::size_t>(x)]
+                    = covariance[compactLagIndex(dx, dy, maxLag)];
+            }
+        }
+
+        PowerWorkspace& workspace = synthesisPowerWorkspace(synthesisSize);
+        if (!workspace.valid()) {
+            synthesisSize = 0;
+            return false;
+        }
+        workspace.execute(covarianceGrid);
+
+        synthesisPower.assign(synthesisElements, 0.0f);
+        const double normalization = 1.0 / static_cast<double>(synthesisElements);
+        const int half = synthesisSize / 2;
+        for (int y = 0; y < synthesisSize; ++y) {
+            const int shiftedY = (y + half) % synthesisSize;
+            for (int x = 0; x < synthesisSize; ++x) {
+                const int shiftedX = (x + half) % synthesisSize;
+                const std::size_t inputIndex = static_cast<std::size_t>(y)
+                                             * static_cast<std::size_t>(synthesisSize)
+                                             + static_cast<std::size_t>(x);
+                const std::size_t outputIndex = static_cast<std::size_t>(shiftedY)
+                                              * static_cast<std::size_t>(synthesisSize)
+                                              + static_cast<std::size_t>(shiftedX);
+                const std::complex<double> value = workspace.value(inputIndex) * normalization;
+                if (!std::isfinite(value.real()) || !std::isfinite(value.imag())) {
+                    synthesisSize = 0;
+                    synthesisPower.clear();
+                    return false;
+                }
+                maxImaginary = std::max(maxImaginary, std::abs(value.imag()));
+                synthesisPower[outputIndex] = static_cast<float>(value.real());
+            }
+        }
+        return true;
     }
 
     // ==========================================
