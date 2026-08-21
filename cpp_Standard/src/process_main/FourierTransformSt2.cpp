@@ -6,6 +6,7 @@
 #include "Universalblock.hpp"
 #include "FitsIO.hpp"
 #include "ImageProcessing.hpp"
+#include "NoiseCovariance.hpp"
 #include "MPIFailure.hpp"
 #include <iostream>
 #include <vector>
@@ -106,12 +107,10 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
 
     for (int i = 0; i < nsource; ++i) {
         std::vector<float> source(ns * ns);
-        std::vector<float> noise(ns * ns);
         std::copy(source_coll.begin() + i * ns * ns, source_coll.begin() + (i + 1) * ns * ns, source.begin());
-        std::copy(noise_coll.begin() + i * ns * ns, noise_coll.begin() + (i + 1) * ns * ns, noise.begin());
 
         std::vector<float> source_p(ns * ns);
-        std::vector<float> noise_p(ns * ns);
+        std::vector<float> noise_p;
         double pc = 0.0;
 
         // SNR calculation uses star_smooth (2)
@@ -124,7 +123,10 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
 
         // Main power spectrum computation uses gal_smooth
         ImageProcessing::getPower(ns, ns, source, source_p, LensingConfig::gal_smooth, pc);
-        ImageProcessing::getPower(ns, ns, noise, noise_p, LensingConfig::gal_smooth, pc);
+        if (!NoiseCovariance::copyStoredNoisePower(
+                noise_coll, static_cast<std::size_t>(i) * ns * ns, ns, noise_p)) {
+            MPIFailure::abortWorld("load stored galaxy noise power", noise_fits);
+        }
         ImageProcessing::processPowers(ns, source_p, noise_p);
 
         std::copy(source_p.begin(), source_p.end(), power_coll.begin() + i * ns * ns);

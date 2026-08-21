@@ -5,6 +5,7 @@
 #include "Universalblock.hpp"
 #include "FitsIO.hpp"
 #include "ImageProcessing.hpp"
+#include "NoiseCovariance.hpp"
 #include "MPIFailure.hpp"
 #include <iostream>
 #include <vector>
@@ -102,18 +103,18 @@ namespace FourierTransformSt1 {
 
             for (int i = 0; i < nsource; ++i) {
                 std::vector<float> source(ns * ns);
-                std::vector<float> noise(ns * ns);
-
                 std::copy(source_coll.begin() + i * ns * ns, source_coll.begin() + (i + 1) * ns * ns, source.begin());
-                std::copy(noise_coll.begin() + i * ns * ns, noise_coll.begin() + (i + 1) * ns * ns, noise.begin());
 
                 std::vector<float> source_p(ns * ns);
-                std::vector<float> noise_p(ns * ns);
+                std::vector<float> noise_p;
                 double source_pc = 0.0;
-                double noise_pc = 0.0;
 
                 ImageProcessing::getPower(ns, ns, source, source_p, LensingConfig::star_smooth, source_pc);
-                ImageProcessing::getPower(ns, ns, noise, noise_p, LensingConfig::star_smooth, noise_pc);
+                if (!NoiseCovariance::copyStoredNoisePower(
+                        noise_coll, static_cast<std::size_t>(i) * ns * ns, ns, noise_p)) {
+                    MPIFailure::abortWorld(
+                        "load stored star-candidate noise power", filename_star_can_noise);
+                }
                 ImageProcessing::processPowers(ns, source_p, noise_p);
                 ImageProcessing::regularizePower(ns, ns, source_p, LensingConfig::star_smooth);
 

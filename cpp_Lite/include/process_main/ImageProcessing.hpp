@@ -13,13 +13,6 @@ namespace ImageProcessing {
                     double& total_flux, int& total_area, double& peak, double& half_light_flux, 
                     int& half_light_area, int& flag, double& radius, int& xp, int& yp);
                     
-    void markNoise(int n, const std::vector<float>& stamp, std::vector<int>& weight, double sig, 
-                   double source_thresh, double core_thresh);
-
-    // Stamp flattening
-    void flattenStamp2D(int ns, int nl, std::vector<float>& stamp, const std::vector<int>& weight, int& ierror);
-    void flattenStampNew(int ns, int nl, std::vector<float>& stamp, const std::vector<int>& weight, int& ierror);
-
     // Grid decorating (replacing masked pixels with noise)
     void decorateStamp(int ns, double sig, const std::vector<int>& weights, std::vector<float>& stamp);
 

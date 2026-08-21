@@ -35,6 +35,7 @@ SRCS = main.cpp \
        src/process_main/PreProcess.cpp \
        src/process_main/Astrometry.cpp \
        src/process_main/SourceExtractor.cpp \
+       src/process_main/NoiseCovariance.cpp \
        src/process_main/FourierTransformSt1.cpp \
        src/process_main/FourierTransformSt2.cpp \
        src/process_main/PSFModel.cpp \
@@ -62,6 +63,7 @@ MPI_FAILURE_TEST = tests/test_mpi_failure
 ASTROMETRY_DYNAMIC_CAPACITY_TEST = tests/test_astrometry_dynamic_capacity
 CATALOG_LIFECYCLE_TEST = tests/test_catalog_lifecycle
 EXPOSURE_RUNTIME_SIZING_TEST = tests/test_exposure_runtime_sizing
+NOISE_COVARIANCE_TEST = tests/test_noise_covariance
 
 all: $(TARGET)
 
@@ -95,6 +97,9 @@ test-catalog-lifecycle: $(CATALOG_LIFECYCLE_TEST)
 
 test-exposure-runtime-sizing: $(EXPOSURE_RUNTIME_SIZING_TEST)
 	./$(EXPOSURE_RUNTIME_SIZING_TEST)
+
+test-noise-covariance: $(NOISE_COVARIANCE_TEST)
+	./$(NOISE_COVARIANCE_TEST)
 
 $(UNIVERSALBLOCK_TEST): tests/UniversalblockTest.cpp \
                        src/process_main/Universalblock.cpp \
@@ -165,6 +170,13 @@ $(EXPOSURE_RUNTIME_SIZING_TEST): tests/ExposureRuntimeSizingTest.cpp \
 	$(CXX) $(CPPFLAGS) $(filter-out -MMD -MP,$(CXXFLAGS)) \
 		tests/ExposureRuntimeSizingTest.cpp -o $@
 
+$(NOISE_COVARIANCE_TEST): tests/NoiseCovarianceTest.cpp \
+                          src/process_main/NoiseCovariance.cpp \
+                          include/process_main/NoiseCovariance.hpp
+	$(CXX) $(CPPFLAGS) $(filter-out -MMD -MP,$(CXXFLAGS)) \
+		tests/NoiseCovarianceTest.cpp src/process_main/NoiseCovariance.cpp \
+		$(LDFLAGS) -o $@ -lfftw3 -lm
+
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
@@ -176,11 +188,12 @@ clean:
 	      $(CATALOG_ROW_COUNT_TEST) $(PSF_MODEL_STATE_TEST) \
 	      $(LEGACY_STAMP_CAPACITY_TEST) $(MPI_FAILURE_TEST) \
 	      $(ASTROMETRY_DYNAMIC_CAPACITY_TEST) $(CATALOG_LIFECYCLE_TEST) \
-	      $(EXPOSURE_RUNTIME_SIZING_TEST)
+	      $(EXPOSURE_RUNTIME_SIZING_TEST) $(NOISE_COVARIANCE_TEST)
 
 -include $(DEPS)
 
 .PHONY: all clean test-universalblock test-catalog-row-count \
 	        test-psf-model-state test-legacy-stamp-capacity \
 	        test-astrometry-dynamic-capacity test-mpi-failure \
-	        test-catalog-lifecycle test-exposure-runtime-sizing
+	        test-catalog-lifecycle test-exposure-runtime-sizing \
+	        test-noise-covariance
