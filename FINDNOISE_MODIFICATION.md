@@ -16,9 +16,17 @@ absolute values, clipping, square roots, random phases, or a synthetic inverse t
 After recentering, a source is rejected when its final `ns x ns` stamp straddles the midpoint of a
 two-amplifier chip. Stamps ending at or starting on the boundary remain valid.
 
+For an accepted source whose final stamp still contains peripheral masked pixels, Stage 3 now waits
+until covariance and signed-power QC pass, clips negative modes only in a temporary synthesis PSD,
+and renormalizes that PSD so its sum equals the measured `C(0,0)`. An ifftshifted Hermitian Gaussian
+field is inverse transformed and only same-coordinate `weight == 0` pixels are replaced. Clean stamps
+return before FFT allocation or RNG use; valid pixels and stored signed noise power remain unchanged.
+Decoration failure rejects the source and never falls back to independent white noise.
+
 ## FITS data contract
 
-- `*_source.fits`: real-space `ns x ns` source stamps, unchanged.
+- `*_source.fits`: real-space `ns x ns` source stamps; retained peripheral masked pixels contain a
+  local correlated-noise realization instead of independent white Gaussian draws.
 - `*_noise.fits`: Fourier-space, signed `ns x ns` local noise-power stamps.
 - Stage 4 and Stage 6 copy stored noise power directly. Source stamps always use raw
   `getPower(..., 0)`, including the source-only SNR_F diagnostic path.
@@ -73,6 +81,14 @@ bias validation before survey production tuning.
 - rejection of the former smoothing-before-subtraction order;
 - zero post-subtraction outer-edge mean and final star regularization.
 
+`make test-correlated-decoration` covers:
+
+- bitwise no-mask and unmasked-pixel preservation, including no RNG consumption on the fast path;
+- finite same-coordinate masked replacement and hard failure without white-noise fallback;
+- source-core, connected-neighbor, and peripheral-mask protection in `markSource`;
+- signed stored-power immutability and clipped synthesis-PSD renormalization;
+- ensemble Fourier-power, real-space variance, and anisotropy closure.
+
 ## Build environment
 
 - Language standard: C++17.
@@ -90,6 +106,7 @@ make clean
 make -j EIGEN_INCLUDE="$EIGEN_INCLUDE"
 make test-noise-covariance EIGEN_INCLUDE="$EIGEN_INCLUDE"
 make test-power-processing EIGEN_INCLUDE="$EIGEN_INCLUDE"
+make test-correlated-decoration EIGEN_INCLUDE="$EIGEN_INCLUDE"
 ./Fourier_Quad_Pipe --help
 mpirun -np <ranks> ./Fourier_Quad_Pipe [options] [LEGACY_EXPO_LIST]
 ```
@@ -102,4 +119,4 @@ The 2026-08-21 verification used the existing Pixi compiler/library stack throug
 `STACK_PREFIX=/home/alatrion/.pixi/envs/base`, with `EIGEN_INCLUDE=/usr/include/eigen3` because
 the Pixi base include directory did not contain Eigen. Standard and Lite each passed a clean full
 build, `make test-noise-covariance`, `make test-power-processing`, all eight pre-existing Makefile
-regression targets, and `./Fourier_Quad_Pipe --help`.
+regression targets, `make test-correlated-decoration`, and `./Fourier_Quad_Pipe --help`.

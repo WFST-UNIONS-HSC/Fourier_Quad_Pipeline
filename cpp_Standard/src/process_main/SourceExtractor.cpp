@@ -1029,9 +1029,6 @@ namespace SourceExtractor {
             }
             jmax = std::max(jmax, invalid);
         }
-        ImageProcessing::decorateStamp(
-            LensingConfig::ns, sig, sourceStampWeight, sourceStamp);
-
         const int amplifierBoundary = nx / 2;
         const int sourceAmplifier = finalChipCenterX < amplifierBoundary ? 0 : 1;
         const int innerStartX = finalLocalCenterX - LensingConfig::noise_inner_size / 2;
@@ -1115,6 +1112,13 @@ namespace SourceExtractor {
                                * std::max(1.0e-20, maxPowerMagnitude)
             || negativeFraction > LensingConfig::noise_cov_max_negative_fraction) {
             flag = -1;
+            return;
+        }
+        if (!ImageProcessing::decorateStampCorrelated(
+                LensingConfig::ns, noisePower, zeroLagCovariance,
+                sourceStampWeight, sourceStamp)) {
+            flag = -1;
+            return;
         }
     }
 

@@ -15,6 +15,11 @@ namespace ImageProcessing {
                     
     // Grid decorating (replacing masked pixels with noise)
     void decorateStamp(int ns, double sig, const std::vector<int>& weights, std::vector<float>& stamp);
+    bool decorateStampCorrelated(int ns,
+                                 const std::vector<float>& storedNoisePower,
+                                 double zeroLagCovariance,
+                                 const std::vector<int>& weights,
+                                 std::vector<float>& stamp);
 
     // Image smoothing (3x3 grid)
     void smoothGrid33(std::vector<float>& f);

@@ -231,6 +231,119 @@ namespace ImageProcessing {
         }
     }
 
+    // ==========================================
+    // Function: Fill masked stamp pixels with one local correlated-noise realization
+    // Method: Clip only a temporary synthesis PSD, renormalize it to C(0,0), ifftshift it,
+    //         generate Hermitian Gaussian Fourier coefficients, inverse transform, and copy only
+    //         same-coordinate masked pixels while preserving stored signed power and valid pixels.
+    // ==========================================
+    bool decorateStampCorrelated(int ns,
+                                 const std::vector<float>& storedNoisePower,
+                                 double zeroLagCovariance,
+                                 const std::vector<int>& weights,
+                                 std::vector<float>& stamp) {
+        if (ns <= 0) return false;
+        const std::size_t elements = static_cast<std::size_t>(ns)
+                                   * static_cast<std::size_t>(ns);
+        if (storedNoisePower.size() != elements || weights.size() != elements
+            || stamp.size() != elements) {
+            return false;
+        }
+        for (float value : stamp) {
+            if (!std::isfinite(value)) return false;
+        }
+
+        const bool hasMaskedPixel = std::any_of(
+            weights.begin(), weights.end(), [](int value) { return value == 0; });
+        if (!hasMaskedPixel) return true;
+        if (!std::isfinite(zeroLagCovariance) || zeroLagCovariance <= 0.0) {
+            return false;
+        }
+
+        double positivePowerSum = 0.0;
+        for (float value : storedNoisePower) {
+            if (!std::isfinite(value)) return false;
+            positivePowerSum += std::max(0.0, static_cast<double>(value));
+        }
+        if (!std::isfinite(positivePowerSum) || positivePowerSum <= 0.0) {
+            return false;
+        }
+
+        const double powerScale = zeroLagCovariance / positivePowerSum;
+        if (!std::isfinite(powerScale) || powerScale <= 0.0) return false;
+
+        const int half = ns / 2;
+        std::vector<double> fillPower(elements, 0.0);
+        for (int y = 0; y < ns; ++y) {
+            const int shiftedY = (y + half) % ns;
+            for (int x = 0; x < ns; ++x) {
+                const int shiftedX = (x + half) % ns;
+                const std::size_t unshiftedIndex = static_cast<std::size_t>(y) * ns + x;
+                const std::size_t shiftedIndex = static_cast<std::size_t>(shiftedY) * ns
+                                               + shiftedX;
+                fillPower[unshiftedIndex] = std::max(
+                    0.0, static_cast<double>(storedNoisePower[shiftedIndex])) * powerScale;
+            }
+        }
+
+        std::vector<std::complex<float>> fourierNoise(elements, {0.0f, 0.0f});
+        for (int y = 0; y < ns; ++y) {
+            const int conjugateY = (ns - y) % ns;
+            for (int x = 0; x < ns; ++x) {
+                const int conjugateX = (ns - x) % ns;
+                const std::size_t index = static_cast<std::size_t>(y) * ns + x;
+                const std::size_t conjugateIndex = static_cast<std::size_t>(conjugateY) * ns
+                                                 + conjugateX;
+                if (index > conjugateIndex) continue;
+
+                if (index == conjugateIndex) {
+                    const double coefficient = std::sqrt(fillPower[index])
+                                             * NumericalRecipes::gasdev();
+                    if (!std::isfinite(coefficient)) return false;
+                    fourierNoise[index] = std::complex<float>(
+                        static_cast<float>(coefficient), 0.0f);
+                    continue;
+                }
+
+                const double pairPower = 0.5 * (
+                    fillPower[index] + fillPower[conjugateIndex]);
+                const double coefficientScale = std::sqrt(0.5 * pairPower);
+                double gaussianReal = 0.0;
+                double gaussianImaginary = 0.0;
+                NumericalRecipes::gasdev2(gaussianReal, gaussianImaginary);
+                const std::complex<float> coefficient(
+                    static_cast<float>(coefficientScale * gaussianReal),
+                    static_cast<float>(coefficientScale * gaussianImaginary));
+                if (!std::isfinite(coefficient.real())
+                    || !std::isfinite(coefficient.imag())) {
+                    return false;
+                }
+                fourierNoise[index] = coefficient;
+                fourierNoise[conjugateIndex] = std::conj(coefficient);
+            }
+        }
+
+        FFT2D(ns, ns, fourierNoise, -1);
+        double maximumRealMagnitude = 0.0;
+        double maximumImaginaryMagnitude = 0.0;
+        for (const std::complex<float>& value : fourierNoise) {
+            if (!std::isfinite(value.real()) || !std::isfinite(value.imag())) return false;
+            maximumRealMagnitude = std::max(
+                maximumRealMagnitude, std::abs(static_cast<double>(value.real())));
+            maximumImaginaryMagnitude = std::max(
+                maximumImaginaryMagnitude, std::abs(static_cast<double>(value.imag())));
+        }
+        if (maximumImaginaryMagnitude
+            > 1.0e-5 * std::max(1.0, maximumRealMagnitude)) {
+            return false;
+        }
+
+        for (std::size_t index = 0; index < elements; ++index) {
+            if (weights[index] == 0) stamp[index] = fourierNoise[index].real();
+        }
+        return true;
+    }
+
     void smoothGrid33(std::vector<float>& f) {
         static const Eigen::Matrix<double, 6, 6> matx_inv = []() {
             Eigen::Matrix<double, 6, 6> mat = Eigen::Matrix<double, 6, 6>::Zero();

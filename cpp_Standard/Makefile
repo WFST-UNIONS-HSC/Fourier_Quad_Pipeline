@@ -65,6 +65,7 @@ CATALOG_LIFECYCLE_TEST = tests/test_catalog_lifecycle
 EXPOSURE_RUNTIME_SIZING_TEST = tests/test_exposure_runtime_sizing
 NOISE_COVARIANCE_TEST = tests/test_noise_covariance
 POWER_PROCESSING_TEST = tests/test_power_processing
+CORRELATED_DECORATION_TEST = tests/test_correlated_decoration
 
 all: $(TARGET)
 
@@ -104,6 +105,9 @@ test-noise-covariance: $(NOISE_COVARIANCE_TEST)
 
 test-power-processing: $(POWER_PROCESSING_TEST)
 	./$(POWER_PROCESSING_TEST)
+
+test-correlated-decoration: $(CORRELATED_DECORATION_TEST)
+	./$(CORRELATED_DECORATION_TEST)
 
 $(UNIVERSALBLOCK_TEST): tests/UniversalblockTest.cpp \
                        src/process_main/Universalblock.cpp \
@@ -191,6 +195,16 @@ $(POWER_PROCESSING_TEST): tests/PowerProcessingTest.cpp \
 		src/process_main/NumericalRecipes.cpp $(LDFLAGS) \
 		-o $@ -lfftw3f -lm
 
+$(CORRELATED_DECORATION_TEST): tests/CorrelatedDecorationTest.cpp \
+                              src/process_main/ImageProcessing.cpp \
+                              src/process_main/NumericalRecipes.cpp \
+                              include/process_main/ImageProcessing.hpp \
+                              include/process_main/NumericalRecipes.hpp
+	$(CXX) $(CPPFLAGS) $(filter-out -MMD -MP,$(CXXFLAGS)) \
+		tests/CorrelatedDecorationTest.cpp src/process_main/ImageProcessing.cpp \
+		src/process_main/NumericalRecipes.cpp $(LDFLAGS) \
+		-o $@ -lfftw3f -lm
+
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
@@ -203,7 +217,7 @@ clean:
 	      $(LEGACY_STAMP_CAPACITY_TEST) $(MPI_FAILURE_TEST) \
 	      $(ASTROMETRY_DYNAMIC_CAPACITY_TEST) $(CATALOG_LIFECYCLE_TEST) \
 	      $(EXPOSURE_RUNTIME_SIZING_TEST) $(NOISE_COVARIANCE_TEST) \
-	      $(POWER_PROCESSING_TEST)
+	      $(POWER_PROCESSING_TEST) $(CORRELATED_DECORATION_TEST)
 
 -include $(DEPS)
 
@@ -211,4 +225,5 @@ clean:
 	        test-psf-model-state test-legacy-stamp-capacity \
 	        test-astrometry-dynamic-capacity test-mpi-failure \
 	        test-catalog-lifecycle test-exposure-runtime-sizing \
-	        test-noise-covariance test-power-processing
+	        test-noise-covariance test-power-processing \
+	        test-correlated-decoration
