@@ -31,8 +31,8 @@ static inline std::string trimRight(std::string str) {
 
 // ==========================================
 // Function: Combine one exposure's chip catalogs into the final result catalog
-// Method: Remove stale output first, gate every chip on Stage-1 validity, validate
-//         external row pairing, and open the final catalog only for live shear data.
+// Method: Remove stale output, skip Stage-7 header-only sentinels, validate live
+//         external row pairs, and open the final catalog only for shear data.
 // ==========================================
 void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, float chi2) {
     if (nchip <= 0 || imageFiles.empty()) {
@@ -95,6 +95,11 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
                 "parse Stage 7 shear catalog header", filename_shear);
         }
 
+        std::string line10;
+        if (!std::getline(fin10, line10)) {
+            continue;
+        }
+
         std::string filename_orig = OutputLayout::chipPath(
             dirOutput, "stamps/cat_Orig", prefix, "_orig.cat");
         Internal::requireMatchingCatalogDataRows(filename_shear, filename_orig);
@@ -113,11 +118,6 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
         if (cat_list2.empty()) {
             MPIFailure::abortWorld(
                 "parse external source catalog header", filename_orig);
-        }
-
-        std::string line10;
-        if (!std::getline(fin10, line10)) {
-            continue;
         }
 
         if (chi2 > LensingConfig::chi2_thresh) {

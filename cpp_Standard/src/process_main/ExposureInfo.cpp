@@ -11,8 +11,29 @@
 #include <sstream>
 #include <iomanip>
 #include <cstdlib>
+#include <cmath>
 
 extern std::vector<std::string> EXPO_FILE;
+
+namespace {
+
+// ==========================================
+// Function: Parse one Stage-8 diagnostic ellipticity token
+// Method: Require a complete float token, allow NaN for temporary recovery,
+//         and reject malformed values or infinity.
+// ==========================================
+bool parseDiagnosticEllipticity(const std::string& token, float& value) {
+    char* end = nullptr;
+    const float parsed = std::strtof(token.c_str(), &end);
+    if (token.empty() || end != token.c_str() + token.size()
+        || std::isinf(parsed)) {
+        return false;
+    }
+    value = parsed;
+    return true;
+}
+
+} // namespace
 
 namespace ExposureInfo {
 
@@ -53,11 +74,35 @@ void getExpoInfo(const std::vector<std::string>& imageFiles, int nchip, const st
         int i = 0;
         int nstar = 0;
         float FWHM = 0.0f, e1 = 0.0f, e2 = 0.0f, chi_d = 0.0f;
+        std::string e1_token;
+        std::string e2_token;
         
-        if (!(fin20 >> i >> nstar >> FWHM >> e1 >> e2 >> chi_d)) {
+        if (!(fin20 >> i >> nstar >> FWHM >> e1_token >> e2_token >> chi_d)) {
             MPIFailure::abortWorld(
                 "read exposure star-info row",
                 fstar + " chip=" + std::to_string(ichip + 1));
+        }
+        if (!parseDiagnosticEllipticity(e1_token, e1)
+            || !parseDiagnosticEllipticity(e2_token, e2)) {
+            MPIFailure::abortWorld(
+                "parse exposure star-info ellipticity",
+                fstar + " chip=" + std::to_string(ichip + 1)
+                    + " e1=" + e1_token + " e2=" + e2_token);
+        }
+
+        if (std::isnan(e1) || std::isnan(e2)) {
+            std::cerr << "Warning: Stage 8 replaced NaN star ellipticity"
+                      << " file=" << fstar
+                      << " chip=" << (ichip + 1)
+                      << " e1=" << e1_token
+                      << " e2=" << e2_token
+                      << " replacement=-99" << std::endl;
+            if (std::isnan(e1)) {
+                e1 = -99.0f;
+            }
+            if (std::isnan(e2)) {
+                e2 = -99.0f;
+            }
         }
 
         if (nstar == 0) {

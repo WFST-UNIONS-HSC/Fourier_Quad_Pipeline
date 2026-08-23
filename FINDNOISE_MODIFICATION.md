@@ -102,6 +102,21 @@ bias validation before survey production tuning.
 - dynamic central-crop covariance, anisotropy, far-edge no-wrap, and finite-periodogram Monte Carlo
   closure against production `covarianceToFiniteStampNoisePower`.
 
+## Temporary Standard Stage-8 NaN guard
+
+`cpp_Standard` temporarily tolerates syntactically valid `nan`/`-nan` tokens
+only in the per-chip `e1` and `e2` columns read from
+`stamps/dat_StarInfo/*_star_info_expo.dat`. Each NaN is reported with its file,
+row chip index, and original tokens, then written as the established `-99`
+diagnostic sentinel in `stamps/dat_ExpoInfo/*_expo_info.dat`.
+
+Finite `e1/e2` values are preserved. Malformed tokens and infinity still stop
+the MPI job, and the typed reads of `nstar`, `FWHM`, and `chi_d` remain strict
+because those fields feed the Stage-8 exposure aggregate. This recovery guard
+does not repair upstream candidate-selection bias in `nstar`, `FWHM`, or
+`chi_d`; it only permits an explicitly accepted continuation from existing
+Stage-5 products.
+
 ## Build environment
 
 - Language standard: C++17.
@@ -133,3 +148,11 @@ The 2026-08-21 verification used the existing Pixi compiler/library stack throug
 the Pixi base include directory did not contain Eigen. Standard and Lite each passed a clean full
 build, `make test-noise-covariance`, `make test-power-processing`, all eight pre-existing Makefile
 regression targets, `make test-correlated-decoration`, and `./Fourier_Quad_Pipe --help`.
+
+The 2026-08-22 temporary Stage-8 guard was rebuilt for Standard with
+`CXX=/home/alatrion/.pixi/bin/mpicxx`, the same `STACK_PREFIX`, and the same
+`EIGEN_INCLUDE`. The full executable linked successfully and
+`./Fourier_Quad_Pipe --help` exited zero. A focused C++17 smoke test that
+included the production `ExposureInfo.cpp` accepted finite values plus
+`nan/-nan`, converted NaN to `-99`, and rejected infinity, malformed text, and
+numeric tokens with trailing characters.
