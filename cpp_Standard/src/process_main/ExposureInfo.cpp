@@ -19,14 +19,14 @@ namespace {
 
 // ==========================================
 // Function: Parse one Stage-8 diagnostic ellipticity token
-// Method: Require a complete float token, allow NaN for temporary recovery,
-//         and reject malformed values or infinity.
+// Method: Require a complete finite float token and reject malformed or
+//         non-finite diagnostics instead of repairing upstream failures.
 // ==========================================
 bool parseDiagnosticEllipticity(const std::string& token, float& value) {
     char* end = nullptr;
     const float parsed = std::strtof(token.c_str(), &end);
     if (token.empty() || end != token.c_str() + token.size()
-        || std::isinf(parsed)) {
+        || !std::isfinite(parsed)) {
         return false;
     }
     value = parsed;
@@ -88,21 +88,6 @@ void getExpoInfo(const std::vector<std::string>& imageFiles, int nchip, const st
                 "parse exposure star-info ellipticity",
                 fstar + " chip=" + std::to_string(ichip + 1)
                     + " e1=" + e1_token + " e2=" + e2_token);
-        }
-
-        if (std::isnan(e1) || std::isnan(e2)) {
-            std::cerr << "Warning: Stage 8 replaced NaN star ellipticity"
-                      << " file=" << fstar
-                      << " chip=" << (ichip + 1)
-                      << " e1=" << e1_token
-                      << " e2=" << e2_token
-                      << " replacement=-99" << std::endl;
-            if (std::isnan(e1)) {
-                e1 = -99.0f;
-            }
-            if (std::isnan(e2)) {
-                e2 = -99.0f;
-            }
         }
 
         if (nstar == 0) {
