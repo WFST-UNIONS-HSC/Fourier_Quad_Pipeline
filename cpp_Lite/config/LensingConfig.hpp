@@ -25,7 +25,7 @@ namespace LensingConfig {
     //   deblending         = 1  -> de-blending always applied
     //   PSF_type           = 1  -> local polynomial PSF fit
     //   PSF_Ms             = 0  -> no multi-scale / PCA PSF reconstruction
-    // Still selectable: PROCESS_stage, CCD_split, gal_smooth, star_smooth.
+    // Still selectable: PROCESS_stage, CCD_split, gal_smooth, star_smooth, NstampType.
     // ==========================================
 
     // Stage control parameters
@@ -98,6 +98,26 @@ namespace LensingConfig {
     // Thresholds
     constexpr double source_thresh = 2.0;
     constexpr double core_thresh = 4.0;
+
+    // ==========================================
+    // Configuration: Stage-3 noise-product construction method
+    // Method: Select a physical blank-noise stamp (1) or local covariance noise power (2).
+    // ==========================================
+    constexpr int NstampType = 1;
+    static_assert(NstampType == 1 || NstampType == 2,
+                  "NstampType must be 1 or 2");
+
+    // ==========================================
+    // Configuration: Stage-3 blank-noise-stamp quality gates
+    // Method: Retain the main-branch fixed candidate QC before random selection.
+    // ==========================================
+    constexpr double noise_sigma_ratio_min = 0.80;
+    constexpr double noise_sigma_ratio_max = 1.25;
+    constexpr double noise_mad_ratio_min = 0.70;
+    constexpr double noise_mad_ratio_max = 1.30;
+    constexpr double noise_tail_sigma = 2.5;
+    constexpr double noise_max_tail_fraction = 0.05;
+    constexpr double noise_max_mask_fraction = 0.02;
 
     // ==========================================
     // Configuration: Stage-3 local masked-covariance noise-power estimator

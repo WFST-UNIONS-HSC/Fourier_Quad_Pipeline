@@ -100,6 +100,26 @@ namespace LensingConfig {
     constexpr double flat_thresh = 0.01;
 
     // ==========================================
+    // Configuration: Stage-3 noise-product construction method
+    // Method: Select a physical blank-noise stamp (1) or local covariance noise power (2).
+    // ==========================================
+    constexpr int NstampType = 1;
+    static_assert(NstampType == 1 || NstampType == 2,
+                  "NstampType must be 1 or 2");
+
+    // ==========================================
+    // Configuration: Stage-3 blank-noise-stamp quality gates
+    // Method: Retain the main-branch fixed candidate QC before random selection.
+    // ==========================================
+    constexpr double noise_sigma_ratio_min = 0.80;
+    constexpr double noise_sigma_ratio_max = 1.25;
+    constexpr double noise_mad_ratio_min = 0.70;
+    constexpr double noise_mad_ratio_max = 1.30;
+    constexpr double noise_tail_sigma = 2.5;
+    constexpr double noise_max_tail_fraction = 0.05;
+    constexpr double noise_max_mask_fraction = 0.02;
+
+    // ==========================================
     // Configuration: Stage-3 local masked-covariance noise-power estimator
     // Method: Use one large local cutout, exclude the source/neighbor region, retain short
     //         two-dimensional lags, and reject only globally unstable covariance estimates.
