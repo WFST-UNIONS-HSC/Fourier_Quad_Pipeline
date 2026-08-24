@@ -25,7 +25,7 @@ namespace LensingConfig {
     //   deblending         = 1  -> de-blending always applied
     //   PSF_type           = 1  -> local polynomial PSF fit
     //   PSF_Ms             = 0  -> no multi-scale / PCA PSF reconstruction
-    // Still selectable: PROCESS_stage, CCD_split, gal_smooth, star_smooth.
+    // Still selectable: PROCESS_stage, CCD_split, gal_smooth, star_smooth, NstampType.
     // ==========================================
 
     // Stage control parameters
@@ -100,9 +100,16 @@ namespace LensingConfig {
     constexpr double core_thresh = 4.0;
 
     // ==========================================
-    // Configuration: Stage-3 unbiased noise-stamp quality gates
-    // Method: Accept physically compatible candidates with fixed pass/fail cuts before random
-    //         selection; never rank candidates by peak, MAD, RMS, or mask fraction.
+    // Configuration: Stage-3 noise-product construction method
+    // Method: Select a physical blank-noise stamp (1) or local covariance noise power (2).
+    // ==========================================
+    constexpr int NstampType = 1;
+    static_assert(NstampType == 1 || NstampType == 2,
+                  "NstampType must be 1 or 2");
+
+    // ==========================================
+    // Configuration: Stage-3 blank-noise-stamp quality gates
+    // Method: Retain the main-branch fixed candidate QC before random selection.
     // ==========================================
     constexpr double noise_sigma_ratio_min = 0.80;
     constexpr double noise_sigma_ratio_max = 1.25;
@@ -111,6 +118,40 @@ namespace LensingConfig {
     constexpr double noise_tail_sigma = 2.5;
     constexpr double noise_max_tail_fraction = 0.05;
     constexpr double noise_max_mask_fraction = 0.02;
+
+    // ==========================================
+    // Configuration: Stage-3 local masked-covariance noise-power estimator
+    // Method: Use one large local cutout, exclude the source/neighbor region, retain short
+    //         two-dimensional lags, and reject only globally unstable covariance estimates.
+    // ==========================================
+    constexpr int noise_region_size = 192;
+    constexpr int noise_inner_size = 96;
+    constexpr double noise_cov_padding_factor = 2.0;
+    constexpr int noise_cov_fft_size = static_cast<int>(
+        noise_region_size * noise_cov_padding_factor + 0.999999);
+    constexpr int noise_cov_max_lag = 8;
+    constexpr int noise_cov_min_valid_pixels = 4096;
+    constexpr double noise_cov_min_pair_fraction = 0.50;
+    constexpr double noise_cov_sigma_ratio_min = 0.80;
+    constexpr double noise_cov_sigma_ratio_max = 1.25;
+    constexpr double noise_cov_max_negative_fraction = 0.25;
+    constexpr double noise_cov_imag_tolerance = 1.0e-10;
+    static_assert(noise_region_size > noise_inner_size,
+                  "noise region must exceed the central exclusion");
+    static_assert(noise_inner_size >= nl,
+                  "noise exclusion must cover the source plane-fit region");
+    static_assert(noise_region_size % 2 == 0 && noise_inner_size % 2 == 0,
+                  "noise region and exclusion sizes must be even");
+    static_assert(noise_cov_padding_factor > 0.0,
+                  "noise covariance padding factor must be positive");
+    static_assert(noise_cov_fft_size >= 2 * noise_region_size - 1,
+                  "noise covariance FFT padding is too small");
+    static_assert(noise_cov_max_lag >= 0,
+                  "noise covariance max lag must be non-negative");
+    static_assert(noise_cov_max_lag < noise_region_size,
+                  "noise covariance max lag must fit inside the local covariance region");
+    static_assert(noise_cov_min_valid_pixels > 0,
+                  "noise covariance requires valid outer pixels");
 
     // ==========================================
     // Configuration: numerical_fix F6 mode-bar noise-plane estimator

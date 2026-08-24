@@ -91,10 +91,10 @@ public:
     }
 
     // ==========================================
-    // Function: Write aligned shear and original catalogs
-    // Method: Always write nonblank headers and optionally one physical data row.
+    // Function: Write independently populated shear and original catalogs
+    // Method: Always write nonblank headers and optionally one data row per input.
     // ==========================================
-    void writeCatalogs(bool with_data) const {
+    void writeCatalogs(bool with_shear_data, bool with_original_data) const {
         std::ofstream shear(shear_file_, std::ios::trunc);
         std::ofstream orig(orig_file_, std::ios::trunc);
         require(static_cast<bool>(shear) && static_cast<bool>(orig),
@@ -105,11 +105,13 @@ public:
         }
         shear << '\n';
         orig << "ra dec\n";
-        if (with_data) {
+        if (with_shear_data) {
             for (int column = 0; column <= LensingConfig::iparity; ++column) {
                 shear << (column == 0 ? "0" : " 0");
             }
             shear << '\n';
+        }
+        if (with_original_data) {
             orig << "180 0\n";
         }
     }
@@ -156,13 +158,13 @@ void testNoOutputCases(TemporaryCatalogTree& tree) {
             "all-invalid exposure must remove stale output");
 
     tree.writeNorm(-1.0f);
-    tree.writeCatalogs(false);
+    tree.writeCatalogs(false, true);
     tree.writeStaleOutput();
     tree.combine(0.0f);
     require(!std::filesystem::exists(tree.outputFile()),
-            "header-only exposure must not create output");
+            "header-only shear with populated original catalog must be skipped");
 
-    tree.writeCatalogs(true);
+    tree.writeCatalogs(true, true);
     tree.writeStaleOutput();
     tree.combine(static_cast<float>(LensingConfig::chi2_thresh + 1.0));
     require(!std::filesystem::exists(tree.outputFile()),
@@ -175,7 +177,7 @@ void testNoOutputCases(TemporaryCatalogTree& tree) {
 // ==========================================
 void testLiveOutput(TemporaryCatalogTree& tree) {
     constexpr float chi2 = 0.005f;
-    tree.writeCatalogs(true);
+    tree.writeCatalogs(true, true);
     tree.combine(chi2);
     require(std::filesystem::exists(tree.outputFile()),
             "live exposure must create a combined catalog");
