@@ -128,6 +128,45 @@ void updateTopK(
     int k);
 
 // ==========================================
+// Function: Rebuild exact top-K neighbours on one active survivor set
+// Method: Clear every stale list, compare only active same-chip cached windows,
+//         and refill bounded neighbours in exact distance/index order.
+// ==========================================
+template <typename CandidateSelectionState>
+void rebuildActiveKNN(
+    const std::vector<int>& active_indices,
+    std::vector<CandidateSelectionState>& selection,
+    int k) {
+    for (CandidateSelectionState& candidate : selection) {
+        candidate.knn.clear();
+    }
+    if (k <= 0) return;
+
+    for (std::size_t first = 0; first + 1 < active_indices.size(); ++first) {
+        const int first_index = active_indices[first];
+        if (first_index < 0
+            || first_index >= static_cast<int>(selection.size())) {
+            continue;
+        }
+        for (std::size_t second = first + 1;
+             second < active_indices.size(); ++second) {
+            const int second_index = active_indices[second];
+            if (second_index < 0 || second_index == first_index
+                || second_index >= static_cast<int>(selection.size())) {
+                continue;
+            }
+            const float chi = normalizedChiDistance(
+                selection[first_index].chi_window,
+                selection[second_index].chi_window);
+            updateTopK(
+                selection[first_index].knn, second_index, chi, k);
+            updateTopK(
+                selection[second_index].knn, first_index, chi, k);
+        }
+    }
+}
+
+// ==========================================
 // Structure: Describe one undirected grouping-graph edge
 // Method: Address both endpoints by their original per-chip candidate indices.
 // ==========================================

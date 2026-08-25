@@ -155,6 +155,42 @@ void testGrouping() {
 }
 
 // ==========================================
+// Structure: Provide the minimal cached fields required by active-KNN rebuilds
+// Method: Mirror production chi-window and neighbour storage without PSF I/O.
+// ==========================================
+struct SyntheticKNNSelectionState {
+    std::vector<float> chi_window;
+    std::vector<NeighborEdge> knn;
+};
+
+// ==========================================
+// Function: Verify KNN slots are refilled after the minChi survivor cut
+// Method: Build an initial top-2 containing rejected close stars, rebuild on
+//         survivors only, and require the next two valid neighbours to replace them.
+// ==========================================
+void testKNNRebuiltAfterMinChiCut() {
+    std::vector<SyntheticKNNSelectionState> candidates(5);
+    for (int index = 0; index < static_cast<int>(candidates.size()); ++index) {
+        candidates[index].chi_window = {
+            1.0f + static_cast<float>(index) * 0.1f};
+    }
+
+    rebuildActiveKNN(std::vector<int>({0, 1, 2, 3, 4}), candidates, 2);
+    require(candidates[0].knn.size() == 2
+                && candidates[0].knn[0].star_index == 1
+                && candidates[0].knn[1].star_index == 2,
+            "pre-cut top-K fixture must be occupied by the closest rejected stars");
+
+    rebuildActiveKNN(std::vector<int>({0, 3, 4}), candidates, 2);
+    require(candidates[0].knn.size() == 2
+                && candidates[0].knn[0].star_index == 3
+                && candidates[0].knn[1].star_index == 4,
+            "survivor-only rebuild must refill every vacated top-K slot");
+    require(candidates[1].knn.empty() && candidates[2].knn.empty(),
+            "minChi-rejected candidates must retain no stale neighbour state");
+}
+
+// ==========================================
 // Function: Verify analytic LOO against explicit leave-one-out fits
 // Method: Fit a small quadratic design, use each hat diagonal in the production
 //         formula, and compare with a brute-force refit that removes that row.
@@ -225,6 +261,7 @@ int main() {
     testFWHMLocus();
     testGaiaParsingAndMatching();
     testGrouping();
+    testKNNRebuiltAfterMinChiCut();
     testAnalyticLOO();
     std::cout << "PSF star-selection tests passed\n";
     return EXIT_SUCCESS;

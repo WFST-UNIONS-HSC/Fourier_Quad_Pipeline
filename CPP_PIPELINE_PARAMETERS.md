@@ -150,9 +150,9 @@ are from `ProcessConfig.hpp`; all others are compile-time constants from
 | `psf_fwhm_hist_bins` | — | `128*` | Exposure FWHM histogram bin count used for the optional Gaia peak seed. |
 | `psf_fwhm_locus_sigma` | — | `4.0*` | Robust sigma half-width of the exposure stellar FWHM locus. |
 | `psf_fwhm_locus_min_samples` | — | `30*` | Minimum quality-valid FWHM sample count for locus estimation. |
-| `PsfGroupingType` | — | `1`, `2*` | Compile-time graph choice: legacy private-threshold graph or exact mutual-KNN. |
+| `PsfGroupingType` | — | `1`, `2*` | Compile-time graph choice: legacy private-threshold graph or survivor-only exact mutual-KNN after the shared minChi cut. |
 | `psf_minchi_sigma_cut` | — | `4.0*` | Exposure-pooled upper-tail cut on each candidate's nearest same-chip Fourier distance. |
-| `psf_knn_k` | — | `8*` | Top-K neighbour count used only by Type-2 mutual-KNN grouping. |
+| `psf_knn_k` | — | `8*` | Top-K neighbour count rebuilt only among shared minChi survivors for Type-2 mutual-KNN grouping. |
 | `psf_group_merge_ratio` | — | `0.30*` | Minimum secondary-component size relative to the largest component. |
 | `psf_group_merge_min_gaia` | — | `2*` | Minimum Gaia matches also required in an eligible secondary component. |
 | `psf_gaia_match_radius_pix` | — | `2.5*` | Nearest same-chip image-position radius for Gaia labeling, in pixels. |

@@ -15,8 +15,11 @@ Gaia-assisted exposure-wide FWHM stellar locus, and performs only same-chip
 Fourier comparisons. `LensingConfig::PsfGroupingType` selects either the legacy
 chi-threshold graph (`1`) or exact mutual-KNN graph (`2`); both paths share the
 same exposure-pooled per-star `minChi` cut and main/eligible-secondary component
-selection. Secondary components must pass both the configured relative-size and
-Gaia-count conditions. The former candidate-count-squared chi matrix is gone.
+selection. Type 2 rebuilds its exact top-K lists only among candidates that
+survive that shared `minChi` cut, so rejected neighbours cannot occupy stale KNN
+slots; Type 1 retains its existing private threshold sample and graph behavior.
+Secondary components must pass both the configured relative-size and Gaia-count
+conditions. The former candidate-count-squared chi matrix is gone.
 
 The retained stars receive one analytic leave-one-out PRESS pass. Chips reuse
 their initial polynomial fit when no star is removed and refit exactly once when
@@ -39,10 +42,10 @@ make test-psf-star-selection CXX=mpicxx \
 
 Synthetic tests cover the shared chi window and quality gate, FWHM/Gaia peak
 selection, `_astro.dat` parsing and nearest matching, streaming top-K and mutual
-components, the shared secondary-group policy, non-square state storage, and
-analytic LOO equivalence to explicit leave-one-out refits. Representative real
-exposures are still required to inspect PRESS versus brightness/SNR/FWHM and to
-benchmark Stage-5 wall time.
+components, survivor-only KNN slot refill after `minChi`, the shared secondary-
+group policy, non-square state storage, and analytic LOO equivalence to explicit
+leave-one-out refits. Representative real exposures are still required to
+inspect PRESS versus brightness/SNR/FWHM and to benchmark Stage-5 wall time.
 
 ## Validated build and regression checks
 
