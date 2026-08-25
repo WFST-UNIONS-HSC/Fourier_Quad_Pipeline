@@ -86,8 +86,6 @@ c      subroutine chip_pre_process(IMAGE_FILE,DIR_OUTPUT)
       enddo
 c ==========================================
 c Function: Apply the DQ mask before astrometry and defect merging
-c Method: Keep set_sig independent of DQ, then reject every nonzero
-c         DQ pixel from all later preprocessing stages.
 c ==========================================
       if (proc_error.eq.0 .and.
      .   (include_Mask.eq.2 .or. include_Mask.eq.3)) then
