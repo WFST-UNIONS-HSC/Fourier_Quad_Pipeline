@@ -52,9 +52,37 @@ namespace LensingConfig {
     constexpr int npo = 64;
     constexpr int npox = 8;
     constexpr int nstar_min = npo * 3 / 2;
-   constexpr int npl = 10;
-   constexpr int nplx = 2;
-   constexpr int nstar_min_local = 16;
+    constexpr int npl = 10;
+    constexpr int nplx = 2;
+    constexpr int nstar_min_local = 16;
+
+    // ==========================================
+    // Configuration: Stage-5 stellar-locus, grouping, and PRESS selection
+    // Method: Preserve Lite's frozen local-PSF/Gaia branches while keeping the
+    //         common selection topology and rejection thresholds explicit.
+    // ==========================================
+    constexpr int psf_exposure_min_candidates = 192;
+    constexpr int psf_fwhm_hist_bins = 128;
+    constexpr double psf_fwhm_locus_sigma = 4.0;
+    constexpr int psf_fwhm_locus_min_samples = 30;
+    constexpr int PsfGroupingType = 2;
+    constexpr double psf_minchi_sigma_cut = 4.0;
+    constexpr int psf_knn_k = 8;
+    constexpr double psf_group_merge_ratio = 0.30;
+    constexpr int psf_group_merge_min_gaia = 2;
+    constexpr double psf_gaia_match_radius_pix = 2.5;
+    constexpr int psf_gaia_locus_min_matches = 10;
+    constexpr double psf_press_sigma_cut = 4.0;
+    constexpr double psf_loo_min_denom = 1.0e-6;
+    static_assert(PsfGroupingType == 1 || PsfGroupingType == 2,
+                  "PsfGroupingType must be 1 or 2");
+    static_assert(psf_exposure_min_candidates > 0,
+                  "PSF exposure minimum must be positive");
+    static_assert(psf_fwhm_hist_bins >= 3,
+                  "PSF FWHM histogram requires at least three bins");
+    static_assert(psf_knn_k > 0, "PSF KNN count must be positive");
+    static_assert(psf_loo_min_denom > 0.0 && psf_loo_min_denom < 1.0,
+                  "PSF LOO denominator floor must lie in (0,1)");
 
     // Stamp dimensions
     constexpr int ns = 64;

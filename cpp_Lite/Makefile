@@ -37,6 +37,7 @@ SRCS = main.cpp \
        src/process_main/NoiseCovariance.cpp \
        src/process_main/FourierTransformSt1.cpp \
        src/process_main/FourierTransformSt2.cpp \
+       src/process_main/PSFStarSelection.cpp \
        src/process_main/PSFModel.cpp \
        src/process_main/ShearMeasurement.cpp \
        src/process_main/ExposureInfo.cpp \
@@ -53,6 +54,9 @@ SRCS = main.cpp \
 OBJS = $(SRCS:.cpp=.o)
 DEPS = $(OBJS:.o=.d)
 TARGET = Fourier_Quad_Pipe
+PSF_SELECTION_TEST_BINS = tests/PSFStarSelectionTest \
+                          tests/PSFCandidateQualityTest \
+                          tests/PSFModelStateTest
 
 all: $(TARGET)
 
@@ -63,8 +67,19 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(DEPS) $(TARGET)
+	rm -f $(OBJS) $(DEPS) $(TARGET) $(PSF_SELECTION_TEST_BINS)
+
+test-psf-star-selection:
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/PSFStarSelectionTest.cpp \
+		src/process_main/PSFStarSelection.cpp -o tests/PSFStarSelectionTest
+	./tests/PSFStarSelectionTest
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/PSFCandidateQualityTest.cpp \
+		src/process_main/PSFStarSelection.cpp -o tests/PSFCandidateQualityTest
+	./tests/PSFCandidateQualityTest
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/PSFModelStateTest.cpp -o tests/PSFModelStateTest
+	./tests/PSFModelStateTest
+	rm -f $(PSF_SELECTION_TEST_BINS)
 
 -include $(DEPS)
 
-.PHONY: all clean
+.PHONY: all clean test-psf-star-selection

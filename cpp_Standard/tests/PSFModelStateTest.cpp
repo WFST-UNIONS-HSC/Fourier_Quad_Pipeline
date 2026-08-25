@@ -18,8 +18,8 @@ void require(bool condition, const std::string& message) {
 }
 
 // ==========================================
-// Function: Verify one actual candidate count and chi-matrix dimension
-// Method: Reserve the legacy hint, append all rows, and exercise the last live-stride element.
+// Function: Verify one actual candidate count and linear selection-state dimension
+// Method: Append all rows, align explicit metadata, and cache bounded window/KNN data.
 // ==========================================
 void testChipSize(int star_count) {
     PSFModel::Internal::ExposurePSFState state(1);
@@ -30,24 +30,27 @@ void testChipSize(int star_count) {
         row[0] = star;
         chip.stars.push_back(row);
     }
-    chip.allocateChiD();
+    chip.selection.resize(static_cast<std::size_t>(star_count));
+    for (int star = 0; star < star_count; ++star) {
+        chip.selection[star].chi_window.push_back(static_cast<float>(star));
+        chip.selection[star].knn.push_back({star, 0.0f});
+    }
 
-    const std::size_t expected =
-        static_cast<std::size_t>(star_count) * star_count;
     require(state.getNStar(0) == star_count,
             "candidate count must follow dynamic storage");
-    require(chip.chi_d.size() == expected,
-            "chi matrix must use actual nstar squared");
-    if (star_count > 1) {
-        state.getChiD(0, star_count - 1, star_count - 2) = 7.5f;
-        require(state.getChiD(0, star_count - 1, star_count - 2) == 7.5f,
-                "last live-stride chi element must be writable");
+    require(chip.selection.size() == static_cast<std::size_t>(star_count),
+            "selection metadata must align one-to-one with candidate rows");
+    if (star_count > 0) {
+        require(chip.selection.back().chi_window.size() == 1
+                    && chip.selection.back().knn.size() == 1,
+                "last candidate must own bounded non-square cache vectors");
     }
 }
 
 // ==========================================
 // Function: Run focused Stage-5 dynamic-state regression cases
-// Method: Exercise zero, ordinary, boundary, and above-reservation star counts.
+// Method: Exercise zero, ordinary, boundary, and above-reservation star counts
+//         without allocating any candidate-count-squared matrix.
 // ==========================================
 void testDynamicChipSizes() {
     const int counts[] = {0, 10, 1999, 2000, 2001, 2301};

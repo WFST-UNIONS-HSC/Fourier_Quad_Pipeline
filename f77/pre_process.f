@@ -150,7 +150,7 @@ c ==========================================
             do j=1,ny
               if (abs(flat_weight(i,j)).gt.1e-7) then
                 weight(i,j)=0
-                normap(i,j)=-1000.
+                ! normap(i,j)=-1000.
               endif
             enddo
           enddo

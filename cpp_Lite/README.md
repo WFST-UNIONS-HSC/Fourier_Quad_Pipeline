@@ -7,6 +7,42 @@ The complete C++ pipeline guide lives in
 [`../CPP_GUIDE.md`](../CPP_GUIDE.md). The full parameter reference is
 [`../CPP_PIPELINE_PARAMETERS.md`](../CPP_PIPELINE_PARAMETERS.md).
 
+## Stage-5 PSF star-selection redesign
+
+Stage 5 now applies a positive signed central-chi-window quality gate, reads the
+matched image positions already stored in each chip's Gaia `_astro.dat`,
+estimates a Gaia-assisted exposure-wide FWHM stellar locus, and performs only
+same-chip Fourier comparisons. `LensingConfig::PsfGroupingType` selects either
+the legacy chi-threshold graph (`1`) or exact mutual-KNN graph (`2`); both paths
+share the same exposure-pooled per-star `minChi` cut and
+main/eligible-secondary component selection. Secondary components must pass
+both the configured relative-size and Gaia-count conditions. The former
+candidate-count-squared chi matrix is gone.
+
+The retained stars receive one analytic leave-one-out PRESS pass. Chips reuse
+their initial normalized local-polynomial fit when no star is removed and refit
+exactly once when the retained set changes. Lite's `msshape_*` diagnostics are
+produced from the final analytic LOO model. This port deliberately does not add
+the Standard-only trivial-astrometry, PCA/multi-scale, residual-reconstruction,
+or hybrid PSF branches that Lite removed.
+
+All new scientific constants are compile-time values in
+`config/LensingConfig.hpp`; changing them requires rebuilding. The focused
+selection tests are:
+
+```bash
+make test-psf-star-selection CXX=mpicxx \
+     STACK_PREFIX=/path/to/dependency-prefix \
+     EIGEN_INCLUDE=/path/to/eigen3
+```
+
+Synthetic tests cover the shared chi window and quality gate, FWHM/Gaia peak
+selection, `_astro.dat` parsing and nearest matching, streaming top-K and mutual
+components, the shared secondary-group policy, non-square state storage, and
+analytic LOO equivalence to explicit leave-one-out refits. Representative real
+exposures are still required to inspect PRESS versus brightness/SNR/FWHM and to
+benchmark Stage-5 wall time.
+
 ## Validated build and regression checks
 
 The v1.3.1 capacity and failure-handling update was validated under WSL2 with

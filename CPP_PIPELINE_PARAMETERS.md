@@ -145,7 +145,20 @@ are from `ProcessConfig.hpp`; all others are compile-time constants from
 | `psf_order` | — | `8*` | Reserved legacy PSF-order constant; currently unused. |
 | `npo` | — | `64*` | Reserved legacy PSF selection size; currently used only to derive `nstar_min`. |
 | `npox` | — | `8*` | Reserved legacy PSF basis-width constant; currently unused. |
-| `nstar_min` | — | `npo·3/2 = 96*` | Base exposure-wide star threshold. PSF star selection rejects an exposure when total candidate count is below `2·nstar_min` (192 by default). |
+| `nstar_min` | — | `npo·3/2 = 96*` | Reserved legacy threshold; the redesigned selector uses the explicit exposure and per-chip minima below. |
+| `psf_exposure_min_candidates` | — | `192*` | Minimum quality-valid candidate count required before exposure-wide locus/group selection. |
+| `psf_fwhm_hist_bins` | — | `128*` | Exposure FWHM histogram bin count used for the optional Gaia peak seed. |
+| `psf_fwhm_locus_sigma` | — | `4.0*` | Robust sigma half-width of the exposure stellar FWHM locus. |
+| `psf_fwhm_locus_min_samples` | — | `30*` | Minimum quality-valid FWHM sample count for locus estimation. |
+| `PsfGroupingType` | — | `1`, `2*` | Compile-time graph choice: legacy private-threshold graph or exact mutual-KNN. |
+| `psf_minchi_sigma_cut` | — | `4.0*` | Exposure-pooled upper-tail cut on each candidate's nearest same-chip Fourier distance. |
+| `psf_knn_k` | — | `8*` | Top-K neighbour count used only by Type-2 mutual-KNN grouping. |
+| `psf_group_merge_ratio` | — | `0.30*` | Minimum secondary-component size relative to the largest component. |
+| `psf_group_merge_min_gaia` | — | `2*` | Minimum Gaia matches also required in an eligible secondary component. |
+| `psf_gaia_match_radius_pix` | — | `2.5*` | Nearest same-chip image-position radius for Gaia labeling, in pixels. |
+| `psf_gaia_locus_min_matches` | — | `10*` | Minimum Gaia-labeled candidates required to seed the FWHM histogram peak. |
+| `psf_press_sigma_cut` | — | `4.0*` | Exposure-pooled upper-tail cut on raw central-window analytic-LOO RMS. |
+| `psf_loo_min_denom` | — | `1e-6*` | Numerical floor on `1 - leverage` for analytic LOO evaluation. |
 | `npl` | — | `10*` | Number of ordered 2D polynomial terms fitted per PSF Fourier pixel; `10` includes terms through total degree 3. |
 | `nplx` | — | `2*` | Compatibility value copied into PSF routines; currently not consumed downstream. |
 | `nstar_min_local` | — | `16*` | Minimum finite stars required for one local chip PSF fit. |
