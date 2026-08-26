@@ -187,7 +187,34 @@ are from `ProcessConfig.hpp`; all others are compile-time constants from
 | `area_max` | — | `ns·ns = 4096*` | Derived maximum connected-region workspace/area. |
 | `area_thresh` | — | `6*` | Minimum connected-region pixel count. |
 
-### 3g. Smoothing and detection limits (compile-time)
+### 3g. Stage-3 noise-product construction (compile-time)
+
+When `NstampType=2`, `CovarSrcStamp` fits one first-order background plane from
+the square shell inside `noise_region_size` and outside the centered
+`noise_inner_size`. The fit shell is centered on the initial catalog/detection
+position; its samples must be in-chip, finite, `weight==1`, and on the initial
+source amplifier when `CCD_split=2`. The same fitted coefficients are applied
+to the source and covariance residuals. The covariance exclusion remains
+centered on the final recentered source. The numeric defaults below define the
+current 192-by-192 / central-96-by-96 geometry; the implementation reads the
+symbols and does not hard-code those dimensions.
+
+| Parameter file name | CLI parameter | Options | Function description |
+|:---|:---|:---|:---|
+| `NstampType` | — | `1*`, `2` | `1` produces a physical blank-noise stamp; `2` produces local signed covariance noise power. |
+| `noise_region_size` | — | `192*` | Outer square side used for the plane-fit shell and local covariance region. |
+| `noise_inner_size` | — | `96*` | Centered square excluded from the plane fit; the same size is recentered for covariance source/neighbor exclusion. Must cover `nl`. |
+| `noise_plane_min_valid_fraction` | — | `0.30*` | Required fraction of in-chip, same-amplifier geometric shell candidates that must remain finite with `weight==1`. |
+| `noise_cov_padding_factor` | — | `2.0*` | Multiplier used to derive the linear-autocorrelation FFT side. |
+| `noise_cov_fft_size` | — | `384*` | Derived covariance FFT side, at least `2*noise_region_size-1`. |
+| `noise_cov_max_lag` | — | `8*` | Maximum retained signed covariance lag; unchanged by the outer-shell plane-fit update. |
+| `noise_cov_min_valid_pixels` | — | `4096*` | Minimum valid pixels in the final-recentered covariance mask. |
+| `noise_cov_min_pair_fraction` | — | `0.50*` | Minimum lag-pair count relative to the zero-lag valid count. |
+| `noise_cov_sigma_ratio_min` / `noise_cov_sigma_ratio_max` | — | `0.80*` / `1.25*` | Accepted local covariance sigma divided by the Stage-1 source sigma. |
+| `noise_cov_max_negative_fraction` | — | `0.25*` | Maximum accepted fraction of negative finite-stamp noise-power modes. |
+| `noise_cov_imag_tolerance` | — | `1.0e-10*` | Relative imaginary-residual tolerance for covariance-to-power transforms. |
+
+### 3h. Smoothing and detection limits (compile-time)
 
 | Parameter file name | CLI parameter | Options | Function description |
 |:---|:---|:---|:---|
@@ -197,7 +224,7 @@ are from `ProcessConfig.hpp`; all others are compile-time constants from
 | `saturation_thresh` | — | `25000.0*` | Raw-pixel saturation cutoff and normalized peak rejection reference. |
 | `pixel_size` | — | `0.2628` arcsec* | Detector pixel scale used to convert PSF sizes to angular units. |
 
-### 3h. Catalog and memory dimensions (compile-time)
+### 3i. Catalog and memory dimensions (compile-time)
 
 | Parameter file name | CLI parameter | Options | Function description |
 |:---|:---|:---|:---|
@@ -212,7 +239,7 @@ are from `ProcessConfig.hpp`; all others are compile-time constants from
 | `NMAX_EXPO` | — | `25000*` | Maximum exposure records allocated for aggregation. |
 | `NMAX_CHIP` | — | `62*` | Maximum chips represented in fixed-capacity PSF/exposure arrays. |
 
-### 3i. Mode-bar noise-plane estimator (compile-time)
+### 3j. Mode-bar noise-plane estimator (compile-time)
 
 These parameters act together and should normally remain synchronized with the
 validated estimator convention rather than be tuned independently.
@@ -243,7 +270,7 @@ validated estimator convention rather than be tuned independently.
 | `sig_scale_s2` | — | `1.027786*` | Stage-2 calibration candidate used by the current pipeline. |
 | `sig_scale` | — | `sig_scale_s2 = 1.027786*` | Active derived selector converting the fitted plane to the published `2·sigma²` convention. |
 
-### 3j. Standard-only multi-scale/PCA PSF parameters (compile-time)
+### 3k. Standard-only multi-scale/PCA PSF parameters (compile-time)
 
 These values are compiled only by `cpp_Standard` and are active only when
 `PSF_Ms=1`. `cpp_Lite` removes the PCA implementation and all of these
@@ -260,7 +287,7 @@ parameters.
 | `pca_negative_eigenvalue_threshold` | — | `-1.0e-5*` | Eigenvalue below which a PCA covariance result is classified as invalid. |
 | `nmax_star_pchip` | — | `1000000*` | Reserved legacy per-chip PCA star capacity; currently unused. |
 
-### 3k. File-system paths (compile-time)
+### 3l. File-system paths (compile-time)
 
 | Parameter file name | CLI parameter | Options | Function description |
 |:---|:---|:---|:---|
@@ -269,7 +296,7 @@ parameters.
 | `FLAT_PATH` | — | Path string (default `"/lustre/.../DES_super_flat/i2014"*`; Std only) | Per-chip flat FITS files used for super-flat multiplication when `include_FLAT=1`. Absent in Lite. |
 | `PSF_PATH` | — | Path string (default `"hahahaha"*`; Std only) | Directory containing `PSF.fits` used when `ext_PSF=1`. Absent in Lite. |
 
-### 3l. Internal catalog column indices (compile-time, 0-based)
+### 3m. Internal catalog column indices (compile-time, 0-based)
 
 These are zero-based positions in the C++ per-source result rows. They are not
 the 18 raw external-catalog projection indices. Changing them changes the
@@ -301,7 +328,7 @@ internal/output layout and requires coordinated reader/writer changes.
 | `iparity` | — | `23*` | WCS parity. |
 | `ichi2` | — | `24*` | Zero-based index of the 25th field (exposure chi2); also consumed by `process_rearr` as `ProcessRearrConfig::ichi2 = 25`. |
 
-### 3m. Calibration and camera geometry (compile-time)
+### 3n. Calibration and camera geometry (compile-time)
 
 | Parameter file name | CLI parameter | Options | Function description |
 |:---|:---|:---|:---|

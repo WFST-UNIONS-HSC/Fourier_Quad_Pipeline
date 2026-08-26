@@ -7,6 +7,26 @@ configuration, building, run modes, initializer output layout, Docker, and HPC -
 now lives in [`../CPP_GUIDE.md`](../CPP_GUIDE.md). The full parameter reference
 is [`../CPP_PIPELINE_PARAMETERS.md`](../CPP_PIPELINE_PARAMETERS.md).
 
+## Stage-3 outer-noise plane fitting
+
+For covariance noise products (`NstampType=2`), Stage 3 fits the source and
+noise residual plane from the configurable square shell between
+`noise_region_size` and `noise_inner_size`. It rejects masked, non-finite,
+out-of-chip, and opposite-amplifier samples. The synthetic regression is kept
+independent of the Makefile and can be compiled with the production plane
+solver as follows:
+
+```bash
+mpicxx -O2 -std=c++17 -Wall -Wextra -ffunction-sections -fdata-sections \
+  -Iinclude -Iconfig -Iinclude/process_main -Isrc/process_main \
+  -I"${STACK_PREFIX}/include" -I"${EIGEN_INCLUDE}" \
+  tests/NoisePlaneFitTest.cpp src/process_main/UniversalUtils.cpp \
+  src/process_main/LinearSolve.cpp -Wl,--gc-sections \
+  -L"${STACK_PREFIX}/lib" -Wl,-rpath,"${STACK_PREFIX}/lib" \
+  -llapack -lblas -lm -o /tmp/NoisePlaneFitTest
+/tmp/NoisePlaneFitTest
+```
+
 ## Stage-5 PSF star-selection redesign
 
 Stage 5 now applies a positive signed central-chi-window quality gate, reads the

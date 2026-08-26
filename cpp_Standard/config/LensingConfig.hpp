@@ -149,11 +149,12 @@ namespace LensingConfig {
 
     // ==========================================
     // Configuration: Stage-3 local masked-covariance noise-power estimator
-    // Method: Use one large local cutout, exclude the source/neighbor region, retain short
-    //         two-dimensional lags, and reject only globally unstable covariance estimates.
+    // Method: Fit one plane on the same-amplifier outer square shell, exclude the central
+    //         source/neighbor region, retain short lags, and reject unstable estimates.
     // ==========================================
     constexpr int noise_region_size = 192;
     constexpr int noise_inner_size = 96;
+    constexpr double noise_plane_min_valid_fraction = 0.30;
     constexpr double noise_cov_padding_factor = 2.0;
     constexpr int noise_cov_fft_size = static_cast<int>(
         noise_region_size * noise_cov_padding_factor + 0.999999);
@@ -167,9 +168,14 @@ namespace LensingConfig {
     static_assert(noise_region_size > noise_inner_size,
                   "noise region must exceed the central exclusion");
     static_assert(noise_inner_size >= nl,
-                  "noise exclusion must cover the source plane-fit region");
+                  "noise inner exclusion must cover the full source extraction region");
     static_assert(noise_region_size % 2 == 0 && noise_inner_size % 2 == 0,
                   "noise region and exclusion sizes must be even");
+    static_assert((noise_region_size - noise_inner_size) % 2 == 0,
+                  "noise inner exclusion must be centered on the local noise region");
+    static_assert(noise_plane_min_valid_fraction > 0.0
+                      && noise_plane_min_valid_fraction <= 1.0,
+                  "noise plane minimum valid fraction must lie in (0,1]");
     static_assert(noise_cov_padding_factor > 0.0,
                   "noise covariance padding factor must be positive");
     static_assert(noise_cov_fft_size >= 2 * noise_region_size - 1,
