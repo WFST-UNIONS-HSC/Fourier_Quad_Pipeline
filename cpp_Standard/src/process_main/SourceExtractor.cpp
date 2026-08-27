@@ -1,17 +1,18 @@
-#include "SourceExtractor.hpp"
-#include "OutputFile.hpp"
-#include "OutputLayout.hpp"
+#include "process_main/ProcessMainState.hpp"
+#include "process_main/SourceExtractor.hpp"
+#include "process_main/OutputFile.hpp"
+#include "general/OutputLayout.hpp"
 #include "LensingConfig.hpp"
-#include "UniversalUtils.hpp"
-#include "FitsIO.hpp"
-#include "MPIFailure.hpp"
-#include "Astrometry.hpp"
-#include "ExternalCatalogReader.hpp"
-#include "ImageProcessing.hpp"
-#include "NoiseCovariance.hpp"
-#include "NoisePlaneFit.hpp"
-#include "NumericalRecipes.hpp"
-#include "Universalblock.hpp"
+#include "process_main/UniversalUtils.hpp"
+#include "process_main/FitsIO.hpp"
+#include "process_main/MPIFailure.hpp"
+#include "process_main/Astrometry.hpp"
+#include "process_main/ExternalCatalogReader.hpp"
+#include "process_main/ImageProcessing.hpp"
+#include "process_main/NoiseCovariance.hpp"
+#include "process_main/NoisePlaneFit.hpp"
+#include "general/NumericalRecipes.hpp"
+#include "process_main/Universalblock.hpp"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -26,10 +27,6 @@
 #include <limits>
 #include <utility>
 #include <system_error>
-
-// Global/extern variables representing exposure filenames list (defined in main.cpp)
-extern std::vector<std::string> EXPO_FILE;
-extern int N_EXPO;
 
 namespace SourceExtractor {
 
@@ -139,11 +136,11 @@ namespace SourceExtractor {
     //         catalog branch through the shared norm validity gate.
     // ==========================================
     void procSource(int iexpo) {
-        if (iexpo <= 0 || iexpo > static_cast<int>(EXPO_FILE.size())) {
+        if (iexpo <= 0 || iexpo > static_cast<int>(ProcessMain::state.exposure_files.size())) {
             std::cerr << "Error: invalid iexpo index: " << iexpo << std::endl;
             return;
         }
-        std::string expo_file_path = EXPO_FILE[iexpo - 1];
+        std::string expo_file_path = ProcessMain::state.exposure_files[iexpo - 1];
         std::vector<std::string> image_files;
         std::string dir_output;
         UniversalUtils::getImageList(expo_file_path, image_files, dir_output);
@@ -295,7 +292,7 @@ namespace SourceExtractor {
 
             Astrometry::readAstrometryPara(filename, ichip, cRPIX, cD, cRVAL, PU, LensingConfig::npd, proc_error);
 
-            std::string catfile = LensingConfig::SOURCE_CAT;
+            std::string catfile = ProcessMain::state.source_catalog_directory;
             std::vector<std::string> sortfile(27);
             int sortnum = 0;
 

@@ -2,7 +2,7 @@
 #define PSF_MODEL_STATE_HPP
 
 #include "LensingConfig.hpp"
-#include "PSFStarSelection.hpp"
+#include "process_main/PSFStarSelection.hpp"
 
 #include <array>
 #include <cstddef>

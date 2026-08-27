@@ -7,6 +7,26 @@ The complete C++ pipeline guide lives in
 [`../CPP_GUIDE.md`](../CPP_GUIDE.md). The full parameter reference is
 [`../CPP_PIPELINE_PARAMETERS.md`](../CPP_PIPELINE_PARAMETERS.md).
 
+## Source layout
+
+Project headers are included from the two public roots `include/` and `config/`.
+Each process owns an `include/process_*` and `src/process_*` subtree, while
+cross-process infrastructure lives under `include/general` and `src/general`:
+
+```text
+include/general/       shared exposure-list, MPI, path, layout, scheduler, and RNG interfaces
+include/process_*/     process-specific interfaces
+src/general/           shared implementations
+src/process_*/         process-specific implementations
+config/                compile-time defaults and grouped runtime-option seeds
+tests/                 focused regression tests
+```
+
+Use module-qualified project includes such as `general/PathUtils.hpp` and
+`process_main/NoisePlaneFit.hpp`. The build deliberately requires no
+process-specific or `src/` include search path. Lite retains the same shared
+layout without restoring the removed `PSFRecons` implementation.
+
 ## Stage-3 outer-noise plane fitting
 
 For covariance noise products (`NstampType=2`), Stage 3 fits the source and
@@ -19,7 +39,7 @@ solver as follows:
 
 ```bash
 mpicxx -O2 -std=c++17 -Wall -Wextra -ffunction-sections -fdata-sections \
-  -Iinclude -Iconfig -Iinclude/process_main -Isrc/process_main \
+  -Iinclude -Iconfig \
   -I"${STACK_PREFIX}/include" -I"${EIGEN_INCLUDE}" \
   tests/NoisePlaneFitTest.cpp src/process_main/UniversalUtils.cpp \
   src/process_main/LinearSolve.cpp -Wl,--gc-sections \
@@ -52,12 +72,13 @@ or hybrid PSF branches that Lite removed.
 
 All new scientific constants are compile-time values in
 `config/LensingConfig.hpp`; changing them requires rebuilding. The focused
-selection tests are:
+selection tests can be built directly with the public include roots:
 
 ```bash
-make test-psf-star-selection CXX=mpicxx \
-     STACK_PREFIX=/path/to/dependency-prefix \
-     EIGEN_INCLUDE=/path/to/eigen3
+mpicxx -O2 -std=c++17 -Wall -Wextra -Iinclude -Iconfig \
+  -I/path/to/eigen3 tests/PSFStarSelectionTest.cpp \
+  src/process_main/PSFStarSelection.cpp -o /tmp/PSFStarSelectionTest
+/tmp/PSFStarSelectionTest
 ```
 
 Synthetic tests cover the shared chi window and quality gate, FWHM/Gaia peak
@@ -78,22 +99,20 @@ the target system:
 make CXX=mpicxx STACK_PREFIX=/path/to/dependency-prefix EIGEN_INCLUDE=/path/to/eigen3
 ```
 
-The focused regression targets cover Stage-1 norm gating, Stage-9 catalog row
-counts, dynamic PSF state, FITS stamp counts beyond the legacy limits, and
-dynamic astrometry catalog sizes:
+The structural regression covers quoted and unquoted exposure-list records,
+malformed and oversized lists, path normalization/containment, parent lookup,
+MPI string/vector broadcasts, and collective success propagation:
 
 ```bash
-make test-universalblock test-catalog-row-count test-psf-model-state \
-     test-legacy-stamp-capacity test-astrometry-dynamic-capacity \
-     test-catalog-lifecycle test-exposure-runtime-sizing \
-     test-mpi-failure \
-     CXX=mpicxx STACK_PREFIX=/path/to/dependency-prefix \
-     EIGEN_INCLUDE=/path/to/eigen3 MPIRUN=mpirun
+make test-general-infrastructure CXX=mpicxx \
+     STACK_PREFIX=/path/to/dependency-prefix \
+     EIGEN_INCLUDE=/path/to/eigen3
 ```
 
-The MPI integration target treats a quick nonzero two-rank termination as
-success after one worker reports the injected fatal error; a zero status or
-ten-second timeout fails the target.
+The remaining focused test sources in `tests/` are standalone regression
+drivers. They cover scientific utilities, PSF selection/state, FITS capacity,
+catalog lifecycle and row counts, astrometry capacity, and the intentional MPI
+failure path.
 
 ## Stage-1 norm FITS coefficient contract
 

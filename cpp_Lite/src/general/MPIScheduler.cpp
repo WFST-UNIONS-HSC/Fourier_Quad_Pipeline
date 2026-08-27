@@ -1,16 +1,15 @@
-#include "MPIScheduler.hpp"
+#include "general/MPIScheduler.hpp"
 #include <mpi.h>
 #include <iostream>
 #include <algorithm>
 
 namespace MPIScheduler {
-    int my_id = 0;
-    int num_procs = 1;
+    State state;
 
     void init(int& argc, char**& argv) {
         MPI_Init(&argc, &argv);
-        MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
-        MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+        MPI_Comm_rank(MPI_COMM_WORLD, &state.rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &state.size);
     }
 
     void finalize() {
@@ -22,7 +21,7 @@ namespace MPIScheduler {
     }
 
     void distribute(int num_jobs, const std::function<void(int)>& job_func, const std::string& message) {
-        if (num_procs <= 1) {
+        if (state.size <= 1) {
             for (int i = 1; i <= num_jobs; ++i) {
                 job_func(i);
             }
@@ -33,13 +32,13 @@ namespace MPIScheduler {
         int complete = 0;
         int i = 0;
         int j = 0;
-        if (my_id == 0) {
+        if (state.rank == 0) {
             i = 1;
             j = num_jobs;
         }
 
         while (complete == 0) {
-            if (my_id != 0) {
+            if (state.rank != 0) {
                 // Workers request a job by sending their status (initially 0, later the job index they completed)
                 MPI_Send(&i, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
                 MPI_Recv(&i, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);

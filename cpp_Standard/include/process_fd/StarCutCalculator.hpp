@@ -1,7 +1,7 @@
 #ifndef STAR_CUT_CALCULATOR_HPP
 #define STAR_CUT_CALCULATOR_HPP
 
-#include "FDData.hpp"
+#include "process_fd/FDData.hpp"
 
 #include <vector>
 

@@ -1,4 +1,4 @@
-#include "MPIFailure.hpp"
+#include "process_main/MPIFailure.hpp"
 
 #include <mpi.h>
 

@@ -6,8 +6,19 @@
 #include <string>
 
 namespace ExposureInfo {
-    // Runtime-sized global exposure parameters array (six values per live exposure).
-    extern std::vector<float> expo_para;
+    struct State {
+        std::vector<float> parameters;
+
+        // ==========================================
+        // Function: Reset Stage-8 aggregate storage
+        // Method: Allocate exactly the requested number of zeroed values.
+        // ==========================================
+        void reset(std::size_t count) {
+            parameters.assign(count, 0.0f);
+        }
+    };
+
+    extern State state;
 
     // ==========================================
     // Function: Return the live Stage-8 parameter count

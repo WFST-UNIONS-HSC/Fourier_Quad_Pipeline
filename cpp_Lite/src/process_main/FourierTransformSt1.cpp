@@ -1,18 +1,17 @@
-#include "FourierTransformSt1.hpp"
-#include "OutputLayout.hpp"
+#include "process_main/FourierTransformSt1.hpp"
+#include "process_main/ProcessMainState.hpp"
+#include "general/OutputLayout.hpp"
 #include "LensingConfig.hpp"
-#include "UniversalUtils.hpp"
-#include "Universalblock.hpp"
-#include "FitsIO.hpp"
-#include "ImageProcessing.hpp"
-#include "MPIFailure.hpp"
+#include "process_main/UniversalUtils.hpp"
+#include "process_main/Universalblock.hpp"
+#include "process_main/FitsIO.hpp"
+#include "process_main/ImageProcessing.hpp"
+#include "process_main/MPIFailure.hpp"
 #include <iostream>
 #include <vector>
 #include <string>
 #include <fstream>
 #include <algorithm>
-
-extern std::vector<std::string> EXPO_FILE;
 
 namespace FourierTransformSt1 {
 
@@ -21,11 +20,11 @@ namespace FourierTransformSt1 {
     // Method: Resolve the exposure list and delegate each chip to the norm-gated transformer.
     // ==========================================
     void procFourierTSt1(int iexpo) {
-        if (iexpo <= 0 || iexpo > static_cast<int>(EXPO_FILE.size())) {
+        if (iexpo <= 0 || iexpo > static_cast<int>(ProcessMain::state.exposure_files.size())) {
             std::cerr << "Error: invalid iexpo index: " << iexpo << std::endl;
             return;
         }
-        std::string expo_file_path = EXPO_FILE[iexpo - 1];
+        std::string expo_file_path = ProcessMain::state.exposure_files[iexpo - 1];
         std::vector<std::string> image_files;
         std::string dir_output;
         UniversalUtils::getImageList(expo_file_path, image_files, dir_output);

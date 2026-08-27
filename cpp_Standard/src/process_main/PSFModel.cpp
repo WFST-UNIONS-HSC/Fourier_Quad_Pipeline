@@ -1,18 +1,19 @@
-#include "PSFModel.hpp"
-#include "PSFModelState.hpp"
-#include "PSFCandidateQuality.hpp"
-#include "OutputFile.hpp"
-#include "MPIFailure.hpp"
-#include "OutputLayout.hpp"
+#include "process_main/ProcessMainState.hpp"
+#include "process_main/PSFModel.hpp"
+#include "process_main/PSFModelState.hpp"
+#include "process_main/PSFCandidateQuality.hpp"
+#include "process_main/OutputFile.hpp"
+#include "process_main/MPIFailure.hpp"
+#include "general/OutputLayout.hpp"
 #include "LensingConfig.hpp"
-#include "FitsIO.hpp"
-#include "Astrometry.hpp"
-#include "NumericalRecipes.hpp"
-#include "UniversalUtils.hpp"
-#include "Universalblock.hpp"
-#include "ImageProcessing.hpp"
-#include "ExStar.hpp"
-#include "LinearSolve.hpp"
+#include "process_main/FitsIO.hpp"
+#include "process_main/Astrometry.hpp"
+#include "general/NumericalRecipes.hpp"
+#include "process_main/UniversalUtils.hpp"
+#include "process_main/Universalblock.hpp"
+#include "process_main/ImageProcessing.hpp"
+#include "process_main/ExStar.hpp"
+#include "process_main/LinearSolve.hpp"
 #include <mpi.h>
 #include <Eigen/Dense>
 #include <iostream>
@@ -28,15 +29,10 @@
 #include <memory>
 
 // Extern variables defined elsewhere (e.g. main.cpp)
-extern std::vector<std::string> EXPO_FILE;
 
 namespace PSFModel {
 
-    // Global PSF PCA components and coefficients loaded from disk (replacing psf_storage_mod)
-    std::vector<double> global_components;
-    std::vector<double> global_mean_psf;
-    std::vector<float> global_poly_coefs;
-    bool is_data_loaded = false;
+    PcaCacheState pca_cache;
 
     using Internal::ChipPSFState;
     using Internal::CandidatePowerStatus;
@@ -100,15 +96,15 @@ namespace PSFModel {
     //         and broadcast aligned fixed-configuration arrays.
     // ==========================================
     void initAndLoadAllPSF(const std::string& dirOutput, int myRank) {
-        if (is_data_loaded) return;
+        if (pca_cache.data_loaded) return;
 
         if (myRank == 0) {
             std::cout << "Allocating memory on all ranks..." << std::endl;
         }
 
-        global_components.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * LensingConfig::nsns * LensingConfig::n_pcs, 0.0);
-        global_mean_psf.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * LensingConfig::nsns, 0.0);
-        global_poly_coefs.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th, 0.0f);
+        pca_cache.components.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * LensingConfig::nsns * LensingConfig::n_pcs, 0.0);
+        pca_cache.mean_psf.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * LensingConfig::nsns, 0.0);
+        pca_cache.poly_coefs.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th, 0.0f);
 
         if (myRank == 0) {
             std::cout << "Rank 0 is reading files from disk..." << std::endl;
@@ -124,17 +120,17 @@ namespace PSFModel {
                 if (infile.is_open()) {
                     for (int k = 0; k < LensingConfig::nsns; ++k) {
                         for (int j = 0; j < LensingConfig::n_pcs; ++j) {
-                            infile >> global_components[getCompIndex(i_ccd - 1, k, j)];
+                            infile >> pca_cache.components[getCompIndex(i_ccd - 1, k, j)];
                         }
-                        infile >> global_mean_psf[getMeanIndex(i_ccd - 1, k)];
+                        infile >> pca_cache.mean_psf[getMeanIndex(i_ccd - 1, k)];
                     }
                     infile.close();
 
-                    if (global_components[getCompIndex(i_ccd - 1, 0, 0)] < -1.0e20) {
+                    if (pca_cache.components[getCompIndex(i_ccd - 1, 0, 0)] < -1.0e20) {
                         std::cout << "CCD " << i_ccd << " has bad PCS data." << std::endl;
                     }
                 } else {
-                    global_components[getCompIndex(i_ccd - 1, 0, 0)] = -1.0e30;
+                    pca_cache.components[getCompIndex(i_ccd - 1, 0, 0)] = -1.0e30;
                     MPIFailure::abortWorld("read PCA components", filename);
                 }
 
@@ -145,19 +141,19 @@ namespace PSFModel {
                         if (coeff_file.is_open()) {
                             for (int u = 0; u < LensingConfig::n_pcs; ++u) {
                                 for (int j = 0; j < LensingConfig::npp6th; ++j) {
-                                    coeff_file >> global_poly_coefs[getPolyIndex(i_ccd - 1, bx - 1, by - 1, u, j)];
+                                    coeff_file >> pca_cache.poly_coefs[getPolyIndex(i_ccd - 1, bx - 1, by - 1, u, j)];
                                 }
-                                if (std::isnan(global_poly_coefs[getPolyIndex(i_ccd - 1, bx - 1, by - 1, u, 0)])) {
-                                    global_poly_coefs[getPolyIndex(i_ccd - 1, bx - 1, by - 1, 0, 0)] = -1.0e30f;
+                                if (std::isnan(pca_cache.poly_coefs[getPolyIndex(i_ccd - 1, bx - 1, by - 1, u, 0)])) {
+                                    pca_cache.poly_coefs[getPolyIndex(i_ccd - 1, bx - 1, by - 1, 0, 0)] = -1.0e30f;
                                 }
                             }
                             coeff_file.close();
 
-                            if (global_poly_coefs[getPolyIndex(i_ccd - 1, bx - 1, by - 1, 0, 0)] < -1.0e20f) {
+                            if (pca_cache.poly_coefs[getPolyIndex(i_ccd - 1, bx - 1, by - 1, 0, 0)] < -1.0e20f) {
                                 std::cout << "CCD " << i_ccd << " field " << bx << " " << by << " has bad polynomial data." << std::endl;
                             }
                         } else {
-                            global_poly_coefs[getPolyIndex(i_ccd - 1, bx - 1, by - 1, 0, 0)] = -1.0e30f;
+                            pca_cache.poly_coefs[getPolyIndex(i_ccd - 1, bx - 1, by - 1, 0, 0)] = -1.0e30f;
                             MPIFailure::abortWorld(
                                 "read PCA polynomial coefficients", filename_coeff);
                         }
@@ -168,15 +164,15 @@ namespace PSFModel {
         }
 
         int total_count = LensingConfig::NMAX_CHIP * LensingConfig::nsns * LensingConfig::n_pcs;
-        MPI_Bcast(global_components.data(), total_count, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(pca_cache.components.data(), total_count, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
         total_count = LensingConfig::NMAX_CHIP * LensingConfig::nsns;
-        MPI_Bcast(global_mean_psf.data(), total_count, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(pca_cache.mean_psf.data(), total_count, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
         total_count = LensingConfig::NMAX_CHIP * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th;
-        MPI_Bcast(global_poly_coefs.data(), total_count, MPI_FLOAT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(pca_cache.poly_coefs.data(), total_count, MPI_FLOAT, 0, MPI_COMM_WORLD);
 
-        is_data_loaded = true;
+        pca_cache.data_loaded = true;
         MPI_Barrier(MPI_COMM_WORLD);
 
         if (myRank == 0) {
@@ -185,10 +181,7 @@ namespace PSFModel {
     }
 
     void freePSFMemory() {
-        global_components.clear();
-        global_mean_psf.clear();
-        global_poly_coefs.clear();
-        is_data_loaded = false;
+        pca_cache.clear();
     }
 
     // ==========================================
@@ -197,11 +190,11 @@ namespace PSFModel {
     //         the configured v1.3.1 fitting branch.
     // ==========================================
     void procPSF(int iexpo) {
-        if (iexpo <= 0 || iexpo > static_cast<int>(EXPO_FILE.size())) {
+        if (iexpo <= 0 || iexpo > static_cast<int>(ProcessMain::state.exposure_files.size())) {
             std::cerr << "Error: invalid iexpo index: " << iexpo << std::endl;
             return;
         }
-        std::string expo_file_path = EXPO_FILE[iexpo - 1];
+        std::string expo_file_path = ProcessMain::state.exposure_files[iexpo - 1];
         std::vector<std::string> imageFiles;
         std::string dirOutput;
         UniversalUtils::getImageList(expo_file_path, imageFiles, dirOutput);

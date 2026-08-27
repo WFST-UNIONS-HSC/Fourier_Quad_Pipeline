@@ -1,12 +1,13 @@
-#include "CatalogCombiner.hpp"
-#include "CatalogRowCount.hpp"
-#include "MPIFailure.hpp"
-#include "OutputFile.hpp"
-#include "OutputLayout.hpp"
+#include "process_main/ProcessMainState.hpp"
+#include "process_main/CatalogCombiner.hpp"
+#include "process_main/CatalogRowCount.hpp"
+#include "process_main/MPIFailure.hpp"
+#include "process_main/OutputFile.hpp"
+#include "general/OutputLayout.hpp"
 #include "LensingConfig.hpp"
-#include "Universalblock.hpp"
-#include "UniversalUtils.hpp"
-#include "ExposureInfo.hpp"
+#include "process_main/Universalblock.hpp"
+#include "process_main/UniversalUtils.hpp"
+#include "process_main/ExposureInfo.hpp"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -18,7 +19,6 @@
 #include <filesystem>
 #include <system_error>
 
-extern std::vector<std::string> EXPO_FILE;
 
 namespace CatalogCombiner {
 
@@ -214,18 +214,18 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
 // Method: Resolve chip paths, obtain reduced Stage-8 chi2, and invoke the combiner.
 // ==========================================
 void procComb(int iexpo) {
-    if (iexpo <= 0 || iexpo > static_cast<int>(EXPO_FILE.size())) {
+    if (iexpo <= 0 || iexpo > static_cast<int>(ProcessMain::state.exposure_files.size())) {
         std::cerr << "Error: invalid iexpo index: " << iexpo << std::endl;
         return;
     }
-    std::string expo_file_path = EXPO_FILE[iexpo - 1];
+    std::string expo_file_path = ProcessMain::state.exposure_files[iexpo - 1];
     std::vector<std::string> image_files;
     std::string dir_output;
     UniversalUtils::getImageList(expo_file_path, image_files, dir_output);
 
     float chi2 = 0.0f;
-    if (ExposureInfo::expo_para.size() >= static_cast<size_t>(iexpo) * 6) {
-        chi2 = ExposureInfo::expo_para[(iexpo - 1) * 6 + 2]; // 3rd element in Fortran, index 2
+    if (ExposureInfo::state.parameters.size() >= static_cast<size_t>(iexpo) * 6) {
+        chi2 = ExposureInfo::state.parameters[(iexpo - 1) * 6 + 2]; // 3rd element in Fortran, index 2
     }
 
     combineExpoCatalog(static_cast<int>(image_files.size()), image_files, dir_output, chi2);

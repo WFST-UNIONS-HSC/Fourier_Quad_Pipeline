@@ -1,4 +1,4 @@
-#include "ExposureInfo.hpp"
+#include "process_main/ExposureInfo.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -6,7 +6,7 @@
 #include <vector>
 
 namespace ExposureInfo {
-std::vector<float> expo_para;
+State state;
 }
 
 namespace {
@@ -29,8 +29,8 @@ void require(bool condition, const std::string& message) {
 void testCount(int exposure_count) {
     const std::size_t expected = static_cast<std::size_t>(exposure_count) * 6;
     const std::size_t count = ExposureInfo::parameterCount(exposure_count);
-    ExposureInfo::expo_para.assign(count, 0.0f);
-    require(count == expected && ExposureInfo::expo_para.size() == expected,
+    ExposureInfo::state.parameters.assign(count, 0.0f);
+    require(count == expected && ExposureInfo::state.parameters.size() == expected,
             "unexpected Stage-8 vector or MPI element count");
 }
 

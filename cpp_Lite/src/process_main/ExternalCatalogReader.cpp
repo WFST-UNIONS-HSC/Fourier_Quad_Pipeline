@@ -1,4 +1,4 @@
-#include "ExternalCatalogReader.hpp"
+#include "process_main/ExternalCatalogReader.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -11,7 +11,11 @@
 namespace ExternalCatalogReader {
 namespace {
 
-ColumnSelection active_columns;
+struct ReaderState {
+    ColumnSelection active_columns;
+};
+
+ReaderState state;
 
 // ==========================================
 // Function: Convert one selected catalog token to a finite double
@@ -42,13 +46,13 @@ bool resolveProjectedColumn(std::size_t raw_column_one_based,
         error = "external-catalog " + field_name + " column must be a positive one-based index";
         return false;
     }
-    if (!options.extcat_use_explicit_columns) {
+    if (!options.catalog.use_explicit_columns) {
         output_column_one_based = raw_column_one_based;
         return true;
     }
 
     const std::vector<std::size_t>& projection =
-        options.extcat_input_columns_one_based;
+        options.catalog.input_columns_one_based;
     const auto match = std::find(projection.begin(), projection.end(), raw_column_one_based);
     if (match == projection.end()) {
         error = "external-catalog explicit projection omits the configured "
@@ -71,11 +75,11 @@ bool resolveColumnSelection(const ProcessConfig::RuntimeOptions& options,
                             ColumnSelection& selection,
                             std::string& error) {
     ColumnSelection resolved;
-    if (!resolveProjectedColumn(options.extcat_ra_column_one_based, "RA", options,
+    if (!resolveProjectedColumn(options.catalog.ra_column_one_based, "RA", options,
                                 resolved.ra_column_one_based, error)
-        || !resolveProjectedColumn(options.extcat_dec_column_one_based, "Dec", options,
+        || !resolveProjectedColumn(options.catalog.dec_column_one_based, "Dec", options,
                                    resolved.dec_column_one_based, error)
-        || !resolveProjectedColumn(options.extcat_zp_column_one_based, "ZP", options,
+        || !resolveProjectedColumn(options.catalog.zp_column_one_based, "ZP", options,
                                    resolved.zp_column_one_based, error)) {
         return false;
     }
@@ -99,7 +103,7 @@ bool configure(const ProcessConfig::RuntimeOptions& options, std::string& error)
     if (!resolveColumnSelection(options, resolved, error)) {
         return false;
     }
-    active_columns = resolved;
+    state.active_columns = resolved;
     return true;
 }
 
@@ -110,9 +114,9 @@ bool configure(const ProcessConfig::RuntimeOptions& options, std::string& error)
 // ==========================================
 bool parseRecord(const std::string& line, Record& record) {
     const std::size_t final_column = std::max(
-        active_columns.ra_column_one_based,
-        std::max(active_columns.dec_column_one_based,
-                 active_columns.zp_column_one_based));
+        state.active_columns.ra_column_one_based,
+        std::max(state.active_columns.dec_column_one_based,
+                 state.active_columns.zp_column_one_based));
     if (final_column == 0) {
         return false;
     }
@@ -124,15 +128,15 @@ bool parseRecord(const std::string& line, Record& record) {
         if (!(input >> token)) {
             return false;
         }
-        if (column == active_columns.ra_column_one_based
+        if (column == state.active_columns.ra_column_one_based
             && !parseFiniteDouble(token, parsed.ra)) {
             return false;
         }
-        if (column == active_columns.dec_column_one_based
+        if (column == state.active_columns.dec_column_one_based
             && !parseFiniteDouble(token, parsed.dec)) {
             return false;
         }
-        if (column == active_columns.zp_column_one_based
+        if (column == state.active_columns.zp_column_one_based
             && !parseFiniteDouble(token, parsed.zp)) {
             return false;
         }

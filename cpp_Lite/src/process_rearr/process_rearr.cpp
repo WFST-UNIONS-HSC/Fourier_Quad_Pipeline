@@ -1,5 +1,8 @@
 #include "process_rearr/process_rearr.hpp"
 
+#include "general/ExposureList.hpp"
+#include "general/MPIUtils.hpp"
+#include "general/PathUtils.hpp"
 #include "process_rearr/CatalogRearranger.hpp"
 #include "ProcessRearrConfig.hpp"
 
@@ -125,26 +128,17 @@ std::string stripMatchingQuotes(const std::string& value) {
 bool loadExposureList(const std::string& exposure_list,
                       std::vector<std::string>& exposure_paths,
                       std::string& error) {
-    std::ifstream input(exposure_list);
-    if (!input.is_open()) {
-        error = "process_rearr cannot open exposure list: " + exposure_list;
+    std::vector<ExposureList::Entry> entries;
+    if (!ExposureList::loadPipelineList(
+            exposure_list, entries,
+            static_cast<std::size_t>(LensingConfig::NMAX_EXPO), error)) {
+        error = "process_rearr " + error;
         return false;
     }
-
-    std::string path;
-    int chip_count = 0;
-    while (input >> path >> chip_count) {
-        exposure_paths.push_back(stripMatchingQuotes(path));
-    }
-    if (!input.eof()) {
-        error = "process_rearr exposure list contains an invalid record: "
-                + exposure_list;
-        return false;
-    }
-    if (exposure_paths.empty()) {
-        error = "process_rearr exposure list contains no exposures: "
-                + exposure_list;
-        return false;
+    exposure_paths.clear();
+    exposure_paths.reserve(entries.size());
+    for (const ExposureList::Entry& entry : entries) {
+        exposure_paths.push_back(stripMatchingQuotes(entry.path));
     }
     error.clear();
     return true;
@@ -174,10 +168,8 @@ bool resolveCatalogPathFromImage(const std::string& exposure_list_path,
             continue;
         }
         const fs::path image_path(line);
-        const fs::path parent = image_path.parent_path();
-        const fs::path grandparent = parent.parent_path();
-        const fs::path great_grandparent = grandparent.parent_path();
-        if (parent.empty() || grandparent.empty() || great_grandparent.empty()) {
+        fs::path great_grandparent;
+        if (!PathUtils::parentAtLevel(image_path, 3, great_grandparent, error)) {
             error = "process_rearr image path has fewer than three parent "
                     "levels: " + line;
             return false;
@@ -227,10 +219,10 @@ bool prepareInputs(const std::string& exposure_list,
         prepared.catalog_paths.push_back(catalog_path.string());
     }
 
-    const std::string base_dir_str(options.rearr_output_base_directory);
+    const std::string base_dir_str(options.rearr.output_base_directory);
     const fs::path base_dir =
         base_dir_str.empty() ? output_base_root : fs::path(base_dir_str);
-    fs::path configured_output(options.rearr_output_directory);
+    fs::path configured_output(options.rearr.output_directory);
     if (configured_output.empty()) {
         configured_output = base_dir;
     } else if (configured_output.is_relative()) {
@@ -257,90 +249,6 @@ bool prepareInputs(const std::string& exposure_list,
     }
     if (prepared.header.empty()) {
         error = "process_rearr found no readable catalog header";
-        return false;
-    }
-    error.clear();
-    return true;
-}
-
-// ==========================================
-// Function: Broadcast one mutable string
-// Method: Send an int-safe byte length followed by the exact character payload.
-// ==========================================
-bool broadcastString(std::string& value,
-                     int root,
-                     int rank,
-                     MPI_Comm communicator,
-                     std::string& error) {
-    int length = 0;
-    if (rank == root) {
-        if (value.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
-            length = -1;
-        } else {
-            length = static_cast<int>(value.size());
-        }
-    }
-    if (MPI_Bcast(&length, 1, MPI_INT, root, communicator) != MPI_SUCCESS) {
-        error = "process_rearr failed to broadcast a string length";
-        return false;
-    }
-    if (length < 0) {
-        error = "process_rearr broadcast string exceeds MPI int length";
-        return false;
-    }
-    if (rank != root) {
-        value.resize(static_cast<std::size_t>(length));
-    }
-    if (length > 0
-        && MPI_Bcast(value.data(), length, MPI_CHAR, root, communicator)
-               != MPI_SUCCESS) {
-        error = "process_rearr failed to broadcast a string payload";
-        return false;
-    }
-    error.clear();
-    return true;
-}
-
-// ==========================================
-// Function: Broadcast a root-prepared string vector
-// Method: Send the vector length followed by length-prefixed strings so every
-//         rank receives identical catalog ordering and stable exposure keys.
-// ==========================================
-bool broadcastStringVector(std::vector<std::string>& values,
-                           int root,
-                           int rank,
-                           MPI_Comm communicator,
-                           std::string& error) {
-    int count = 0;
-    if (rank == root) {
-        if (values.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
-            count = -1;
-        } else {
-            count = static_cast<int>(values.size());
-        }
-    }
-    if (MPI_Bcast(&count, 1, MPI_INT, root, communicator) != MPI_SUCCESS) {
-        error = "process_rearr failed to broadcast catalog path count";
-        return false;
-    }
-    if (count < 0) {
-        error = "process_rearr catalog path count exceeds MPI int range";
-        return false;
-    }
-    if (rank != root) {
-        values.resize(static_cast<std::size_t>(count));
-    }
-    bool success = true;
-    for (std::string& value : values) {
-        std::string item_error;
-        const bool item_success =
-            broadcastString(value, root, rank, communicator, item_error);
-        if (!item_success && success) {
-            error = item_error;
-        }
-        success = success && item_success;
-    }
-    if (!success) {
         return false;
     }
     error.clear();
@@ -1008,16 +916,16 @@ int process_rearr(const std::string& exposure_list,
     std::string output_directory_error;
     std::string header_error;
     const bool catalog_paths_ok =
-        broadcastStringVector(prepared.catalog_paths, 0, rank, communicator,
-                              catalog_paths_error);
+        MPIUtils::broadcastStrings(prepared.catalog_paths, 0, communicator,
+                                   catalog_paths_error);
     const bool dataset_root_ok =
-        broadcastString(prepared.dataset_root, 0, rank, communicator,
-                        dataset_root_error);
+        MPIUtils::broadcastString(prepared.dataset_root, 0, communicator,
+                                  dataset_root_error);
     const bool output_directory_ok =
-        broadcastString(prepared.output_directory, 0, rank, communicator,
-                        output_directory_error);
+        MPIUtils::broadcastString(prepared.output_directory, 0, communicator,
+                                  output_directory_error);
     const bool header_ok =
-        broadcastString(prepared.header, 0, rank, communicator, header_error);
+        MPIUtils::broadcastString(prepared.header, 0, communicator, header_error);
     local_success = catalog_paths_ok && dataset_root_ok
                     && output_directory_ok && header_ok;
     if (!catalog_paths_ok) {
@@ -1188,13 +1096,13 @@ int process_rearr(const std::string& exposure_list,
     std::string rearranged_list_path;
     if (rank == 0) {
         const std::string& configured_list_dir(
-            options.rearranged_expo_list_directory);
+            options.rearr.exposure_list_directory);
         const fs::path list_dir = configured_list_dir.empty()
             ? fs::path(exposure_list).parent_path()
             : fs::path(configured_list_dir);
         rearranged_list_path =
             fs::absolute(list_dir
-                         / options.rearranged_expo_list_filename)
+                         / options.rearr.exposure_list_filename)
                 .lexically_normal().string();
         if (!generateRearrangedExpoList(prepared.output_directory,
                                         rearranged_list_path,

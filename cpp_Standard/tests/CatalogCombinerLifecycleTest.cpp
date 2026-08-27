@@ -1,9 +1,11 @@
-#include "CatalogCombiner.hpp"
-#include "FitsIO.hpp"
+#include "process_main/CatalogCombiner.hpp"
+#include "process_main/ExposureInfo.hpp"
+#include "process_main/ProcessMainState.hpp"
+#include "process_main/FitsIO.hpp"
 #include "LensingConfig.hpp"
-#include "OutputLayout.hpp"
-#include "UniversalUtils.hpp"
-#include "Universalblock.hpp"
+#include "general/OutputLayout.hpp"
+#include "process_main/UniversalUtils.hpp"
+#include "process_main/Universalblock.hpp"
 
 #include <cmath>
 #include <cstdlib>
@@ -17,10 +19,10 @@
 
 #include <unistd.h>
 
-std::vector<std::string> EXPO_FILE;
+ProcessMain::State ProcessMain::state;
 
 namespace ExposureInfo {
-std::vector<float> expo_para;
+State state;
 }
 
 namespace {

@@ -4,9 +4,9 @@
 #include <string>
 #include <vector>
 #include <array>
-#include "FitsIO.hpp"
+#include "process_main/FitsIO.hpp"
 #include "LensingConfig.hpp"
-#include "LinearSolve.hpp"
+#include "process_main/LinearSolve.hpp"
 
 namespace Astrometry {
     // Stage 2 drivers

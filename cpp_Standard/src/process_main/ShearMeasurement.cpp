@@ -1,16 +1,17 @@
-#include "ShearMeasurement.hpp"
-#include "OutputFile.hpp"
-#include "OutputLayout.hpp"
+#include "process_main/ProcessMainState.hpp"
+#include "process_main/ShearMeasurement.hpp"
+#include "process_main/OutputFile.hpp"
+#include "general/OutputLayout.hpp"
 #include "LensingConfig.hpp"
-#include "UniversalUtils.hpp"
-#include "Universalblock.hpp"
-#include "FitsIO.hpp"
-#include "MPIFailure.hpp"
-#include "Astrometry.hpp"
-#include "PSFModel.hpp"
-#include "PSFRecons.hpp"
-#include "ExStar.hpp"
-#include "ImageProcessing.hpp"
+#include "process_main/UniversalUtils.hpp"
+#include "process_main/Universalblock.hpp"
+#include "process_main/FitsIO.hpp"
+#include "process_main/MPIFailure.hpp"
+#include "process_main/Astrometry.hpp"
+#include "process_main/PSFModel.hpp"
+#include "process_main/PSFRecons.hpp"
+#include "process_main/ExStar.hpp"
+#include "process_main/ImageProcessing.hpp"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -20,7 +21,6 @@
 #include <cmath>
 #include <iomanip>
 
-extern std::vector<std::string> EXPO_FILE;
 
 namespace ShearMeasurement {
 
@@ -489,11 +489,11 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
 }
 
 void procShear(int iexpo) {
-    if (iexpo <= 0 || iexpo > static_cast<int>(EXPO_FILE.size())) {
+    if (iexpo <= 0 || iexpo > static_cast<int>(ProcessMain::state.exposure_files.size())) {
         std::cerr << "Error: invalid iexpo index: " << iexpo << std::endl;
         return;
     }
-    std::string expo_file_path = EXPO_FILE[iexpo - 1];
+    std::string expo_file_path = ProcessMain::state.exposure_files[iexpo - 1];
     std::vector<std::string> image_files;
     std::string dir_output;
     UniversalUtils::getImageList(expo_file_path, image_files, dir_output);

@@ -43,15 +43,15 @@ bool resolveProjectedCoordinate(
                 + " column must be a positive one-based index";
         return false;
     }
-    if (!options.extcat_use_explicit_columns) {
+    if (!options.catalog.use_explicit_columns) {
         output_column_one_based = raw_column_one_based;
         return true;
     }
 
-    const auto match = std::find(options.extcat_input_columns_one_based.begin(),
-                                 options.extcat_input_columns_one_based.end(),
+    const auto match = std::find(options.catalog.input_columns_one_based.begin(),
+                                 options.catalog.input_columns_one_based.end(),
                                  raw_column_one_based);
-    if (match == options.extcat_input_columns_one_based.end()) {
+    if (match == options.catalog.input_columns_one_based.end()) {
         error = "process_rearr explicit projection omits the configured "
                 + field_name + " raw column "
                 + std::to_string(raw_column_one_based);
@@ -59,7 +59,7 @@ bool resolveProjectedCoordinate(
     }
     output_column_one_based =
         static_cast<std::size_t>(std::distance(
-            options.extcat_input_columns_one_based.begin(), match))
+            options.catalog.input_columns_one_based.begin(), match))
         + 1;
     return true;
 }
@@ -186,9 +186,9 @@ bool resolveCatalogLayout(const ProcessConfig::RuntimeOptions& options,
                           std::string& error) {
     std::size_t ra_column_one_based = 0;
     std::size_t dec_column_one_based = 0;
-    if (!resolveProjectedCoordinate(options.extcat_ra_column_one_based, "RA",
+    if (!resolveProjectedCoordinate(options.catalog.ra_column_one_based, "RA",
                                     options, ra_column_one_based, error)
-        || !resolveProjectedCoordinate(options.extcat_dec_column_one_based, "Dec",
+        || !resolveProjectedCoordinate(options.catalog.dec_column_one_based, "Dec",
                                        options, dec_column_one_based, error)) {
         return false;
     }

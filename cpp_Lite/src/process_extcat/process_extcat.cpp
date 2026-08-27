@@ -1,5 +1,8 @@
 #include "process_extcat/process_extcat.hpp"
 
+#include "general/MPIUtils.hpp"
+#include "general/PathUtils.hpp"
+
 #include <mpi.h>
 
 #include <algorithm>
@@ -130,29 +133,6 @@ void stripUtf8Bom(std::vector<std::string>& tokens) {
 }
 
 // ==========================================
-// Function: Normalize a path for deterministic discovery and safety checks
-// Method: Resolve existing components while permitting a not-yet-created output tail.
-// ==========================================
-fs::path normalizedAbsolute(const fs::path& path) {
-    return fs::weakly_canonical(fs::absolute(path));
-}
-
-// ==========================================
-// Function: Test whether one normalized path is equal to or below another
-// Method: Compare complete path components instead of raw string prefixes.
-// ==========================================
-bool pathIsWithin(const fs::path& candidate, const fs::path& parent) {
-    auto candidate_iterator = candidate.begin();
-    auto parent_iterator = parent.begin();
-    for (; parent_iterator != parent.end(); ++parent_iterator, ++candidate_iterator) {
-        if (candidate_iterator == candidate.end() || *candidate_iterator != *parent_iterator) {
-            return false;
-        }
-    }
-    return true;
-}
-
-// ==========================================
 // Function: Test a basename against repeatable substring filters
 // Method: Select every file when no filters exist, otherwise apply case-sensitive OR semantics.
 // ==========================================
@@ -181,23 +161,9 @@ bool isGeneratedTileName(const std::string& basename) {
 // Method: Send an integer byte count followed by the contiguous character payload.
 // ==========================================
 void broadcastString(std::string& value, int root_rank, MPI_Comm communicator) {
-    int rank = 0;
-    MPI_Comm_rank(communicator, &rank);
-    int length = 0;
-    if (rank == root_rank) {
-        length = value.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())
-                     ? -1
-                     : static_cast<int>(value.size());
-    }
-    MPI_Bcast(&length, 1, MPI_INT, root_rank, communicator);
-    if (length < 0) {
-        throw std::runtime_error("MPI string exceeds int length range");
-    }
-    if (rank != root_rank) {
-        value.resize(static_cast<std::size_t>(length));
-    }
-    if (length > 0) {
-        MPI_Bcast(value.data(), length, MPI_CHAR, root_rank, communicator);
+    std::string error;
+    if (!MPIUtils::broadcastString(value, root_rank, communicator, error)) {
+        throw std::runtime_error(error);
     }
 }
 
@@ -543,7 +509,7 @@ std::vector<fs::path> discoverInputFiles(const ProcessExtcat::Config& config) {
             }
             if (regular
                 && matchesFilenameTokens(entry.path().filename().string(), config.filename_tokens)) {
-                unique_paths.insert(normalizedAbsolute(entry.path()));
+                unique_paths.insert(PathUtils::normalizedAbsolute(entry.path()));
             }
             iterator.increment(iterator_error);
             if (iterator_error) {
@@ -566,7 +532,7 @@ std::vector<fs::path> discoverInputFiles(const ProcessExtcat::Config& config) {
             }
             if (regular
                 && matchesFilenameTokens(entry.path().filename().string(), config.filename_tokens)) {
-                unique_paths.insert(normalizedAbsolute(entry.path()));
+                unique_paths.insert(PathUtils::normalizedAbsolute(entry.path()));
             }
             iterator.increment(iterator_error);
             if (iterator_error) {
@@ -1195,15 +1161,15 @@ void normalizeAndValidateConfig(Config& config) {
     if (config.output_directory.empty()) {
         throw std::runtime_error("output directory must be provided");
     }
-    config.input_directory = normalizedAbsolute(config.input_directory);
-    config.output_directory = normalizedAbsolute(config.output_directory);
+    config.input_directory = PathUtils::normalizedAbsolute(config.input_directory);
+    config.output_directory = PathUtils::normalizedAbsolute(config.output_directory);
 
     if (!fs::exists(config.input_directory) || !fs::is_directory(config.input_directory)) {
         throw std::runtime_error("input path is not a directory: "
                                  + config.input_directory.string());
     }
     if (config.input_directory == config.output_directory
-        || pathIsWithin(config.output_directory, config.input_directory)) {
+        || PathUtils::isPathWithin(config.output_directory, config.input_directory)) {
         throw std::runtime_error("output directory must not equal or be below the input directory");
     }
     if (fs::exists(config.output_directory) && !fs::is_directory(config.output_directory)) {
@@ -1303,28 +1269,28 @@ ProcessExtcat::ExistingPolicy configuredExtcatExistingPolicy(const std::string& 
 // ==========================================
 ProcessExtcat::Config buildIntegratedConfig(const ProcessConfig::RuntimeOptions& options) {
     constexpr std::uint64_t bytes_per_mib = 1024ULL * 1024ULL;
-    if (options.extcat_chunk_mib == 0
-        || options.extcat_chunk_mib
+    if (options.extcat.chunk_mib == 0
+        || options.extcat.chunk_mib
                > std::numeric_limits<std::uint64_t>::max() / bytes_per_mib) {
         throw std::runtime_error("extcat chunk MiB must be a positive uint64 value");
     }
 
     ProcessExtcat::Config config;
-    config.input_directory = options.extcat_input_directory;
-    config.output_directory = options.extcat_output_directory;
-    config.filename_tokens = options.extcat_filename_tokens;
-    config.recursive = options.extcat_recursive;
-    config.delimiter = configuredDelimiter(options.extcat_delimiter);
-    config.header_mode = configuredHeaderMode(options.extcat_header_mode);
-    config.malformed_policy = configuredMalformedPolicy(options.extcat_malformed_policy);
+    config.input_directory = options.extcat.input_directory;
+    config.output_directory = options.catalog.directory;
+    config.filename_tokens = options.extcat.filename_tokens;
+    config.recursive = options.extcat.recursive;
+    config.delimiter = configuredDelimiter(options.extcat.delimiter);
+    config.header_mode = configuredHeaderMode(options.extcat.header_mode);
+    config.malformed_policy = configuredMalformedPolicy(options.extcat.malformed_policy);
     config.existing_policy = configuredExtcatExistingPolicy(
-        options.extcat_existing_policy);
-    config.chunk_bytes = options.extcat_chunk_mib * bytes_per_mib;
-    config.use_explicit_columns = options.extcat_use_explicit_columns;
+        options.extcat.existing_policy);
+    config.chunk_bytes = options.extcat.chunk_mib * bytes_per_mib;
+    config.use_explicit_columns = options.catalog.use_explicit_columns;
     if (config.use_explicit_columns) {
         config.input_columns.clear();
-        config.input_columns.reserve(options.extcat_input_columns_one_based.size());
-        for (const std::size_t one_based : options.extcat_input_columns_one_based) {
+        config.input_columns.reserve(options.catalog.input_columns_one_based.size());
+        for (const std::size_t one_based : options.catalog.input_columns_one_based) {
             if (one_based == 0) {
                 throw std::runtime_error(
                     "extcat explicit columns must use positive one-based indices");
@@ -1333,14 +1299,14 @@ ProcessExtcat::Config buildIntegratedConfig(const ProcessConfig::RuntimeOptions&
         }
     }
     config.use_explicit_coordinate_columns =
-        options.extcat_use_explicit_coordinate_columns;
-    if (options.extcat_ra_column_one_based == 0
-        || options.extcat_dec_column_one_based == 0) {
+        options.catalog.use_explicit_coordinate_columns;
+    if (options.catalog.ra_column_one_based == 0
+        || options.catalog.dec_column_one_based == 0) {
         throw std::runtime_error(
             "extcat coordinate columns must use positive one-based indices");
     }
-    config.ra_column = options.extcat_ra_column_one_based - 1;
-    config.dec_column = options.extcat_dec_column_one_based - 1;
+    config.ra_column = options.catalog.ra_column_one_based - 1;
+    config.dec_column = options.catalog.dec_column_one_based - 1;
     return config;
 }
 

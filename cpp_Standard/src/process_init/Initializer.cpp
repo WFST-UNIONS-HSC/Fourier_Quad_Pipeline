@@ -1,5 +1,7 @@
 #include "process_init/Initializer.hpp"
-#include "OutputLayout.hpp"
+#include "general/OutputLayout.hpp"
+#include "general/MPIUtils.hpp"
+#include "general/PathUtils.hpp"
 
 #include <mpi.h>
 
@@ -98,29 +100,6 @@ const char* existingPolicyName(ExistingPolicy policy) {
 }
 
 // ==========================================
-// Function: Normalize a user path for deterministic lists and boundary checks
-// Method: Resolve existing symlink components while allowing a new output tail.
-// ==========================================
-fs::path normalizedAbsolute(const fs::path& path) {
-    return fs::weakly_canonical(fs::absolute(path));
-}
-
-// ==========================================
-// Function: Test whether one normalized path is equal to or below another
-// Method: Compare path components so output creation cannot enter a source root.
-// ==========================================
-bool pathIsWithin(const fs::path& candidate, const fs::path& parent) {
-    auto candidate_iterator = candidate.begin();
-    auto parent_iterator = parent.begin();
-    for (; parent_iterator != parent.end(); ++parent_iterator, ++candidate_iterator) {
-        if (candidate_iterator == candidate.end() || *candidate_iterator != *parent_iterator) {
-            return false;
-        }
-    }
-    return true;
-}
-
-// ==========================================
 // Function: Match one archive basename against configured tokens
 // Method: Disable token filtering for an empty list; otherwise accept when any
 //         non-empty token occurs in the basename.
@@ -168,7 +147,7 @@ std::vector<fs::path> discoverArchives(const fs::path& root,
             if (endsWith(filename, kArchiveSuffix)
                 && startsWith(filename, prefix)
                 && matchesAnyToken(filename, tokens)) {
-                paths.push_back(normalizedAbsolute(entry.path()));
+                paths.push_back(PathUtils::normalizedAbsolute(entry.path()));
             }
         }
         iterator.increment(iterator_error);
@@ -204,18 +183,9 @@ void validateUniqueStems(const std::vector<fs::path>& paths, ProductKind kind) {
 // Method: Broadcast an int length followed by contiguous bytes.
 // ==========================================
 void broadcastString(std::string& value, int root_rank, MPI_Comm communicator) {
-    int rank = 0;
-    MPI_Comm_rank(communicator, &rank);
-    int length = rank == root_rank ? static_cast<int>(value.size()) : 0;
-    MPI_Bcast(&length, 1, MPI_INT, root_rank, communicator);
-    if (length < 0) {
-        throw std::runtime_error("received a negative MPI string length");
-    }
-    if (rank != root_rank) {
-        value.resize(static_cast<std::size_t>(length));
-    }
-    if (length > 0) {
-        MPI_Bcast(value.data(), length, MPI_CHAR, root_rank, communicator);
+    std::string error;
+    if (!MPIUtils::broadcastString(value, root_rank, communicator, error)) {
+        throw std::runtime_error(error);
     }
 }
 
@@ -226,20 +196,22 @@ void broadcastString(std::string& value, int root_rank, MPI_Comm communicator) {
 void broadcastPaths(std::vector<fs::path>& paths, int root_rank, MPI_Comm communicator) {
     int rank = 0;
     MPI_Comm_rank(communicator, &rank);
-    int count = rank == root_rank ? static_cast<int>(paths.size()) : 0;
-    MPI_Bcast(&count, 1, MPI_INT, root_rank, communicator);
-    if (count < 0) {
-        throw std::runtime_error("received a negative MPI path count");
+    std::vector<std::string> values;
+    if (rank == root_rank) {
+        values.reserve(paths.size());
+        for (const fs::path& path : paths) {
+            values.push_back(path.string());
+        }
+    }
+    std::string error;
+    if (!MPIUtils::broadcastStrings(values, root_rank, communicator, error)) {
+        throw std::runtime_error(error);
     }
     if (rank != root_rank) {
-        paths.assign(static_cast<std::size_t>(count), fs::path());
-    }
-    for (int index = 0; index < count; ++index) {
-        std::string text = rank == root_rank ? paths[static_cast<std::size_t>(index)].string()
-                                             : std::string();
-        broadcastString(text, root_rank, communicator);
-        if (rank != root_rank) {
-            paths[static_cast<std::size_t>(index)] = fs::path(text);
+        paths.clear();
+        paths.reserve(values.size());
+        for (const std::string& value : values) {
+            paths.emplace_back(value);
         }
     }
 }
@@ -632,9 +604,9 @@ void normalizeAndValidateConfig(Config& config) {
         }
     }
 
-    config.science_root = normalizedAbsolute(config.science_root);
-    config.dq_root = normalizedAbsolute(config.dq_root);
-    config.output_root = normalizedAbsolute(config.output_root);
+    config.science_root = PathUtils::normalizedAbsolute(config.science_root);
+    config.dq_root = PathUtils::normalizedAbsolute(config.dq_root);
+    config.output_root = PathUtils::normalizedAbsolute(config.output_root);
     validatePipelinePath(config.output_root / config.target, 0);
 }
 
@@ -678,8 +650,8 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
 
     if (rank == 0) {
         try {
-            if (pathIsWithin(target_root, config.science_root)
-                || pathIsWithin(target_root, config.dq_root)) {
+            if (PathUtils::isPathWithin(target_root, config.science_root)
+                || PathUtils::isPathWithin(target_root, config.dq_root)) {
                 throw std::runtime_error(
                     "target output must not be inside either read-only source repository");
             }

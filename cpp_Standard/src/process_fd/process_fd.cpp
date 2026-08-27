@@ -5,8 +5,10 @@
 #include "process_fd/StarCutCalculator.hpp"
 #include "process_fd/KMeansClusterer.hpp"
 #include "process_fd/FDMeasurement.hpp"
-#include "process_main/MPIScheduler.hpp"
-#include "process_main/NumericalRecipes.hpp"
+#include "general/MPIScheduler.hpp"
+#include "general/NumericalRecipes.hpp"
+#include "general/ExposureList.hpp"
+#include "general/MPIUtils.hpp"
 
 #include <mpi.h>
 
@@ -29,25 +31,11 @@ bool loadExposureList(const std::string& path, std::vector<std::string>& files,
                       int rank) {
     files.clear();
     if (rank == 0) {
-        std::ifstream input(path);
-        if (!input.is_open()) {
-            std::cerr << "EXPO_LIST reading error: " << path << std::endl;
-            return false;
-        }
-        std::string name;
-        while (input >> name) {
-            if (name.size() >= 2 && name.front() == '"'
-                && name.back() == '"') {
-                name = name.substr(1, name.size() - 2);
-            }
-            files.push_back(name);
-        }
-        if (files.empty()) {
-            std::cerr << "EXPO_LIST contains no exposures: " << path << std::endl;
-            return false;
-        }
-        if (static_cast<int>(files.size()) > LensingConfig::NMAX_EXPO) {
-            std::cerr << "EXPO_LIST exceeds NMAX_EXPO: " << path << std::endl;
+        std::string error;
+        if (!ExposureList::loadPathList(
+                path, files,
+                static_cast<std::size_t>(LensingConfig::NMAX_EXPO), error)) {
+            std::cerr << "EXPO_LIST error: " << error << std::endl;
             return false;
         }
         std::cout << "Total number of EXPOSURE: " << files.size() << std::endl;
@@ -55,17 +43,10 @@ bool loadExposureList(const std::string& path, std::vector<std::string>& files,
     return true;
 }
 
-void broadcastExposureList(std::vector<std::string>& files, int rank) {
-    int n_expo = static_cast<int>(files.size());
-    MPI_Bcast(&n_expo, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (rank != 0) files.resize(n_expo);
-    for (int i = 0; i < n_expo; ++i) {
-        int len = (rank == 0) ? static_cast<int>(files[i].size()) : 0;
-        MPI_Bcast(&len, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        if (rank != 0) files[i].resize(len);
-        if (len > 0)
-            MPI_Bcast(files[i].data(), len, MPI_CHAR, 0, MPI_COMM_WORLD);
-    }
+bool broadcastExposureList(std::vector<std::string>& files,
+                           MPI_Comm communicator,
+                           std::string& error) {
+    return MPIUtils::broadcastStrings(files, 0, communicator, error);
 }
 
 }  // namespace
@@ -81,8 +62,8 @@ int process_fd(const std::string& exposure_list,
                const ProcessConfig::RuntimeOptions& options,
                const std::string& dataset_root,
                MPI_Comm communicator) {
-    const int rank = MPIScheduler::my_id;
-    const int num_procs = MPIScheduler::num_procs;
+    const int rank = MPIScheduler::state.rank;
+    const int num_procs = MPIScheduler::state.size;
 
     // 1. Load and broadcast exposure list
     std::vector<std::string> expo_files;
@@ -91,7 +72,12 @@ int process_fd(const std::string& exposure_list,
     int local_ok = ok ? 1 : 0;
     MPI_Allreduce(&local_ok, &global_ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
     if (global_ok == 0) return 1;
-    broadcastExposureList(expo_files, rank);
+    std::string broadcast_error;
+    if (!broadcastExposureList(expo_files, communicator, broadcast_error)) {
+        std::cerr << "FD exposure-list broadcast error on rank " << rank << ": "
+                  << broadcast_error << std::endl;
+        return 1;
+    }
     int n_expo = static_cast<int>(expo_files.size());
 
     // Initialize RNG
@@ -197,11 +183,11 @@ int process_fd(const std::string& exposure_list,
 
     // 7. Write output
     if (rank == 0) {
-        const std::string base_dir_str(options.fd_output_base_directory);
+        const std::string base_dir_str(options.fd.output_base_directory);
         const std::filesystem::path base_dir =
             base_dir_str.empty() ? std::filesystem::path(dataset_root)
                                  : std::filesystem::path(base_dir_str);
-        std::filesystem::path configured_output(options.fd_output_directory);
+        std::filesystem::path configured_output(options.fd.output_directory);
         if (configured_output.empty()) {
             configured_output = base_dir;
         } else if (configured_output.is_relative()) {

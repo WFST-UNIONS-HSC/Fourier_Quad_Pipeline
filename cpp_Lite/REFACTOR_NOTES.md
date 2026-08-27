@@ -7,6 +7,19 @@
 `include/process_main/`；初始化器独立位于 `src/process_init/` 与
 `include/process_init/`。下文未写目录的数值文件名均指这两个 `process_main` 目录。
 
+## 2026-08 共享基础设施重构补记
+
+Lite 现与 Standard 共用同一种目录和 include 规则：跨 process 的
+`ExposureList`、`MPIUtils`、`PathUtils`、`OutputLayout`、`MPIScheduler` 和
+`NumericalRecipes` 位于 `include/general/`、`src/general/`，所有项目头文件只需
+`-Iinclude -Iconfig`。`NoisePlaneFit.hpp` 已移至 `include/process_main/`。
+
+`RuntimeOptions` 已按 workflow、pipeline、catalog、extcat、init、rearr、fd 分组；
+曝光列表、运行期外部星表目录、MPI rank/size、Stage-8 参数和 RNG 状态均归入各模块
+State。Lite 的 `PSFModel` 只迁移通用曝光状态，不含 Standard 的 PCA cache；
+`MPIScheduler` 也继续不含 `forcecov()`。因此下面八个冻结分支仍然物理删除，没有因
+共享基础设施重构而重新引入。
+
 未修改的文件（`FitsIO.*`、`ImageProcessing.*`、`LinearSolve.*`、`NumericalRecipes.*`、
 `UniversalUtils.*`、`ExStar.*`、`ExposureInfo.*`、`FourierTransformSt2.*`、
 `FourierTransformSt1.hpp`、`CatalogCombiner.hpp`、`ShearMeasurement.hpp`）
@@ -19,7 +32,7 @@
 | `ASTROMETRY_trivial` | 0 | 只走 Gaia 星表天测（`genAstrometryData` / `getAstrometry`） |
 | `include_FLAT` | 0 | 不做 super-flat 乘算 |
 | `include_Mask` | 2 | 逐 chip 读 `dirOutput/dqmask/<expo>_<cid>.fits` 掩膜 |
-| `ext_cat` | 1 | 使用外部星表 `SOURCE_CAT` 建源目录 |
+| `ext_cat` | 1 | 使用运行期配置的外部星表目录建源目录 |
 | `ext_PSF` | 0 | PSF 由本帧恒星测量 |
 | `deblending` | 1 | 恒定调用 `deBlending` |
 | `PSF_type` | 1 | 局域多项式 PSF 拟合（`makePSFLocalFit`） |
@@ -28,7 +41,7 @@
 ## 二、仍然保留的可选分支
 
 `PROCESS_stage`、`CCD_split`、`gal_smooth`、`star_smooth` 的分支**原样保留**，
-常量仍在 `include/process_main/LensingConfig.hpp` 中。
+常量仍在 `config/LensingConfig.hpp` 中。
 
 ## 三、逐文件改动
 

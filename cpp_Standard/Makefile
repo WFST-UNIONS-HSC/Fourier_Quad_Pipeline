@@ -1,8 +1,9 @@
 CXX = mpicxx
+MPIRUN ?= mpirun
 STACK_PREFIX ?=
 EIGEN_INCLUDE ?=
 
-CPPFLAGS = -Iinclude -Iconfig -Iinclude/process_extcat -Iinclude/process_init -Iinclude/process_main -Iinclude/process_rearr -Iinclude/process_fd
+CPPFLAGS = -Iinclude -Iconfig
 CXXFLAGS = -O3 -std=c++17 -Wall -Wextra -MMD -MP
 LDFLAGS =
 LDLIBS = -lcfitsio -lfftw3 -lfftw3f -llapack -lblas -lm
@@ -17,6 +18,9 @@ CPPFLAGS += -I$(EIGEN_INCLUDE)
 endif
 
 SRCS = main.cpp \
+       src/general/ExposureList.cpp \
+       src/general/MPIUtils.cpp \
+       src/general/PathUtils.cpp \
        src/process_extcat/process_extcat.cpp \
        src/process_rearr/process_rearr.cpp \
        src/process_rearr/CatalogRearranger.cpp \
@@ -48,8 +52,8 @@ SRCS = main.cpp \
        src/process_main/Universalblock.cpp \
        src/process_main/UniversalUtils.cpp \
        src/process_main/ImageProcessing.cpp \
-       src/process_main/NumericalRecipes.cpp \
-       src/process_main/MPIScheduler.cpp \
+       src/general/NumericalRecipes.cpp \
+       src/general/MPIScheduler.cpp \
        src/process_main/ExStar.cpp
 
 OBJS = $(SRCS:.cpp=.o)
@@ -65,8 +69,16 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(DEPS) $(TARGET)
+	rm -f $(OBJS) $(DEPS) $(TARGET) /tmp/FourierQuadGeneralInfrastructureTest
+
+test-general-infrastructure:
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) \
+		tests/GeneralInfrastructureTest.cpp \
+		src/general/ExposureList.cpp src/general/MPIUtils.cpp \
+		src/general/PathUtils.cpp -o /tmp/FourierQuadGeneralInfrastructureTest
+	OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+		$(MPIRUN) -np 2 /tmp/FourierQuadGeneralInfrastructureTest
 
 -include $(DEPS)
 
-.PHONY: all clean
+.PHONY: all clean test-general-infrastructure

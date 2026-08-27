@@ -1,4 +1,4 @@
-#include "PSFStarSelection.hpp"
+#include "process_main/PSFStarSelection.hpp"
 
 #include <algorithm>
 #include <cmath>

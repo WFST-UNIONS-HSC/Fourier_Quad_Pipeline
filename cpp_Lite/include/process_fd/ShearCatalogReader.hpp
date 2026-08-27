@@ -1,7 +1,7 @@
 #ifndef SHEAR_CATALOG_READER_HPP
 #define SHEAR_CATALOG_READER_HPP
 
-#include "FDData.hpp"
+#include "process_fd/FDData.hpp"
 
 #include <string>
 
@@ -13,7 +13,7 @@
 // ==========================================
 class ShearCatalogReader {
 public:
-    // Read one exposure (1-based index into EXPO_FILE) and append to data.
+    // Read one exposure (1-based index into expo_files) and append to data.
     // The caller is responsible for MPI distribution of exposures.
     static void readExposure(int iexpo, FDData& data,
                              const std::vector<std::string>& expo_files,

@@ -22,20 +22,20 @@ int process_init(const ProcessConfig::RuntimeOptions& options,
     generated_expo_list.clear();
 
     fqinit::Config config;
-    config.science_root = options.science_root;
-    config.dq_root = options.dq_root;
-    config.output_root = options.output_root;
+    config.science_root = options.init.science_root;
+    config.dq_root = options.init.dq_root;
+    config.output_root = options.pipeline.output_root;
     config.target = dataset.target;
     config.filename_prefix = dataset.prefix;
-    config.filename_tokens = options.contains;
-    config.f77_max_path = options.f77_max_path;
+    config.filename_tokens = options.init.contains;
+    config.f77_max_path = options.init.f77_max_path;
     config.max_chip = LensingConfig::NMAX_CHIP;
 
-    if (options.existing == "fail") {
+    if (options.init.existing == "fail") {
         config.existing_policy = fqinit::ExistingPolicy::Fail;
-    } else if (options.existing == "resume") {
+    } else if (options.init.existing == "resume") {
         config.existing_policy = fqinit::ExistingPolicy::Resume;
-    } else if (options.existing == "overwrite") {
+    } else if (options.init.existing == "overwrite") {
         config.existing_policy = fqinit::ExistingPolicy::Overwrite;
     } else {
         if (rank == 0) {
