@@ -754,7 +754,7 @@ int prepareRuntimeOptions(int argc,
         parseCommandLine(argc, argv, options, parse_error) ? 1 : 0;
     int global_parse_ok = 0;
     MPI_Allreduce(&local_parse_ok, &global_parse_ok, 1, MPI_INT, MPI_MIN,
-                  MPI_COMM_WORLD);
+                  MPIScheduler::state.communicator);
     if (global_parse_ok != 0) {
         return 0;
     }
@@ -782,7 +782,7 @@ int runExtcatPhase(const ProcessConfig::RuntimeOptions& options) {
         std::cout << "Running process_extcat before all dataset phases"
                   << std::endl;
     }
-    const int result = process_extcat(options, MPI_COMM_WORLD);
+    const int result = process_extcat(options);
     if (result == 0) {
         MPIScheduler::barrier();
     }
@@ -822,7 +822,7 @@ int resolveDatasetExposureList(const ProcessConfig::RuntimeOptions& options,
     }
     int global_path_ok = 0;
     MPI_Allreduce(&local_path_ok, &global_path_ok, 1, MPI_INT, MPI_MIN,
-                  MPI_COMM_WORLD);
+                  MPIScheduler::state.communicator);
     if (global_path_ok != 0) {
         return 0;
     }
@@ -874,7 +874,7 @@ int runRearrPhase(const std::string& exposure_list,
                   << (options.workflow.run_main ? " after process_main" : "")
                   << std::endl;
     }
-    return process_rearr(exposure_list, options, MPI_COMM_WORLD);
+    return process_rearr(exposure_list, options);
 }
 
 // ==========================================
@@ -919,7 +919,7 @@ int runFdPhase(const std::string& selected_exposure_list,
         std::cout << "FD expo list: " << fd_exposure_list
                   << "  dataset_root: " << dataset_root << std::endl;
     }
-    return process_fd(fd_exposure_list, options, dataset_root, MPI_COMM_WORLD);
+    return process_fd(fd_exposure_list, options, dataset_root);
 }
 
 // ==========================================

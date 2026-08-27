@@ -1,18 +1,16 @@
 #include "general/MPIUtils.hpp"
 
+#include "general/MPIScheduler.hpp"
+
 #include <limits>
 
 namespace MPIUtils {
 
 bool broadcastString(std::string& value,
                      int root,
-                     MPI_Comm communicator,
                      std::string& error) {
-    int rank = 0;
-    if (MPI_Comm_rank(communicator, &rank) != MPI_SUCCESS) {
-        error = "failed to query MPI rank for string broadcast";
-        return false;
-    }
+    const int rank = MPIScheduler::state.rank;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
 
     int length = 0;
     if (rank == root) {
@@ -43,13 +41,9 @@ bool broadcastString(std::string& value,
 
 bool broadcastStrings(std::vector<std::string>& values,
                       int root,
-                      MPI_Comm communicator,
                       std::string& error) {
-    int rank = 0;
-    if (MPI_Comm_rank(communicator, &rank) != MPI_SUCCESS) {
-        error = "failed to query MPI rank for string-vector broadcast";
-        return false;
-    }
+    const int rank = MPIScheduler::state.rank;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
 
     int count = 0;
     if (rank == root) {
@@ -69,7 +63,7 @@ bool broadcastStrings(std::vector<std::string>& values,
         values.resize(static_cast<std::size_t>(count));
     }
     for (std::string& value : values) {
-        if (!broadcastString(value, root, communicator, error)) {
+        if (!broadcastString(value, root, error)) {
             return false;
         }
     }
@@ -78,13 +72,12 @@ bool broadcastStrings(std::vector<std::string>& values,
 }
 
 bool allRanksSucceeded(bool local_success,
-                       MPI_Comm communicator,
                        bool& global_success,
                        std::string& error) {
     const int local_value = local_success ? 1 : 0;
     int global_value = 0;
     if (MPI_Allreduce(&local_value, &global_value, 1, MPI_INT, MPI_MIN,
-                      communicator) != MPI_SUCCESS) {
+                      MPIScheduler::state.communicator) != MPI_SUCCESS) {
         error = "failed to reduce MPI success flags";
         global_success = false;
         return false;

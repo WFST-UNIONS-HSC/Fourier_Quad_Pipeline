@@ -44,9 +44,8 @@ bool loadExposureList(const std::string& path, std::vector<std::string>& files,
 }
 
 bool broadcastExposureList(std::vector<std::string>& files,
-                           MPI_Comm communicator,
                            std::string& error) {
-    return MPIUtils::broadcastStrings(files, 0, communicator, error);
+    return MPIUtils::broadcastStrings(files, 0, error);
 }
 
 }  // namespace
@@ -60,8 +59,7 @@ bool broadcastExposureList(std::vector<std::string>& files,
 // ==========================================
 int process_fd(const std::string& exposure_list,
                const ProcessConfig::RuntimeOptions& options,
-               const std::string& dataset_root,
-               MPI_Comm communicator) {
+               const std::string& dataset_root) {
     const int rank = MPIScheduler::state.rank;
     const int num_procs = MPIScheduler::state.size;
 
@@ -70,10 +68,11 @@ int process_fd(const std::string& exposure_list,
     bool ok = loadExposureList(exposure_list, expo_files, rank);
     int global_ok = 0;
     int local_ok = ok ? 1 : 0;
-    MPI_Allreduce(&local_ok, &global_ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+    MPI_Allreduce(&local_ok, &global_ok, 1, MPI_INT, MPI_MIN,
+                  MPIScheduler::state.communicator);
     if (global_ok == 0) return 1;
     std::string broadcast_error;
-    if (!broadcastExposureList(expo_files, communicator, broadcast_error)) {
+    if (!broadcastExposureList(expo_files, broadcast_error)) {
         std::cerr << "FD exposure-list broadcast error on rank " << rank << ": "
                   << broadcast_error << std::endl;
         return 1;
@@ -105,14 +104,14 @@ int process_fd(const std::string& exposure_list,
     // 3. Calculate star cut
     if (fc::FD_PER_EXPOSURE_STAR_BAR) {
         std::vector<float> S_mean_arr, S_std_arr, S_cut_arr;
-        StarCutCalculator::calculateGlobalStarCutAuto(data, rank, num_procs,
+        StarCutCalculator::calculateGlobalStarCutAuto(data,
                                                       S_mean_arr, S_std_arr,
                                                       S_cut_arr);
         // Apply advanced cuts (per-exposure star cut + SNR cuts)
         StarCutCalculator::applyAdvancedCuts(data, S_cut_arr);
     } else {
         float S_mean = 0.0, S_std = 0.0, S_cut = 0.0;
-        StarCutCalculator::calculateGlobalStarCut(data, rank, num_procs,
+        StarCutCalculator::calculateGlobalStarCut(data,
                                                    S_mean, S_std, S_cut);
         StarCutCalculator::applySingleStarCut(data, S_cut);
     }
@@ -125,8 +124,7 @@ int process_fd(const std::string& exposure_list,
     //      (skipped in PDF_SIGMA mode where jackknife is not used)
     if constexpr (fc::FD_USE_JACKKNIFE) {
         std::vector<float> centers;
-        KMeansClusterer::runMPI(data.ng, data.rra, data.ddec, rank, num_procs,
-                                centers);
+        KMeansClusterer::runMPI(data.ng, data.rra, data.ddec, centers);
         MPIScheduler::barrier();
 
         for (int idx = 0; idx < data.ng; ++idx) {
@@ -150,7 +148,7 @@ int process_fd(const std::string& exposure_list,
     }
 
     // 6. Run shear measurement for g1 and g2
-    FDMeasurement measurer(rank, num_procs);
+    FDMeasurement measurer;
     int nbin = fc::fd_num;
 
     // g1 component

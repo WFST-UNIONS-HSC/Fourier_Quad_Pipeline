@@ -3,8 +3,6 @@
 
 #include "ProcessConfig.hpp"
 
-#include <mpi.h>
-
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -83,14 +81,13 @@ void normalizeAndValidateConfig(Config& config);
 // Method: Discover and inspect inputs on rank zero, optionally project any ordered column
 //         subset, process newline-aligned byte ranges, and publish deterministic tiles.
 // ==========================================
-int process_extcat(ProcessExtcat::Config config, MPI_Comm communicator = MPI_COMM_WORLD);
+int process_extcat(ProcessExtcat::Config config);
 
 // ==========================================
 // Function: Run external-catalog tiling from unified pipeline options
 // Method: Translate ProcessConfig values into the reusable tiler configuration and
 //         participate collectively on the pipeline-owned MPI communicator.
 // ==========================================
-int process_extcat(const ProcessConfig::RuntimeOptions& options,
-                   MPI_Comm communicator = MPI_COMM_WORLD);
+int process_extcat(const ProcessConfig::RuntimeOptions& options);
 
 #endif  // PROCESS_EXTCAT_PROCESS_EXTCAT_HPP

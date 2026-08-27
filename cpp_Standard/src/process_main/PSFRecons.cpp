@@ -194,7 +194,7 @@ namespace PSFRecons {
         }
 
         MPIScheduler::barrier();
-        PSFModel::initAndLoadAllPSF(dir_output, MPIScheduler::state.rank);
+        PSFModel::initAndLoadAllPSF(dir_output);
         MPIScheduler::barrier();
 
         // Map modified residuals distributed across exposures

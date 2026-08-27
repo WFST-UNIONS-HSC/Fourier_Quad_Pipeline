@@ -1,5 +1,6 @@
 #include "process_fd/StarCutCalculator.hpp"
 #include "FDConfig.hpp"
+#include "general/MPIScheduler.hpp"
 
 #include <mpi.h>
 
@@ -13,10 +14,11 @@ namespace fc = FDConfig;
 // ------------------------------------------------------------------
 // Single global star cut (all exposures share one bar)
 // ------------------------------------------------------------------
-void StarCutCalculator::calculateGlobalStarCut(const FDData& data, int rank,
-                                               int num_procs,
+void StarCutCalculator::calculateGlobalStarCut(const FDData& data,
                                                float& S_mean, float& S_std,
                                                float& S_cut) {
+    const int rank = MPIScheduler::state.rank;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
     S_mean = 0.0; S_std = -1.0; S_cut = 0.0;
 
     if (fc::star_bar_mltp <= 0.0) { S_cut = 0.0; return; }
@@ -44,9 +46,9 @@ void StarCutCalculator::calculateGlobalStarCut(const FDData& data, int rank,
     }
 
     MPI_Allreduce(hist2d.data(), global_hist.data(), ns * nm, MPI_INT,
-                  MPI_SUM, MPI_COMM_WORLD);
+                  MPI_SUM, communicator);
     MPI_Allreduce(mag_count.data(), global_mag_count.data(), nm, MPI_INT,
-                  MPI_SUM, MPI_COMM_WORLD);
+                  MPI_SUM, communicator);
 
     // Find peak concentration
     float max_concentration = 0.0, S_init = 0.5;
@@ -99,8 +101,8 @@ void StarCutCalculator::calculateGlobalStarCut(const FDData& data, int rank,
     }
     float global_sum = 0.0;
     int global_count = 0;
-    MPI_Allreduce(&local_sum, &global_sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&local_sum, &global_sum, 1, MPI_FLOAT, MPI_SUM, communicator);
+    MPI_Allreduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM, communicator);
 
     if (global_count > 1) {
         S_mean = global_sum / float(global_count);
@@ -112,7 +114,8 @@ void StarCutCalculator::calculateGlobalStarCut(const FDData& data, int rank,
                 local_sq_diff += (data.sizerel[idx] - S_mean) * (data.sizerel[idx] - S_mean);
         }
         float global_sq_diff = 0.0;
-        MPI_Allreduce(&local_sq_diff, &global_sq_diff, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        MPI_Allreduce(&local_sq_diff, &global_sq_diff, 1, MPI_FLOAT, MPI_SUM,
+                      communicator);
         S_std = std::sqrt(global_sq_diff / float(global_count - 1));
         S_cut = S_mean + k_sigma * S_std;
     } else {
@@ -131,10 +134,12 @@ void StarCutCalculator::calculateGlobalStarCut(const FDData& data, int rank,
 // Per-exposure star cut (one bar per exposure)
 // ------------------------------------------------------------------
 void StarCutCalculator::calculateGlobalStarCutAuto(
-    const FDData& data, int rank, int num_procs,
+    const FDData& data,
     std::vector<float>& S_mean_arr,
     std::vector<float>& S_std_arr,
     std::vector<float>& S_cut_arr) {
+    const int rank = MPIScheduler::state.rank;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
 
     const int NMAX_E = LensingConfig::NMAX_EXPO;
     S_mean_arr.assign(NMAX_E, 0.0);
@@ -157,7 +162,8 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
     for (int idx = 0; idx < data.ng; ++idx)
         if (data.iexpo[idx] > local_max_iex) local_max_iex = data.iexpo[idx];
     int global_max_iex = 1;
-    MPI_Allreduce(&local_max_iex, &global_max_iex, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(&local_max_iex, &global_max_iex, 1, MPI_INT, MPI_MAX,
+                  communicator);
     if (global_max_iex > NMAX_E) global_max_iex = NMAX_E;
     if (global_max_iex < 1) global_max_iex = 1;
 
@@ -181,9 +187,9 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
     }
 
     MPI_Allreduce(hist3d.data(), global_hist3d.data(),
-                  ns * nm * global_max_iex, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+                  ns * nm * global_max_iex, MPI_INT, MPI_SUM, communicator);
     MPI_Allreduce(mag_count3d.data(), global_mag_count3d.data(),
-                  nm * global_max_iex, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+                  nm * global_max_iex, MPI_INT, MPI_SUM, communicator);
 
     // Per-exposure peak analysis
     std::vector<float> S_init_arr(NMAX_E, fc::default_s_init);
@@ -248,9 +254,9 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
         }
     }
     MPI_Allreduce(local_sum_arr.data(), global_sum_arr.data(), global_max_iex,
-                  MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+                  MPI_FLOAT, MPI_SUM, communicator);
     MPI_Allreduce(local_count_arr.data(), global_count_arr.data(), global_max_iex,
-                  MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+                  MPI_INT, MPI_SUM, communicator);
 
     for (int iex = 1; iex <= global_max_iex; ++iex)
         use_fallback[iex] = (global_count_arr[iex] <= 1);
@@ -272,9 +278,9 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
     std::vector<float> fb_sum(NMAX_E, 0.0);
     std::vector<int> fb_count(NMAX_E, 0);
     MPI_Allreduce(local_sum_arr.data(), fb_sum.data(), global_max_iex,
-                  MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+                  MPI_FLOAT, MPI_SUM, communicator);
     MPI_Allreduce(local_count_arr.data(), fb_count.data(), global_max_iex,
-                  MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+                  MPI_INT, MPI_SUM, communicator);
     for (int iex = 1; iex <= global_max_iex; ++iex)
         if (use_fallback[iex]) {
             global_sum_arr[iex] = fb_sum[iex];
@@ -328,9 +334,9 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
             }
         }
         MPI_Allreduce(local_sum_arr.data(), global_sum_arr.data(), global_max_iex,
-                      MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+                      MPI_FLOAT, MPI_SUM, communicator);
         MPI_Allreduce(local_count_arr.data(), global_count_arr.data(), global_max_iex,
-                      MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+                      MPI_INT, MPI_SUM, communicator);
         for (int iex = 1; iex <= global_max_iex; ++iex)
             if (!skip_iter[iex]) {
                 if (global_count_arr[iex] > 1)
@@ -354,9 +360,9 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
             }
         }
         MPI_Allreduce(local_sq.data(), global_sq.data(), global_max_iex,
-                      MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+                      MPI_FLOAT, MPI_SUM, communicator);
         MPI_Allreduce(local_cnt_s.data(), global_cnt_s.data(), global_max_iex,
-                      MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+                      MPI_INT, MPI_SUM, communicator);
         for (int iex = 1; iex <= global_max_iex; ++iex)
             if (!skip_iter[iex]) {
                 if (global_cnt_s[iex] > 1)

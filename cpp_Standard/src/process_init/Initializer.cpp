@@ -1,6 +1,7 @@
 #include "process_init/Initializer.hpp"
 #include "general/OutputLayout.hpp"
 #include "general/MPIUtils.hpp"
+#include "general/MPIScheduler.hpp"
 #include "general/PathUtils.hpp"
 
 #include <mpi.h>
@@ -182,9 +183,9 @@ void validateUniqueStems(const std::vector<fs::path>& paths, ProductKind kind) {
 // Function: Broadcast one dynamically sized string
 // Method: Broadcast an int length followed by contiguous bytes.
 // ==========================================
-void broadcastString(std::string& value, int root_rank, MPI_Comm communicator) {
+void broadcastString(std::string& value, int root_rank) {
     std::string error;
-    if (!MPIUtils::broadcastString(value, root_rank, communicator, error)) {
+    if (!MPIUtils::broadcastString(value, root_rank, error)) {
         throw std::runtime_error(error);
     }
 }
@@ -193,9 +194,8 @@ void broadcastString(std::string& value, int root_rank, MPI_Comm communicator) {
 // Function: Broadcast an in-memory vector of filesystem paths
 // Method: Send the vector count and reuse the length-prefixed string broadcast.
 // ==========================================
-void broadcastPaths(std::vector<fs::path>& paths, int root_rank, MPI_Comm communicator) {
-    int rank = 0;
-    MPI_Comm_rank(communicator, &rank);
+void broadcastPaths(std::vector<fs::path>& paths, int root_rank) {
+    const int rank = MPIScheduler::state.rank;
     std::vector<std::string> values;
     if (rank == root_rank) {
         values.reserve(paths.size());
@@ -204,7 +204,7 @@ void broadcastPaths(std::vector<fs::path>& paths, int root_rank, MPI_Comm commun
         }
     }
     std::string error;
-    if (!MPIUtils::broadcastStrings(values, root_rank, communicator, error)) {
+    if (!MPIUtils::broadcastStrings(values, root_rank, error)) {
         throw std::runtime_error(error);
     }
     if (rank != root_rank) {
@@ -634,11 +634,10 @@ void printUsage(const char* program_name) {
 // Method: Discover on rank zero, broadcast in-memory paths, extract archives
 //         directly in parallel, and publish corrected deterministic lists.
 // ==========================================
-int runInitializer(const Config& input_config, MPI_Comm communicator) {
-    int rank = 0;
-    int process_count = 1;
-    MPI_Comm_rank(communicator, &rank);
-    MPI_Comm_size(communicator, &process_count);
+int runInitializer(const Config& input_config) {
+    const int rank = MPIScheduler::state.rank;
+    const int process_count = MPIScheduler::state.size;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
 
     Config config = input_config;
     const fs::path target_root = config.output_root / config.target;
@@ -678,16 +677,16 @@ int runInitializer(const Config& input_config, MPI_Comm communicator) {
     }
 
     MPI_Bcast(&setup_ok, 1, MPI_INT, 0, communicator);
-    broadcastString(setup_error, 0, communicator);
+    broadcastString(setup_error, 0);
     if (setup_ok == 0) {
         if (rank == 0) {
             std::cerr << "Initializer setup failed: " << setup_error << std::endl;
         }
         return 1;
     }
-    broadcastPaths(science_sources, 0, communicator);
-    broadcastPaths(dq_sources, 0, communicator);
-    broadcastString(run_token, 0, communicator);
+    broadcastPaths(science_sources, 0);
+    broadcastPaths(dq_sources, 0);
+    broadcastString(run_token, 0);
 
     std::vector<Task> tasks;
     tasks.reserve(science_sources.size() + dq_sources.size());

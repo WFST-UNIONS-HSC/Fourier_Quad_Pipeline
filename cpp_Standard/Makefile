@@ -75,7 +75,8 @@ test-general-infrastructure:
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) \
 		tests/GeneralInfrastructureTest.cpp \
 		src/general/ExposureList.cpp src/general/MPIUtils.cpp \
-		src/general/PathUtils.cpp -o /tmp/FourierQuadGeneralInfrastructureTest
+		src/general/MPIScheduler.cpp src/general/PathUtils.cpp \
+		-o /tmp/FourierQuadGeneralInfrastructureTest
 	OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
 		$(MPIRUN) -np 2 /tmp/FourierQuadGeneralInfrastructureTest
 

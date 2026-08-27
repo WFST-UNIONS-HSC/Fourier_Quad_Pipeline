@@ -1,6 +1,7 @@
 #include "process_fd/FDMeasurement.hpp"
 #include "FDConfig.hpp"
 #include "process_fd/QuadraticFitting.hpp"
+#include "general/MPIScheduler.hpp"
 #include "general/NumericalRecipes.hpp"
 
 #include <mpi.h>
@@ -12,8 +13,7 @@
 
 namespace fc = FDConfig;
 
-FDMeasurement::FDMeasurement(int rank, int num_procs)
-    : rank_(rank), num_procs_(num_procs), xbin_(fc::NMAX, 0.0) {}
+FDMeasurement::FDMeasurement() : xbin_(fc::NMAX, 0.0) {}
 
 // ==========================================
 // Function: statis
@@ -24,14 +24,17 @@ FDMeasurement::FDMeasurement(int rank, int num_procs)
 // ==========================================
 void FDMeasurement::statis(int n, int nt, const float* x, const float* de,
                             int nbin, float& c, float& dc) {
+    const int rank = MPIScheduler::state.rank;
+    const int num_procs = MPIScheduler::state.size;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
     if constexpr (fc::FD_USE_PDF_STATIS) {
         // ---- PDF statis (Mode 1 & 2): chi2 sign test + quadratic fitting ----
         std::fill(xbin_.begin(), xbin_.end(), 0.0);
 
         // Equal-probability boundary initialization
-        int effnode = (rank_ == 0) ? 1 : 0;
+        int effnode = (rank == 0) ? 1 : 0;
         std::vector<float> xx(n);
-        if (rank_ != 0) {
+        if (rank != 0) {
             if (n < (nbin + 1)) {
                 effnode = 1;
             } else {
@@ -43,19 +46,19 @@ void FDMeasurement::statis(int n, int nt, const float* x, const float* de,
             }
         }
 
-        MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Barrier(communicator);
         std::vector<float> xbin_tmp(fc::NMAX, 0.0);
         MPI_Reduce(xbin_.data(), xbin_tmp.data(), fc::NMAX, MPI_FLOAT,
-                   MPI_SUM, 0, MPI_COMM_WORLD);
+                   MPI_SUM, 0, communicator);
         int effnodet = 0;
-        MPI_Reduce(&effnode, &effnodet, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
-        if (rank_ == 0) {
-            int eff = num_procs_ - effnodet;
+        MPI_Reduce(&effnode, &effnodet, 1, MPI_INT, MPI_SUM, 0, communicator);
+        if (rank == 0) {
+            int eff = num_procs - effnodet;
             if (eff > 0)
                 for (int i = 0; i < fc::NMAX; ++i)
                     xbin_[i] = xbin_tmp[i] / float(eff);
         }
-        MPI_Bcast(xbin_.data(), fc::NMAX, MPI_FLOAT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(xbin_.data(), fc::NMAX, MPI_FLOAT, 0, communicator);
 
         // Boundary iteration for balance
         for (int i = 0; i < nbin; ++i) {
@@ -132,7 +135,7 @@ void FDMeasurement::statis(int n, int nt, const float* x, const float* de,
             c = 0.0;
             dc = 0.0;
         }
-        MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Barrier(communicator);
     } else {
         // ---- SWSE statis (Mode 3): simple ratio estimator ----
         float nume_loc = 0.0, deno_loc = 0.0;
@@ -141,11 +144,11 @@ void FDMeasurement::statis(int n, int nt, const float* x, const float* de,
             deno_loc += de[i];
         }
         float nume_all = 0.0, deno_all = 0.0;
-        MPI_Allreduce(&nume_loc, &nume_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        MPI_Allreduce(&deno_loc, &deno_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        MPI_Allreduce(&nume_loc, &nume_all, 1, MPI_FLOAT, MPI_SUM, communicator);
+        MPI_Allreduce(&deno_loc, &deno_all, 1, MPI_FLOAT, MPI_SUM, communicator);
         c = (deno_all != 0.0) ? 2.0f * nume_all / deno_all : 0.0f;
         dc = 0.0;
-        MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Barrier(communicator);
     }
 }
 
@@ -156,10 +159,12 @@ void FDMeasurement::statis(int n, int nt, const float* x, const float* de,
 // ==========================================
 float FDMeasurement::chi2SignTest(int n, const float* x, const float* de,
                                    int nbin, float c) {
+    const int rank = MPIScheduler::state.rank;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
     std::vector<float> diff(fc::NMAX, 0.0), summ(fc::NMAX, 0.0);
     std::vector<float> diff_t(fc::NMAX, 0.0), summ_t(fc::NMAX, 0.0);
 
-    if (rank_ != 0) {
+    if (rank != 0) {
         for (int i = 0; i < n; ++i) {
             float y = x[i] - c * de[i];
             float abs_y = std::fabs(y);
@@ -177,18 +182,18 @@ float FDMeasurement::chi2SignTest(int n, const float* x, const float* de,
     }
 
     MPI_Reduce(diff.data(), diff_t.data(), fc::NMAX, MPI_FLOAT, MPI_SUM,
-               0, MPI_COMM_WORLD);
+               0, communicator);
     MPI_Reduce(summ.data(), summ_t.data(), fc::NMAX, MPI_FLOAT, MPI_SUM,
-               0, MPI_COMM_WORLD);
+               0, communicator);
 
     float temp = 0.0;
-    if (rank_ == 0) {
+    if (rank == 0) {
         for (int ibin = 0; ibin <= nbin; ++ibin) {
             if (summ_t[ibin] > 0.0)
                 temp += diff_t[ibin] * diff_t[ibin] / (2.0f * summ_t[ibin]);
         }
     }
-    MPI_Bcast(&temp, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&temp, 1, MPI_FLOAT, 0, communicator);
     return temp;
 }
 
@@ -198,8 +203,10 @@ float FDMeasurement::chi2SignTest(int n, const float* x, const float* de,
 // ==========================================
 float FDMeasurement::sourceAccumulate(int n, int ntot, const float* x,
                                        int sbin, int nbin) {
+    const int rank = MPIScheduler::state.rank;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
     int summ = 0;
-    if (rank_ != 0) {
+    if (rank != 0) {
         for (int i = 0; i < n; ++i) {
             int ibin;
             if (x[i] > xbin_[nbin - 1]) ibin = nbin;
@@ -211,7 +218,7 @@ float FDMeasurement::sourceAccumulate(int n, int ntot, const float* x,
         }
     }
     int summt = 0;
-    MPI_Allreduce(&summ, &summt, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&summ, &summt, 1, MPI_INT, MPI_SUM, communicator);
     return float(summt) / float(ntot) - 1.0f / float(nbin + 1);
 }
 
@@ -228,6 +235,8 @@ void FDMeasurement::plotComparison(int n, int nbin,
                                     const std::vector<int>& labels,
                                     int nb, int njack,
                                     std::vector<float>& arr) {
+    const int rank = MPIScheduler::state.rank;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
     float xmin = -float(fc::gf_lim);
     float xmax = float(fc::gf_lim);
     float dx = (xmax - xmin) / float(nb);
@@ -247,9 +256,9 @@ void FDMeasurement::plotComparison(int n, int nbin,
                 is++;
             }
         }
-        MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Barrier(communicator);
         int ntot = 0;
-        MPI_Allreduce(&is, &ntot, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+        MPI_Allreduce(&is, &ntot, 1, MPI_INT, MPI_SUM, communicator);
 
         if constexpr (!fc::FD_USE_JACKKNIFE) {
             // ---- Mode 1 (PDF_SIGMA): single statis call, c and sigma from PDF ----
@@ -277,7 +286,7 @@ void FDMeasurement::plotComparison(int n, int nbin,
                 gg_jk[ijack] = ggpt;
                 int w_p = igal_jk;
                 int w_tot = 0;
-                MPI_Allreduce(&w_p, &w_tot, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+                MPI_Allreduce(&w_p, &w_tot, 1, MPI_INT, MPI_SUM, communicator);
                 w_jk[ijack] = float(ntot - w_tot);
             }
 
@@ -317,7 +326,7 @@ void FDMeasurement::plotComparison(int n, int nbin,
             arr[i * 4 + 2] = sspt;   // sigma (jackknife)
         }
 
-        if (rank_ == 0) {
+        if (rank == 0) {
             arr[i * 4 + 3] = float(ntot);
             std::cout << i << "  " << arr[i * 4 + 0] << "  "
                       << arr[i * 4 + 1] << "  " << arr[i * 4 + 2] << "  "

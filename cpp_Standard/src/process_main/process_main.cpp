@@ -61,7 +61,7 @@ bool loadExposureList(const std::string& exposure_list, std::string& error) {
 // Method: Send the count, then length-prefix each mutable C++ string.
 // ==========================================
 bool broadcastExposureList(std::string& error) {
-    return MPIUtils::broadcastStrings(ProcessMain::state.exposure_files, 0, MPI_COMM_WORLD, error);
+    return MPIUtils::broadcastStrings(ProcessMain::state.exposure_files, 0, error);
 }
 
 }  // namespace
@@ -88,7 +88,7 @@ int process_main(const std::string& exposure_list,
     const int local_columns_ok = ExternalCatalogReader::configure(options, column_error) ? 1 : 0;
     int global_columns_ok = 0;
     MPI_Allreduce(&local_columns_ok, &global_columns_ok, 1, MPI_INT, MPI_MIN,
-                  MPI_COMM_WORLD);
+                  MPIScheduler::state.communicator);
     if (global_columns_ok == 0) {
         if (rank == 0) {
             std::cerr << "External-catalog column error: "
@@ -105,7 +105,7 @@ int process_main(const std::string& exposure_list,
     if (rank == 0 && !loadExposureList(exposure_list, load_error)) {
         load_ok = 0;
     }
-    MPI_Bcast(&load_ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&load_ok, 1, MPI_INT, 0, MPIScheduler::state.communicator);
     if (load_ok == 0) {
         if (rank == 0) {
             std::cerr << load_error << std::endl;
@@ -189,7 +189,7 @@ int process_main(const std::string& exposure_list,
         MPI_Allreduce(
             ExposureInfo::state.parameters.data(), reduced_exposure_parameters.data(),
             static_cast<int>(exposure_parameter_count), MPI_FLOAT, MPI_SUM,
-            MPI_COMM_WORLD);
+            MPIScheduler::state.communicator);
         ExposureInfo::state.parameters = std::move(reduced_exposure_parameters);
 
         if (rank == 0) {

@@ -1,8 +1,6 @@
 #ifndef GENERAL_MPI_UTILS_HPP
 #define GENERAL_MPI_UTILS_HPP
 
-#include <mpi.h>
-
 #include <string>
 #include <vector>
 
@@ -14,7 +12,6 @@ namespace MPIUtils {
 // ==========================================
 bool broadcastString(std::string& value,
                      int root,
-                     MPI_Comm communicator,
                      std::string& error);
 
 // ==========================================
@@ -24,7 +21,6 @@ bool broadcastString(std::string& value,
 // ==========================================
 bool broadcastStrings(std::vector<std::string>& values,
                       int root,
-                      MPI_Comm communicator,
                       std::string& error);
 
 // ==========================================
@@ -33,7 +29,6 @@ bool broadcastStrings(std::vector<std::string>& values,
 //         collective outcome.
 // ==========================================
 bool allRanksSucceeded(bool local_success,
-                       MPI_Comm communicator,
                        bool& global_success,
                        std::string& error);
 

@@ -2,6 +2,7 @@
 
 #include "general/ExposureList.hpp"
 #include "general/MPIUtils.hpp"
+#include "general/MPIScheduler.hpp"
 #include "general/PathUtils.hpp"
 #include "process_rearr/CatalogRearranger.hpp"
 #include "ProcessRearrConfig.hpp"
@@ -130,8 +131,7 @@ bool loadExposureList(const std::string& exposure_list,
                       std::string& error) {
     std::vector<ExposureList::Entry> entries;
     if (!ExposureList::loadPipelineList(
-            exposure_list, entries,
-            static_cast<std::size_t>(LensingConfig::NMAX_EXPO), error)) {
+            exposure_list, entries, 0, error)) {
         error = "process_rearr " + error;
         return false;
     }
@@ -262,10 +262,10 @@ bool prepareInputs(const std::string& exposure_list,
 // ==========================================
 bool collectiveSuccess(bool local_success,
                        const std::string& local_error,
-                       const std::string& stage,
-                       int rank,
-                       int world_size,
-                       MPI_Comm communicator) {
+                       const std::string& stage) {
+    const int rank = MPIScheduler::state.rank;
+    const int world_size = MPIScheduler::state.size;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
     const int local_value = local_success ? 1 : 0;
     int global_value = 0;
     MPI_Allreduce(&local_value, &global_value, 1, MPI_INT, MPI_MIN, communicator);
@@ -505,8 +505,8 @@ bool scaleTransferLayout(const std::vector<int>& row_counts,
 // ==========================================
 bool completeTransferPlan(std::size_t column_count,
                           TransferPlan& plan,
-                          MPI_Comm communicator,
                           std::string& error) {
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
     const std::size_t world_size = plan.send_rows.size();
     plan.receive_rows.assign(world_size, 0);
     if (MPI_Alltoall(plan.send_rows.data(), 1, MPI_INT,
@@ -547,10 +547,10 @@ bool exchangeRows(const LocalRows& local_rows,
                   const std::vector<int>& row_partitions,
                   const ProcessRearr::CatalogLayout& layout,
                   const TransferPlan& plan,
-                  int world_size,
-                  MPI_Comm communicator,
                   ReceivedRows& received,
                   std::string& error) {
+    const int world_size = MPIScheduler::state.size;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
     const std::size_t local_count = local_rows.source_rows.size();
     if (local_rows.values.size() != local_count * layout.all_columns
         || local_rows.source_exposures.size() != local_count
@@ -740,9 +740,9 @@ bool reduceAndWriteSummary(const PreparedInputs& prepared,
                            const std::vector<double>& local_dec_max,
                            const std::vector<double>& local_ra_min,
                            const std::vector<double>& local_ra_max,
-                           int rank,
-                           MPI_Comm communicator,
                            std::string& error) {
+    const int rank = MPIScheduler::state.rank;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
     if (local_counts.size()
         > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
         error = "summary partition count exceeds MPI int range";
@@ -882,19 +882,16 @@ bool generateRearrangedExpoList(const std::string& output_directory,
 //         partition, redistribute complete rows, and write sorted outputs.
 // ==========================================
 int process_rearr(const std::string& exposure_list,
-                  const ProcessConfig::RuntimeOptions& options,
-                  MPI_Comm communicator) {
-    int rank = 0;
-    int world_size = 1;
-    MPI_Comm_rank(communicator, &rank);
-    MPI_Comm_size(communicator, &world_size);
+                  const ProcessConfig::RuntimeOptions& options) {
+    const int rank = MPIScheduler::state.rank;
+    const int world_size = MPIScheduler::state.size;
+    const MPI_Comm communicator = MPIScheduler::state.communicator;
 
     ProcessRearr::CatalogLayout layout;
     std::string local_error;
     bool local_success =
         ProcessRearr::resolveCatalogLayout(options, layout, local_error);
-    if (!collectiveSuccess(local_success, local_error, "layout", rank,
-                           world_size, communicator)) {
+    if (!collectiveSuccess(local_success, local_error, "layout")) {
         return 1;
     }
 
@@ -916,16 +913,16 @@ int process_rearr(const std::string& exposure_list,
     std::string output_directory_error;
     std::string header_error;
     const bool catalog_paths_ok =
-        MPIUtils::broadcastStrings(prepared.catalog_paths, 0, communicator,
+        MPIUtils::broadcastStrings(prepared.catalog_paths, 0,
                                    catalog_paths_error);
     const bool dataset_root_ok =
-        MPIUtils::broadcastString(prepared.dataset_root, 0, communicator,
+        MPIUtils::broadcastString(prepared.dataset_root, 0,
                                   dataset_root_error);
     const bool output_directory_ok =
-        MPIUtils::broadcastString(prepared.output_directory, 0, communicator,
+        MPIUtils::broadcastString(prepared.output_directory, 0,
                                   output_directory_error);
     const bool header_ok =
-        MPIUtils::broadcastString(prepared.header, 0, communicator, header_error);
+        MPIUtils::broadcastString(prepared.header, 0, header_error);
     local_success = catalog_paths_ok && dataset_root_ok
                     && output_directory_ok && header_ok;
     if (!catalog_paths_ok) {
@@ -937,16 +934,14 @@ int process_rearr(const std::string& exposure_list,
     } else if (!header_ok) {
         local_error = header_error;
     }
-    if (!collectiveSuccess(local_success, local_error, "broadcast", rank,
-                           world_size, communicator)) {
+    if (!collectiveSuccess(local_success, local_error, "broadcast")) {
         return 1;
     }
 
     LocalRows local_rows;
     local_success = readLocalCatalogs(prepared, layout, rank, world_size,
                                       local_rows, local_error);
-    if (!collectiveSuccess(local_success, local_error, "read", rank,
-                           world_size, communicator)) {
+    if (!collectiveSuccess(local_success, local_error, "read")) {
         return 1;
     }
 
@@ -954,8 +949,7 @@ int process_rearr(const std::string& exposure_list,
     std::vector<std::size_t> row_tiles;
     local_success = binLocalRows(local_rows, layout, local_tile_counts,
                                  row_tiles, local_error);
-    if (!collectiveSuccess(local_success, local_error, "bin", rank,
-                           world_size, communicator)) {
+    if (!collectiveSuccess(local_success, local_error, "bin")) {
         return 1;
     }
 
@@ -982,8 +976,7 @@ int process_rearr(const std::string& exposure_list,
         local_success = ProcessRearr::buildTilePartitions(
             global_tile_counts, partition_count, tile_partitions, local_error);
     }
-    if (!collectiveSuccess(local_success, local_error, "partition", rank,
-                           world_size, communicator)) {
+    if (!collectiveSuccess(local_success, local_error, "partition")) {
         return 1;
     }
     std::vector<std::uint64_t>().swap(global_tile_counts);
@@ -1000,31 +993,27 @@ int process_rearr(const std::string& exposure_list,
     }
     std::vector<std::size_t>().swap(row_tiles);
     std::vector<int>().swap(tile_partitions);
-    if (!collectiveSuccess(local_success, local_error, "map", rank,
-                           world_size, communicator)) {
+    if (!collectiveSuccess(local_success, local_error, "map")) {
         return 1;
     }
 
     TransferPlan transfer_plan;
     local_success = buildSendRowCounts(row_partitions, world_size,
                                        transfer_plan, local_error);
-    if (!collectiveSuccess(local_success, local_error, "send-counts", rank,
-                           world_size, communicator)) {
+    if (!collectiveSuccess(local_success, local_error, "send-counts")) {
         return 1;
     }
     local_success = completeTransferPlan(layout.all_columns, transfer_plan,
-                                         communicator, local_error);
-    if (!collectiveSuccess(local_success, local_error, "transfer-plan", rank,
-                           world_size, communicator)) {
+                                         local_error);
+    if (!collectiveSuccess(local_success, local_error, "transfer-plan")) {
         return 1;
     }
 
     ReceivedRows received;
     local_success = exchangeRows(local_rows, row_partitions, layout,
-                                 transfer_plan, world_size, communicator,
+                                 transfer_plan,
                                  received, local_error);
-    if (!collectiveSuccess(local_success, local_error, "redistribute", rank,
-                           world_size, communicator)) {
+    if (!collectiveSuccess(local_success, local_error, "redistribute")) {
         return 1;
     }
     const std::uint64_t local_missing = local_rows.missing_catalogs;
@@ -1044,8 +1033,7 @@ int process_rearr(const std::string& exposure_list,
                           + filesystem_error.message();
         }
     }
-    if (!collectiveSuccess(local_success, local_error, "output-directory", rank,
-                           world_size, communicator)) {
+    if (!collectiveSuccess(local_success, local_error, "output-directory")) {
         return 1;
     }
     MPI_Barrier(communicator);
@@ -1059,16 +1047,14 @@ int process_rearr(const std::string& exposure_list,
         received, layout, prepared, partition_count, rank, world_size,
         local_summary_counts, local_dec_min, local_dec_max,
         local_ra_min, local_ra_max, local_error);
-    if (!collectiveSuccess(local_success, local_error, "write", rank,
-                           world_size, communicator)) {
+    if (!collectiveSuccess(local_success, local_error, "write")) {
         return 1;
     }
 
     local_success = reduceAndWriteSummary(
         prepared, local_summary_counts, local_dec_min, local_dec_max,
-        local_ra_min, local_ra_max, rank, communicator, local_error);
-    if (!collectiveSuccess(local_success, local_error, "summary", rank,
-                           world_size, communicator)) {
+        local_ra_min, local_ra_max, local_error);
+    if (!collectiveSuccess(local_success, local_error, "summary")) {
         return 1;
     }
 
@@ -1085,8 +1071,7 @@ int process_rearr(const std::string& exposure_list,
     local_error = local_success
                       ? std::string{}
                       : "MPI_Reduce failed for process_rearr skip counters";
-    if (!collectiveSuccess(local_success, local_error, "report", rank,
-                           world_size, communicator)) {
+    if (!collectiveSuccess(local_success, local_error, "report")) {
         return 1;
     }
     MPI_Barrier(communicator);
@@ -1110,8 +1095,7 @@ int process_rearr(const std::string& exposure_list,
             local_success = false;
         }
     }
-    if (!collectiveSuccess(local_success, local_error, "expo-list", rank,
-                           world_size, communicator)) {
+    if (!collectiveSuccess(local_success, local_error, "expo-list")) {
         return 1;
     }
 

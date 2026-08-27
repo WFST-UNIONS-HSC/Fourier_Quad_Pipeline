@@ -29,7 +29,7 @@ namespace PSFModel {
     extern PcaCacheState pca_cache;
 
     // Load and broadcast PSF PCA components
-    void initAndLoadAllPSF(const std::string& dirOutput, int myRank);
+    void initAndLoadAllPSF(const std::string& dirOutput);
     void freePSFMemory();
 
     // Stage 5 main entry

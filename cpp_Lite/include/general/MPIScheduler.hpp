@@ -1,11 +1,14 @@
 #ifndef MPI_SCHEDULER_HPP
 #define MPI_SCHEDULER_HPP
 
+#include <mpi.h>
+
 #include <string>
 #include <functional>
 
 namespace MPIScheduler {
     struct State {
+        MPI_Comm communicator = MPI_COMM_NULL;
         int rank = 0;
         int size = 1;
     };

@@ -3,8 +3,6 @@
 
 #include "ProcessConfig.hpp"
 
-#include <mpi.h>
-
 #include <string>
 
 // ==========================================
@@ -13,7 +11,6 @@
 //         partition, redistribute complete rows, and write sorted outputs.
 // ==========================================
 int process_rearr(const std::string& exposure_list,
-                  const ProcessConfig::RuntimeOptions& options,
-                  MPI_Comm communicator = MPI_COMM_WORLD);
+                  const ProcessConfig::RuntimeOptions& options);
 
 #endif  // PROCESS_REARR_PROCESS_REARR_HPP

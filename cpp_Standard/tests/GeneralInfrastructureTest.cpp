@@ -1,8 +1,7 @@
 #include "general/ExposureList.hpp"
+#include "general/MPIScheduler.hpp"
 #include "general/MPIUtils.hpp"
 #include "general/PathUtils.hpp"
-
-#include <mpi.h>
 
 #include <filesystem>
 #include <fstream>
@@ -44,9 +43,8 @@ bool writeFixture(const std::filesystem::path& path,
 //         to validate normal and rejected protocol cases.
 // ==========================================
 int main(int argc, char** argv) {
-    MPI_Init(&argc, &argv);
-    int rank = 0;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPIScheduler::init(argc, argv);
+    const int rank = MPIScheduler::state.rank;
 
     std::string root_text;
     std::string error;
@@ -56,7 +54,7 @@ int main(int argc, char** argv) {
                         .string();
     }
     bool local_ok = require(
-        MPIUtils::broadcastString(root_text, 0, MPI_COMM_WORLD, error),
+        MPIUtils::broadcastString(root_text, 0, error),
         "temporary-root broadcast failed: " + error);
     const std::filesystem::path root =
         std::filesystem::path(root_text);
@@ -74,7 +72,7 @@ int main(int argc, char** argv) {
                                    "/tmp/exposure_a.list\n")
                    && writeFixture(root / "empty.list", "");
     }
-    MPI_Barrier(MPI_COMM_WORLD);
+    MPIScheduler::barrier();
 
     std::vector<ExposureList::Entry> entries;
     local_ok = require(
@@ -138,13 +136,13 @@ int main(int argc, char** argv) {
 
     std::string broadcast_value = rank == 0 ? "shared-value" : std::string();
     local_ok = require(MPIUtils::broadcastString(
-                           broadcast_value, 0, MPI_COMM_WORLD, error)
+                           broadcast_value, 0, error)
                            && broadcast_value == "shared-value",
                        "string broadcast failed: " + error)
                && local_ok;
     std::string empty_broadcast = rank == 0 ? std::string() : "stale";
     local_ok = require(MPIUtils::broadcastString(
-                           empty_broadcast, 0, MPI_COMM_WORLD, error)
+                           empty_broadcast, 0, error)
                            && empty_broadcast.empty(),
                        "empty-string broadcast failed: " + error)
                && local_ok;
@@ -152,7 +150,7 @@ int main(int argc, char** argv) {
         rank == 0 ? std::vector<std::string>{"", "alpha", "beta"}
                   : std::vector<std::string>{};
     local_ok = require(MPIUtils::broadcastStrings(
-                           broadcast_values, 0, MPI_COMM_WORLD, error)
+                           broadcast_values, 0, error)
                            && broadcast_values.size() == 3
                            && broadcast_values[1] == "alpha",
                        "string-vector broadcast failed: " + error)
@@ -161,16 +159,15 @@ int main(int argc, char** argv) {
         rank == 0 ? std::vector<std::string>{}
                   : std::vector<std::string>{"stale"};
     local_ok = require(MPIUtils::broadcastStrings(
-                           empty_broadcast_values, 0, MPI_COMM_WORLD, error)
+                           empty_broadcast_values, 0, error)
                            && empty_broadcast_values.empty(),
                        "empty string-vector broadcast failed: " + error)
                && local_ok;
 
-    int size = 0;
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    const int size = MPIScheduler::state.size;
     bool expected_global_success = true;
     const bool expected_reduction_ok = MPIUtils::allRanksSucceeded(
-        rank == 0, MPI_COMM_WORLD, expected_global_success, error);
+        rank == 0, expected_global_success, error);
     local_ok = require(expected_reduction_ok
                            && expected_global_success == (size == 1),
                        "collective failure propagation was incorrect: " + error)
@@ -178,10 +175,10 @@ int main(int argc, char** argv) {
 
     bool global_ok = false;
     const bool reduction_ok = MPIUtils::allRanksSucceeded(
-        local_ok, MPI_COMM_WORLD, global_ok, error);
+        local_ok, global_ok, error);
     if (rank == 0) {
         std::filesystem::remove_all(root);
     }
-    MPI_Finalize();
+    MPIScheduler::finalize();
     return reduction_ok && global_ok ? 0 : 1;
 }

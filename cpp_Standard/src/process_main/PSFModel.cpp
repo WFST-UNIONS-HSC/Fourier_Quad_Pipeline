@@ -5,6 +5,7 @@
 #include "process_main/OutputFile.hpp"
 #include "process_main/MPIFailure.hpp"
 #include "general/OutputLayout.hpp"
+#include "general/MPIScheduler.hpp"
 #include "LensingConfig.hpp"
 #include "process_main/FitsIO.hpp"
 #include "process_main/Astrometry.hpp"
@@ -95,10 +96,10 @@ namespace PSFModel {
     // Method: Let rank zero read required files, abort the MPI world on loss,
     //         and broadcast aligned fixed-configuration arrays.
     // ==========================================
-    void initAndLoadAllPSF(const std::string& dirOutput, int myRank) {
+    void initAndLoadAllPSF(const std::string& dirOutput) {
         if (pca_cache.data_loaded) return;
 
-        if (myRank == 0) {
+        if (MPIScheduler::state.rank == 0) {
             std::cout << "Allocating memory on all ranks..." << std::endl;
         }
 
@@ -106,7 +107,7 @@ namespace PSFModel {
         pca_cache.mean_psf.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * LensingConfig::nsns, 0.0);
         pca_cache.poly_coefs.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th, 0.0f);
 
-        if (myRank == 0) {
+        if (MPIScheduler::state.rank == 0) {
             std::cout << "Rank 0 is reading files from disk..." << std::endl;
 
             for (int i_ccd = 1; i_ccd <= LensingConfig::NMAX_CHIP; ++i_ccd) {
@@ -164,18 +165,21 @@ namespace PSFModel {
         }
 
         int total_count = LensingConfig::NMAX_CHIP * LensingConfig::nsns * LensingConfig::n_pcs;
-        MPI_Bcast(pca_cache.components.data(), total_count, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(pca_cache.components.data(), total_count, MPI_DOUBLE, 0,
+                  MPIScheduler::state.communicator);
 
         total_count = LensingConfig::NMAX_CHIP * LensingConfig::nsns;
-        MPI_Bcast(pca_cache.mean_psf.data(), total_count, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(pca_cache.mean_psf.data(), total_count, MPI_DOUBLE, 0,
+                  MPIScheduler::state.communicator);
 
         total_count = LensingConfig::NMAX_CHIP * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th;
-        MPI_Bcast(pca_cache.poly_coefs.data(), total_count, MPI_FLOAT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(pca_cache.poly_coefs.data(), total_count, MPI_FLOAT, 0,
+                  MPIScheduler::state.communicator);
 
         pca_cache.data_loaded = true;
-        MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Barrier(MPIScheduler::state.communicator);
 
-        if (myRank == 0) {
+        if (MPIScheduler::state.rank == 0) {
             std::cout << "Broadcast finished. All ready." << std::endl;
         }
     }
