@@ -1,105 +1,79 @@
-# Fourier_Quad_Pipeline
+# Fourier_Quad Pipeline
 
-基于 **Fourier\_Quad** 方法的弱引力透镜剪切测量流水线，提供 **Fortran 77 (旧版)** 和
-**C++ (新版)** 两套独立实现，并附带开箱即用的 **Docker** 构建环境与 **HPC**
-（Slurm/Apptainer）运行脚本。
+面向 DECam 数据的 Fourier_Quad 弱透镜 MPI 软件。本仓库同时保存 C++17 流水线、
+Fortran 旧版、容器工具链、Slurm runner 与外部源星表生成工具。
 
-> **English documentation**: See [README.md](README.md)
+> English: [README.md](README.md)
 
----
+## 选择程序
 
-## 项目概述
+| 目录 | 用途 |
+|---|---|
+| [`cpp_Standard`](cpp_Standard/) | 保留可选科学分支的完整 C++17 流水线。 |
+| [`cpp_Lite`](cpp_Lite/) | 删除未使用分支的 C++17 生产路径。 |
+| [`f77`](f77/) | 完整 Fortran 流水线。 |
+| [`f77_Lite`](f77_Lite/) | 精简 Fortran 生产路径。 |
+| [`gen_src_cat`](gen_src_cat/) | 独立 MPI 星表重分块工具与 DES Y6 TAP 下载器。 |
 
-Fourier\_Quad 方法通过在傅里叶空间计算四阶矩（即"quad"项）来测量引力剪切。
-本仓库包含一条完整的、MPI 并行的数据处理流水线，覆盖从图像预处理、天体测量校准、
-源检测、PSF 建模到剪切估计、最终星表合并的全流程。
+四个流水线版本都生成 `Fourier_Quad_Pipe`，应在各自目录内编译运行。
 
-维护两套独立代码库：
+## C++ 快速开始
 
-| 代码库 | 语言 | 编译器 | MPI | 关键依赖库 |
-|---|---|---|---|---|
-| `f77` / `f77_Lite` | Fortran 77（+ Fortran 90 模块） | GCC 4.8.5 (gfortran) | MPICH 4.1.2 | CFITSIO 4.3.1, LAPACK 3.8.0, FFTPACK |
-| `cpp_Standard` / `cpp_Lite` | C++17 | G++ 12.3.0 | OpenMPI 4.1.8 | CFITSIO 4.6.4, FFTW 3.3.11, Eigen 3.4.0, LAPACK 3.11.0 |
+需要支持 C++17 的 MPI C++ 编译器，以及 CFITSIO、FFTW3、Eigen3、LAPACK、BLAS。
 
-*推荐使用适用于现代环境的Cpp版本。*
-每套代码库各有两个变体：
-
-- **完整版**（`f77`、`cpp_Standard`）：包含全部功能，含多尺度 / PCA PSF 重建
-  （`PSFRecons` / `proc_psfreconsV2.f`）。
-- **精简版**（`f77_Lite`、`cpp_Lite`）：冻结分支后的精简版本。将 8 个编译期开关
-  固定为典型的生产环境取值，并物理删除所有未选中分支的代码。详见
-  `cpp_Lite/REFACTOR_NOTES.md`。
-
----
-
-
-## 快速入门
-
-两种运行方式。选择一个代码库（`f77` / `f77_Lite` 或
-`cpp_Standard` / `cpp_Lite`）与下列任一模式；完整源码、参数、Docker 与 HPC runner 说明见
-[`F77_GUIDE_CN.md`](F77_GUIDE_CN.md) 或 [`CPP_GUIDE_CN.md`](CPP_GUIDE_CN.md)。
-
-首先需要在Release中下载相关源码压缩包，
-
-### 方式 A - 源码编译运行
-
-手动安装安装工具链，编译后直接运行可执行程序。
 ```bash
-
-# Fortran 77：gfortran + MPICH + CFITSIO + LAPACK/BLAS
-cd f77            # 或 f77_Lite
-# 编辑 para.inc（路径、PROCESS_stage 等）
-make
-mpirun -np 4 ./Fourier_Quad_Pipe expo_list.list
-
-# C++17：g++ + MPI + CFITSIO + FFTW3 + LAPACK/BLAS + Eigen3
-cd cpp_Standard   # 或 cpp_Lite
-# 编辑 include/process_main/LensingConfig.hpp 与 include/ProcessConfig.hpp
+cd cpp_Lite                    # 或 cpp_Standard
 make -j4
-mpirun -np 4 ./Fourier_Quad_Pipe --expo-list expo_list.list
+./Fourier_Quad_Pipe --help
+mpirun -np 4 ./Fourier_Quad_Pipe \
+  --run-init false --run-main true --run-rearr false --run-fd false \
+  --expo-list /data/work/expo_gband.list
 ```
 
-依赖与 Makefile 覆盖变量：[`F77_GUIDE_CN.md`](F77_GUIDE_CN.md) /
-[`CPP_GUIDE_CN.md`](CPP_GUIDE_CN.md)。完整 C++ 参数参考见
-[`CPP_PIPELINE_PARAMETERS.md`](CPP_PIPELINE_PARAMETERS.md)。
+本仓库 C++ 程序由 CLI 与 `config/*.hpp` 默认值配置，不支持 `--config` INI。编译默认
+路径不适用于当前环境时，应显式传入顶层阶段与路径选项。
 
-### 方式 B - 下载 runner 并拉取镜像运行
+## Fortran 快速开始
 
-适用于不想手动配置环境、或F77程序配置运行环境不方便的情况。
-
-从 GHCR 拉取已发布镜像（或用 Docker 环境本地构建），再用随附的 `runner/`
-脚本在本地或 HPC 集群运行。
+需要 `mpif77`、CFITSIO、LAPACK、BLAS；重编译前编辑三份 include。
 
 ```bash
-# 拉取已发布镜像（或：cd f77_docker && docker compose build）
-docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/f77pipeline:latest
-docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/cpppipeline:latest
-
-# HPC（Slurm + Apptainer）：转为 SIF 并提交
-bash f77_docker/runner/pull-sif.sh        # 或 cpp_docker/runner/pull-sif.sh
-cp f77_docker/runner/f77pipeline.env.example f77_docker/runner/f77pipeline.env
-# 按你的集群编辑 .env 路径
-sbatch f77_docker/runner/f77pipeline.slurm
+cd f77                         # 或 f77_Lite
+make LAPACK_LIB_DIR=/path/to/lapack/lib \
+     CFITSIO_LIB_DIR=/path/to/cfitsio/lib
+mpirun -np 4 ./Fourier_Quad_Pipe /data/work/expo_gband.list
 ```
 
-Docker 环境与 HPC runner 详细说明：[`F77_GUIDE_CN.md`](F77_GUIDE_CN.md) /
-[`CPP_GUIDE_CN.md`](CPP_GUIDE_CN.md)。
+Fortran 可执行文件只接受一个位置参数曝光表，不支持 C++ 的阶段 CLI。
 
----
+## 处理流程
 
-## 贡献
-这个项目是张骏教授一系列Fourier Quad方法的开源实现：
+C++ 驱动可执行五个顶层阶段：
 
-- Zhang, J. (2007). Measuring the cosmic shear in Fourier space: Measuring the cosmic shear in Fourier space. Monthly Notices of the Royal Astronomical Society, 383(1), 113–118. https://doi.org/10.1111/j.1365-2966.2007.12585.x
-- Zhang, J., Luo, W., & Foucaud, S. (2015). Accurate shear measurement with faint sources. Journal of Cosmology and Astroparticle Physics, 2015(01), 024–024. https://doi.org/10.1088/1475-7516/2015/01/024
-- Zhang, J., Zhang, P., & Luo, W. (2017). APPROACHING THE CRAMÉR–RAO BOUND IN WEAK LENSING WITH PDF SYMMETRIZATION. The Astrophysical Journal, 834(1), 8. https://doi.org/10.3847/1538-4357/834/1/8
+```text
+process_extcat -> process_init -> process_main -> process_rearr -> process_fd
+```
 
+C++ 的 `process_main` 与 Fortran 主程序均包含从预处理到星表合并的九个素数门控数值阶段。
 
+## 容器与 HPC
+
+- [`cpp_docker`](cpp_docker/) 提供 C++ 工具链镜像和 PMI2 Slurm/Apptainer runner。
+- [`f77_docker`](f77_docker/) 提供固定 GNU 4.8.5/MPICH 工具链，以及通用与 pilogin
+  Slurm 模板。
+
+镜像只含工具链与依赖；源码、星表、观测数据和输出均由宿主 bind 挂载。
+
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [C++ 指南](CPP_GUIDE_CN.md) / [English](CPP_GUIDE.md) | 编译、CLI、阶段、输入与输出 |
+| [C++ 参数](CPP_PIPELINE_PARAMETERS.md) | CLI/默认值、编译期参数和默认 44 列星表 |
+| [F77 指南](F77_GUIDE_CN.md) / [English](F77_GUIDE.md) | Fortran 配置、编译、运行与输出 |
+| [外部星表](gen_src_cat/README.md) | 独立重分块工具与 TAP 下载器 |
 
 ## 许可证
 
-仓库原创文件采用 [MIT 许可证](LICENSE)。下载的依赖库及 GCC 兼容性补丁仍受其上游
-许可证约束，详见：
-- [`f77_docker/THIRD_PARTY_NOTICES.md`](f77_docker/THIRD_PARTY_NOTICES.md)
-- [`cpp_docker/THIRD_PARTY_NOTICES.md`](cpp_docker/THIRD_PARTY_NOTICES.md)
-
+仓库自有代码采用 [MIT License](LICENSE)。容器依赖保留上游许可，详见各容器目录的
+第三方声明。

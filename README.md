@@ -1,112 +1,90 @@
-# Fourier_Quad_Pipeline
+# Fourier_Quad Pipeline
 
-A weak-lensing shear measurement pipeline based on the **Fourier\_Quad** method,
-provided in both **Fortran 77 (legacy)** and **C++ (Neo)** implementations,
-together with ready-to-use **Docker** build environments and **HPC**
-(Slurm/Apptainer) runner scripts.
+MPI software for Fourier_Quad weak-lensing processing of DECam data. This
+repository keeps the current C++17 pipeline, the legacy Fortran pipeline,
+container toolchains, Slurm runners, and external-catalog generation tools in
+one place.
 
-> **中文文档**：请参阅 [README_CN.md](README_CN.md)
+> 中文版：[README_CN.md](README_CN.md)
 
----
+## Choose a program
 
-## Overview
+| Directory | Purpose |
+|---|---|
+| [`cpp_Standard`](cpp_Standard/) | Full C++17 pipeline with optional scientific branches. |
+| [`cpp_Lite`](cpp_Lite/) | C++17 production path with unused branches removed. |
+| [`f77`](f77/) | Full Fortran pipeline. |
+| [`f77_Lite`](f77_Lite/) | Reduced Fortran production path. |
+| [`gen_src_cat`](gen_src_cat/) | Standalone MPI catalog repartitioner and DES Y6 TAP downloader. |
 
-The Fourier\_Quad method measures gravitational shear by computing fourth-order
-moments (the "quad" term) in Fourier space. This repository contains a complete,
-MPI-parallel pipeline that processes astronomical CCD images end-to-end: from
-pre-processing and astrometric calibration through source detection, PSF
-modeling, and shear estimation, to final catalog combination.
+All four pipeline variants build an executable named `Fourier_Quad_Pipe`.
+Build and run them from their own directories.
 
-Two independent codebases are maintained:
+## C++ quick start
 
-| Codebase | Language | Compiler | MPI | Key libraries |
-|---|---|---|---|---|
-| `f77` / `f77_Lite` | Fortran 77 (+ Fortran 90 module) | GCC 4.8.5 (gfortran) | MPICH 4.1.2 | CFITSIO 4.3.1, LAPACK 3.8.0, FFTPACK |
-| `cpp_Standard` / `cpp_Lite` | C++17 | G++ 12.3.0 | OpenMPI 4.1.8 | CFITSIO 4.6.4, FFTW 3.3.11, Eigen 3.4.0, LAPACK 3.11.0 |
-
-*The C++ version is recommended for modern environments.*
-
-Each codebase has two variants:
-
-- **Full** (`f77`, `cpp_Standard`): full feature set, including multi-scale /
-  PCA PSF reconstruction (`PSFRecons` / `proc_psfreconsV2.f`).
-- **Lite** (`f77_Lite`, `cpp_Lite`): frozen-branch simplified version. Eight
-  compile-time switches are fixed to their production values and all dead-code
-  branches are physically removed. See `cpp_Lite/REFACTOR_NOTES.md` for details.
-
----
-
-## Quick Start
-
-Two ways to run the pipeline. Choose a codebase (`f77` / `f77_Lite` or
-`cpp_Standard` / `cpp_Lite`) and one of the modes below; see
-[`F77_GUIDE.md`](F77_GUIDE.md) or [`CPP_GUIDE.md`](CPP_GUIDE.md) for full source,
-configuration, Docker, and HPC-runner details.
-
-First download the relevant source archives from the Releases.
-
-### Mode A - Build from source
-
-Manually install the toolchain, compile, and run the executable directly.
+Requires an MPI C++17 compiler, CFITSIO, FFTW3, Eigen3, LAPACK, and BLAS.
 
 ```bash
-# Fortran 77: gfortran + MPICH + CFITSIO + LAPACK/BLAS
-cd f77            # or f77_Lite
-# edit para.inc (paths, PROCESS_stage, ...)
-make
-mpirun -np 4 ./Fourier_Quad_Pipe expo_list.list
-
-# C++17: g++ + MPI + CFITSIO + FFTW3 + LAPACK/BLAS + Eigen3
-cd cpp_Standard   # or cpp_Lite
-# edit include/process_main/LensingConfig.hpp and include/ProcessConfig.hpp
+cd cpp_Lite                    # or cpp_Standard
 make -j4
-mpirun -np 4 ./Fourier_Quad_Pipe --expo-list expo_list.list
+./Fourier_Quad_Pipe --help
+mpirun -np 4 ./Fourier_Quad_Pipe \
+  --run-init false --run-main true --run-rearr false --run-fd false \
+  --expo-list /data/work/expo_gband.list
 ```
 
-Prerequisites and Makefile overrides: [`F77_GUIDE.md`](F77_GUIDE.md) /
-[`CPP_GUIDE.md`](CPP_GUIDE.md). The full C++ parameter reference is
-[`CPP_PIPELINE_PARAMETERS.md`](CPP_PIPELINE_PARAMETERS.md).
+This repository's C++ program is configured by CLI plus defaults in
+`config/*.hpp`; it does not accept `--config` INI files. Use explicit phase
+switches when the compiled site defaults are not appropriate.
 
-### Mode B - Use the runner with a prebuilt image
+## Fortran quick start
 
-Suitable when you prefer not to configure the environment manually, or when
-setting up the F77 environment is inconvenient.
-
-Pull a published image from GHCR (or build it locally with the Docker
-environment), then run locally or on an HPC cluster with the provided `runner/`
-scripts.
+Requires `mpif77`, CFITSIO, LAPACK, and BLAS. Edit the three include files
+before rebuilding.
 
 ```bash
-# Pull a published image (or: cd f77_docker && docker compose build)
-docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/f77pipeline:latest
-docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/cpppipeline:latest
-
-# HPC (Slurm + Apptainer): convert to a SIF and submit
-bash f77_docker/runner/pull-sif.sh        # or cpp_docker/runner/pull-sif.sh
-cp f77_docker/runner/f77pipeline.env.example f77_docker/runner/f77pipeline.env
-# edit the .env paths for your cluster
-sbatch f77_docker/runner/f77pipeline.slurm
+cd f77                         # or f77_Lite
+make LAPACK_LIB_DIR=/path/to/lapack/lib \
+     CFITSIO_LIB_DIR=/path/to/cfitsio/lib
+mpirun -np 4 ./Fourier_Quad_Pipe /data/work/expo_gband.list
 ```
 
-Docker environment and HPC-runner details: [`F77_GUIDE.md`](F77_GUIDE.md) /
-[`CPP_GUIDE.md`](CPP_GUIDE.md).
+The Fortran executable accepts one positional exposure-list path; it has no
+C++ phase CLI.
 
----
+## Processing flow
 
-## Contributing
+The C++ driver can run five top-level phases:
 
-This project is an open-source implementation of Prof. Zhang Jun's series of
-Fourier_Quad methods:
+```text
+process_extcat -> process_init -> process_main -> process_rearr -> process_fd
+```
 
-- Zhang, J. (2007). Measuring the cosmic shear in Fourier space: Measuring the cosmic shear in Fourier space. Monthly Notices of the Royal Astronomical Society, 383(1), 113–118. https://doi.org/10.1111/j.1365-2966.2007.12585.x
-- Zhang, J., Luo, W., & Foucaud, S. (2015). Accurate shear measurement with faint sources. Journal of Cosmology and Astroparticle Physics, 2015(01), 024–024. https://doi.org/10.1088/1475-7516/2015/01/024
-- Zhang, J., Zhang, P., & Luo, W. (2017). APPROACHING THE CRAMÉR–RAO BOUND IN WEAK LENSING WITH PDF SYMMETRIZATION. The Astrophysical Journal, 834(1), 8. https://doi.org/10.3847/1538-4357/834/1/8
+The C++ and Fortran `process_main`/main programs implement nine prime-gated
+numerical stages from preprocessing to catalog combination. See the dedicated
+guides for input, configuration, and output contracts.
 
+## Containers and HPC
+
+- [`cpp_docker`](cpp_docker/) supplies the C++ toolchain image and a PMI2
+  Slurm/Apptainer runner.
+- [`f77_docker`](f77_docker/) supplies the pinned GNU 4.8.5/MPICH toolchain and
+  generic plus pilogin Slurm templates.
+
+Images contain toolchains and libraries only. Source, catalogs, observation
+data, and outputs remain on bind-mounted host storage.
+
+## Documentation
+
+| Document | Purpose |
+|---|---|
+| [C++ guide](CPP_GUIDE.md) / [中文](CPP_GUIDE_CN.md) | Build, CLI, stages, inputs, and outputs |
+| [C++ parameters](CPP_PIPELINE_PARAMETERS.md) | CLI/default mapping, compile-time controls, and 44-column default catalog |
+| [F77 guide](F77_GUIDE.md) / [中文](F77_GUIDE_CN.md) | Fortran configuration, build, run, and outputs |
+| [External catalogs](gen_src_cat/README.md) | Standalone repartitioner and TAP downloader |
 
 ## License
 
-Repository-authored files are licensed under the [MIT License](LICENSE).
-Downloaded dependencies and the GCC compatibility patch remain subject to their
-upstream licenses; see:
-- [`f77_docker/THIRD_PARTY_NOTICES.md`](f77_docker/THIRD_PARTY_NOTICES.md)
-- [`cpp_docker/THIRD_PARTY_NOTICES.md`](cpp_docker/THIRD_PARTY_NOTICES.md)
+Repository-authored code is distributed under the [MIT License](LICENSE).
+Container dependencies retain their upstream licenses; consult each container
+directory's third-party notices.
