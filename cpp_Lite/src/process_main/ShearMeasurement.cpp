@@ -350,73 +350,106 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
                << "ra dec gf1 gf2 g1 g2 de h1 h2 cos2 sin2 parity\n";
 
         for (int i = 0; i < ngal; ++i) {
-            std::vector<float> gal_p(ns * ns);
-            std::copy(gal_p_coll.begin() + i * ns * ns, gal_p_coll.begin() + (i + 1) * ns * ns, gal_p.begin());
+            bool bad_source = gal_para[i][0] < -99990.0f;
 
-            double x = gal_para[i][1];
-            double y = gal_para[i][2];
+            if (!bad_source) {
+                std::vector<float> gal_p(ns * ns);
+                std::copy(
+                    gal_p_coll.begin() + i * ns * ns,
+                    gal_p_coll.begin() + (i + 1) * ns * ns,
+                    gal_p.begin());
 
-            std::vector<float> psf_model(ns * ns, 0.0f);
-            std::vector<float> psf_model0(ns * ns, 0.0f);
-            double xx = 2.0 * (x / static_cast<double>(chipnx)) - 1.0;
-            double yy = 2.0 * (y / static_cast<double>(chipny)) - 1.0;
-            PSFModel::getPSFModel(ns, npl, local_coe, xx, yy, psf_model, psf_model0);
+                double x = gal_para[i][1];
+                double y = gal_para[i][2];
 
-            if (std::isnan(psf_model[0])) {
-                for (int j = 0; j <= LensingConfig::iparity; ++j) {
-                    fout10 << "-999.0 ";
+                std::vector<float> psf_model(ns * ns, 0.0f);
+                std::vector<float> psf_model0(ns * ns, 0.0f);
+                double xx = 2.0 * (x / static_cast<double>(chipnx)) - 1.0;
+                double yy = 2.0 * (y / static_cast<double>(chipny)) - 1.0;
+                PSFModel::getPSFModel(
+                    ns, npl, local_coe, xx, yy, psf_model, psf_model0);
+
+                if (std::isnan(psf_model[0])) {
+                    bad_source = true;
+                    std::cerr << "Error / proc_shear PSF model layer1 for chip "
+                              << imageFiles[ichip] << std::endl;
                 }
-                fout10 << "\n";
-                std::cerr << "Error / proc_shear PSF model layer1 for chip " << imageFiles[ichip] << std::endl;
-                continue;
+
+                if (!bad_source) {
+                    float poly_chi2 = 0.0f;
+                    ExStar::anaChi2Simple(
+                        ns, psf_model.data(), psf_model0.data(), poly_chi2);
+                    // poly_chi2 = MINVAL(psf_model); // alternative
+
+                    gal_para[i][0] = (poly_chi2 - poly_ave) / poly_std;
+
+                    float psf_FWHM = 0.0f;
+                    getPSFArea(psf_model.data(), psf_FWHM);
+
+                    gal_para[i][LensingConfig::iPSF] = psf_FWHM;
+                    gal_para[i][LensingConfig::istar] = static_cast<float>(nstar);
+
+                    double ra = 0.0, dec = 0.0;
+                    Astrometry::coordinateTransferPU(
+                        ra, dec, x, y, 1, cRPIX, cD, cRVAL, PU,
+                        LensingConfig::npd);
+                    gal_para[i][LensingConfig::ira] = static_cast<float>(ra);
+                    gal_para[i][LensingConfig::idec] = static_cast<float>(dec);
+
+                    double gf1 = 0.0, gf2 = 0.0, cos2 = 0.0, sin2 = 0.0;
+                    int parity = 0;
+                    Astrometry::fieldDistortionPU(
+                        x, y, LensingConfig::npd, PU, cD, cRPIX,
+                        gf1, gf2, cos2, sin2, parity);
+
+                    gal_para[i][LensingConfig::igf1] = static_cast<float>(gf1);
+                    gal_para[i][LensingConfig::igf2] = static_cast<float>(gf2);
+
+                    float g1 = 0.0f, g2 = 0.0f, de = 0.0f;
+                    float h1 = 0.0f, h2 = 0.0f;
+                    getShear(
+                        ns, gal_p.data(), psf_model.data(),
+                        g1, g2, de, h1, h2);
+
+                    gal_para[i][LensingConfig::ig1] =
+                        static_cast<float>(g1 * cos2 + g2 * sin2);
+                    gal_para[i][LensingConfig::ig2] =
+                        static_cast<float>(g2 * cos2 - g1 * sin2);
+                    gal_para[i][LensingConfig::ide] = de;
+
+                    double cos4 = cos2 * cos2 - sin2 * sin2;
+                    double sin4 = 2.0 * sin2 * cos2;
+                    gal_para[i][LensingConfig::ih1] =
+                        static_cast<float>(h1 * cos4 + h2 * sin4);
+                    gal_para[i][LensingConfig::ih2] =
+                        static_cast<float>(h2 * cos4 - h1 * sin4);
+
+                    if (parity == -1) {
+                        gal_para[i][LensingConfig::ig2] =
+                            -gal_para[i][LensingConfig::ig2];
+                        gal_para[i][LensingConfig::ih2] =
+                            -gal_para[i][LensingConfig::ih2];
+                    }
+                    gal_para[i][LensingConfig::icos2] = static_cast<float>(cos2);
+                    gal_para[i][LensingConfig::isin2] = static_cast<float>(sin2);
+                    gal_para[i][LensingConfig::iparity] = static_cast<float>(parity);
+
+                    for (int j = 0; j <= LensingConfig::iparity; ++j) {
+                        if (!std::isfinite(gal_para[i][j])) {
+                            bad_source = true;
+                            break;
+                        }
+                    }
+                }
             }
-
-            float poly_chi2 = 0.0f;
-            ExStar::anaChi2Simple(ns, psf_model.data(), psf_model0.data(), poly_chi2);
-            // poly_chi2 = MINVAL(psf_model); // alternative
-
-            gal_para[i][0] = (poly_chi2 - poly_ave) / poly_std;
-
-            float psf_FWHM = 0.0f;
-            getPSFArea(psf_model.data(), psf_FWHM);
-
-            gal_para[i][LensingConfig::iPSF] = psf_FWHM;
-            gal_para[i][LensingConfig::istar] = static_cast<float>(nstar);
-
-            double ra = 0.0, dec = 0.0;
-            Astrometry::coordinateTransferPU(ra, dec, x, y, 1, cRPIX, cD, cRVAL, PU, LensingConfig::npd);
-            gal_para[i][LensingConfig::ira] = static_cast<float>(ra);
-            gal_para[i][LensingConfig::idec] = static_cast<float>(dec);
-
-            double gf1 = 0.0, gf2 = 0.0, cos2 = 0.0, sin2 = 0.0;
-            int parity = 0;
-            Astrometry::fieldDistortionPU(x, y, LensingConfig::npd, PU, cD, cRPIX, gf1, gf2, cos2, sin2, parity);
-
-            gal_para[i][LensingConfig::igf1] = static_cast<float>(gf1);
-            gal_para[i][LensingConfig::igf2] = static_cast<float>(gf2);
-
-            float g1 = 0.0f, g2 = 0.0f, de = 0.0f, h1 = 0.0f, h2 = 0.0f;
-            getShear(ns, gal_p.data(), psf_model.data(), g1, g2, de, h1, h2);
-
-            gal_para[i][LensingConfig::ig1] = static_cast<float>(g1 * cos2 + g2 * sin2);
-            gal_para[i][LensingConfig::ig2] = static_cast<float>(g2 * cos2 - g1 * sin2);
-            gal_para[i][LensingConfig::ide] = de;
-
-            double cos4 = cos2 * cos2 - sin2 * sin2;
-            double sin4 = 2.0 * sin2 * cos2;
-            gal_para[i][LensingConfig::ih1] = static_cast<float>(h1 * cos4 + h2 * sin4);
-            gal_para[i][LensingConfig::ih2] = static_cast<float>(h2 * cos4 - h1 * sin4);
-
-            if (parity == -1) {
-                gal_para[i][LensingConfig::ig2] = -gal_para[i][LensingConfig::ig2];
-                gal_para[i][LensingConfig::ih2] = -gal_para[i][LensingConfig::ih2];
-            }
-            gal_para[i][LensingConfig::icos2] = static_cast<float>(cos2);
-            gal_para[i][LensingConfig::isin2] = static_cast<float>(sin2);
-            gal_para[i][LensingConfig::iparity] = static_cast<float>(parity);
 
             for (int j = 0; j <= LensingConfig::iparity; ++j) {
-                fout10 << gal_para[i][j] << " ";
+                if (bad_source) {
+                    fout10 << -99999.0f;
+                } else {
+                    fout10 << gal_para[i][j];
+                }
+                fout10 << (j == LensingConfig::iparity ? "" : " ");
             }
             fout10 << "\n";
         }

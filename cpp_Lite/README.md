@@ -88,6 +88,22 @@ group policy, non-square state storage, and analytic LOO equivalence to explicit
 leave-one-out refits. Representative real exposures are still required to
 inspect PRESS versus brightness/SNR/FWHM and to benchmark Stage-5 wall time.
 
+## Stage 6--9 bad-source sentinel contract
+
+Stage 6 preserves every nonblank Stage-3 source-info row. A row containing a
+parsed NaN/Inf, or producing a non-finite `flux2`/`SNR_F`, is replaced by twelve
+hard-coded `-99999.0` values; its source-power slot remains an all-zero
+placeholder, so source row and stamp indices stay aligned. Structurally malformed
+tokens remain fatal input errors.
+
+Stage 7 recognizes the hard-coded `< -99990.0` source marker before copying its
+power stamp or evaluating Lite's retained local-polynomial PSF path. It preserves
+the PSF-model NaN check and scans all 24 output fields after later calculations.
+Every invalid case reaches the same final writer and emits exactly 24 `-99999.0`
+values. Stage 9 consumes the paired shear/original rows and uses its historical
+`cat[0] < -900` cut to omit sentinel sources. No deleted Lite branch and no new
+sentinel configuration was introduced.
+
 ## Validated build and regression checks
 
 The v1.3.1 capacity and failure-handling update was validated under WSL2 with

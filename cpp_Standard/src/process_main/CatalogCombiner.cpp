@@ -167,7 +167,7 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
                 m++;
                 continue;
             }
-            if (std::isnan(cat[0]) || cat[0] < -900.0f) {
+            if (cat[0] < -900.0f) {
                 m++;
                 continue;
             }

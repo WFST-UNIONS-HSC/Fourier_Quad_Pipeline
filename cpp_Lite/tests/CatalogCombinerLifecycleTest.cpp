@@ -96,7 +96,8 @@ public:
     // Function: Write independently populated shear and original catalogs
     // Method: Always write nonblank headers and optionally one data row per input.
     // ==========================================
-    void writeCatalogs(bool with_shear_data, bool with_original_data) const {
+    void writeCatalogs(bool with_shear_data, bool with_original_data,
+                       float first_shear_value = 0.0f) const {
         std::ofstream shear(shear_file_, std::ios::trunc);
         std::ofstream orig(orig_file_, std::ios::trunc);
         require(static_cast<bool>(shear) && static_cast<bool>(orig),
@@ -109,7 +110,8 @@ public:
         orig << "ra dec\n";
         if (with_shear_data) {
             for (int column = 0; column <= LensingConfig::iparity; ++column) {
-                shear << (column == 0 ? "0" : " 0");
+                shear << (column == 0 ? "" : " ")
+                      << (column == 0 ? first_shear_value : 0.0f);
             }
             shear << '\n';
         }
@@ -207,6 +209,22 @@ void testLiveOutput(TemporaryCatalogTree& tree) {
             "combined catalog data must end in the exposure Chi2");
 }
 
+// ==========================================
+// Function: Verify Stage-9 sentinel rejection preserves row pairing
+// Method: Combine one full-width sentinel shear row with its original row and
+//         require a header-only science catalog.
+// ==========================================
+void testSentinelOutput(TemporaryCatalogTree& tree) {
+    tree.writeCatalogs(true, true, -99999.0f);
+    tree.combine(0.0f);
+
+    std::ifstream output(tree.outputFile());
+    std::string header;
+    std::string row;
+    require(std::getline(output, header) && !std::getline(output, row),
+            "sentinel shear row must be consumed but omitted from science output");
+}
+
 }  // namespace
 
 // ==========================================
@@ -217,6 +235,7 @@ int main() {
     TemporaryCatalogTree tree;
     testNoOutputCases(tree);
     testLiveOutput(tree);
+    testSentinelOutput(tree);
     std::cout << "CatalogCombiner lifecycle tests passed\n";
     return EXIT_SUCCESS;
 }

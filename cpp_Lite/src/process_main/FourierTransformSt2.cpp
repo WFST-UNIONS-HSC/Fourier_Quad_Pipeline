@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <utility>
 
 
 namespace FourierTransformSt2 {
@@ -46,6 +47,7 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
     std::string info_filename = OutputLayout::chipPath(
         dirOutput, "stamps/dat_SrcInfo", raw_prefix, "_source_info.dat");
     std::vector<std::vector<float>> source_para;
+    std::vector<bool> bad_source_para;
 
     std::ifstream fin(info_filename);
     if (!fin.is_open()) {
@@ -61,16 +63,28 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
         if (line.empty()) continue;
         std::stringstream ss(line);
         std::vector<float> row(LensingConfig::npara, 0.0f);
-        bool success = true;
+        bool bad_source = false;
         for (int i = 0; i < iflag_col; ++i) {
-            if (!(ss >> row[i])) {
-                success = false;
-                break;
+            std::string token;
+            if (!(ss >> token)) {
+                MPIFailure::abortWorld(
+                    "parse Stage-3 source-info row", info_filename);
             }
+
+            char* token_end = nullptr;
+            const float value = std::strtof(token.c_str(), &token_end);
+            if (token_end != token.c_str() + token.size()) {
+                MPIFailure::abortWorld(
+                    "parse Stage-3 source-info token", info_filename);
+            }
+            row[i] = value;
+            bad_source = bad_source || !std::isfinite(value);
         }
-        if (success) {
-            source_para.push_back(row);
+        if (bad_source) {
+            std::fill(row.begin(), row.end(), -99999.0f);
         }
+        source_para.push_back(std::move(row));
+        bad_source_para.push_back(bad_source);
     }
     fin.close();
 
@@ -105,6 +119,10 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
         static_cast<size_t>(nsource) * ns * ns, 0.0f);
 
     for (int i = 0; i < nsource; ++i) {
+        if (bad_source_para[i]) {
+            continue;
+        }
+
         std::vector<float> source(ns * ns);
         std::vector<float> noise_product(ns * ns);
         std::copy(source_coll.begin() + i * ns * ns,
@@ -125,6 +143,16 @@ void chipProcessFourierTSt2(const std::string& imageFile, const std::string& dir
         float cen_val = source_p[ns_2 * ns + ns_2];
         source_para[i][10] = std::sqrt(std::max(static_cast<float>(pc), cen_val));
         source_para[i][11] = source_para[i][10] / source_para[i][3] * ns;
+        for (int j = 0; j <= LensingConfig::iSNR_F; ++j) {
+            if (!std::isfinite(source_para[i][j])) {
+                std::fill(source_para[i].begin(), source_para[i].end(), -99999.0f);
+                bad_source_para[i] = true;
+                break;
+            }
+        }
+        if (bad_source_para[i]) {
+            continue;
+        }
 
         if (!ImageProcessing::prepareNoisePower(
                 ns, noise_product, LensingConfig::NstampType, noise_p)) {
