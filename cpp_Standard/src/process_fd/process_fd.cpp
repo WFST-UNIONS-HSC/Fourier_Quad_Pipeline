@@ -6,7 +6,6 @@
 #include "process_fd/KMeansClusterer.hpp"
 #include "process_fd/FDMeasurement.hpp"
 #include "general/MPIScheduler.hpp"
-#include "general/NumericalRecipes.hpp"
 #include "general/ExposureList.hpp"
 #include "general/MPIUtils.hpp"
 
@@ -61,7 +60,6 @@ int process_fd(const std::string& exposure_list,
                const ProcessConfig::RuntimeOptions& options,
                const std::string& dataset_root) {
     const int rank = MPIScheduler::state.rank;
-    const int num_procs = MPIScheduler::state.size;
 
     // 1. Load and broadcast exposure list
     std::vector<std::string> expo_files;
@@ -78,10 +76,6 @@ int process_fd(const std::string& exposure_list,
         return 1;
     }
     int n_expo = static_cast<int>(expo_files.size());
-
-    // Initialize RNG
-    NumericalRecipes::initializeRan1Seed(rank, num_procs);
-    MPIScheduler::barrier();
 
     // 2. Allocate data arrays and read catalogs
     FDData data;

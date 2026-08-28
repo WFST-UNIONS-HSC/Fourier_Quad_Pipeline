@@ -1,5 +1,6 @@
 #include "process_fd/ShearCatalogReader.hpp"
 #include "FDConfig.hpp"
+#include "general/NumericalRecipes.hpp"
 
 #include <cmath>
 #include <fstream>
@@ -13,9 +14,9 @@ namespace lc = LensingConfig;
 
 // ==========================================
 // Function: readExposure
-// Method: Read one exposure's _all.cat file, apply quality cuts, deduplicate
-//         overlapping detections, and append valid sources to the shared
-//         FDData arrays.  Faithful translation of Fortran read_shear_cat_v2.
+// Method: Group raw valid rows by external-catalog coordinates, uniformly
+//         retain at most MAX_DUP measurements, then apply the existing FD cuts
+//         and append accepted measurements to the shared FDData arrays.
 // ==========================================
 void ShearCatalogReader::readExposure(int iexpo, FDData& data,
                                       const std::vector<std::string>& expo_files,
@@ -42,7 +43,8 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
                                             std::vector<float>(fc::ICHI2));
     int ndup = 0;
     float last_dec = -999.0, last_ra = -999.0;
-    const float multisam_thrsh = 1e-7;
+    bool have_group = false;
+    constexpr float multisam_thrsh = 1e-7f;
 
     std::string line;
     while (std::getline(file, line)) {
@@ -64,84 +66,67 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
         }
         if (undefined) continue;
 
-        // Pixel coordinates for chip-edge masking
-        int ix = static_cast<int>(item[fc::col_pixx]);  // pixel x
-        int iy = static_cast<int>(item[fc::col_pixy]);  // pixel y
+        // Duplicate grouping intentionally precedes every scientific cut.
+        const float current_dec = item[fc::col_cdec];
+        const float current_ra = item[fc::col_cra];
+        const bool new_galaxy =
+            have_group
+            && (std::fabs(current_dec - last_dec) > multisam_thrsh
+                || std::fabs(current_ra - last_ra) > multisam_thrsh);
 
-        // Bad CCD check
-        int ccd_val = static_cast<int>(std::lround(item[fc::col_ccd]));
-        bool bad_ccd = false;
-        for (int i = 0; i < fc::n_bad_ccds; ++i) {
-            if (ccd_val == fc::bad_ccds[i]) { bad_ccd = true; break; }
-        }
-        if (bad_ccd) continue;
-
-        // Chip-edge masking (DES)
-        if (ix < fc::chip_xmin || ix > fc::chip_xmax ||
-            iy < fc::chip_ymin || iy > fc::chip_ymax)
-            continue;
-
-        // External-catalog flag cuts
-        if (fc::ft_cut >= 0.0 && std::fabs(item[fc::col_flags_ft] - fc::ft_cut) > 1e-3) continue;
-        if (fc::fg_cut >= 0.0 && std::fabs(item[fc::col_flags_fg] - fc::fg_cut) > 1e-3) continue;
-        if (fc::gold_cut >= 0.0 && std::fabs(item[fc::col_flags_gold] - fc::gold_cut) > 1e-3) continue;
-        if (fc::ext_cut >= 0.0 && std::fabs(item[fc::col_ext_mash] - fc::ext_cut) > 1e-3) continue;
-
-        // SNR_F cut
-        if (item[fc::col_SNR_F] < fc::snrfcut) continue;
-
-        // SNR cut
-        float snr = item[fc::col_h_flux] / std::sqrt(item[fc::col_h_area]);
-        if (fc::snrlow > 0.0 && snr < fc::snrlow) continue;
-        if (fc::snrhigh > 0.0 && snr > fc::snrhigh) continue;
-
-        // Half-light radius cut
-        if (fc::r_half_thresh > 0.0) {
-            float r_half = std::sqrt(item[fc::col_h_area] / LensingConfig::pi) * LensingConfig::pixel_size * 2.0;
-            if (r_half <= fc::r_half_thresh * item[fc::col_PSF]) continue;
-        }
-
-        // Magnitude cut
-        if (item[fc::col_mag_i] < 10.0 || item[fc::col_mag_i] > 30.0) continue;
-
-        // PSF polychi2 cut
-        if (item[fc::col_polychi2] > fc::psf_chi2_mltp) continue;
-
-        // Star classification cut
-        if (item[fc::col_star] < fc::starcut) continue;
-
-        // Chi2 cut (single mode only; per-exposure uses col_chi2 for exposure index)
-        if (!fc::FD_PER_EXPOSURE_STAR_BAR) {
-            if (item[fc::col_chi2] > fc::chi2_thresh) continue;
-        }
-
-        // Flag cut
-        if (item[fc::col_flag] <= fc::flagcut) continue;
-
-        // Imax / Jmax cut
-        if (item[fc::col_imax] >= fc::imaxcut) continue;
-        if (item[fc::col_jmax] >= fc::jmaxcut) continue;
-
-        // Zero-point cut
-        if (item[fc::col_zp] <= fc::zplow) continue;
-        if (item[fc::col_zp] >= fc::zphigh) continue;
-
-        // Field-distortion range cut
-        if (std::fabs(item[fc::col_gf1]) > 0.0015) continue;
-        if (std::fabs(item[fc::col_gf2]) > 0.0015) continue;
-
-        // --- Duplicate detection ---
-        bool new_galaxy = false;
-        if (std::fabs(item[fc::col_dec] - last_dec) > multisam_thrsh ||
-            std::fabs(item[fc::col_ra] - last_ra) > multisam_thrsh) {
-            new_galaxy = true;
-            last_dec = item[fc::col_dec];
-            last_ra = item[fc::col_ra];
-        }
-
-        // Flush previous duplicates when a new galaxy is detected
+        // Flush the sampled measurements from the completed galaxy group.
         if (new_galaxy && ndup > 0) {
-            for (int i = 0; i < ndup && i < fc::MAX_DUP; ++i) {
+            const int selected_count =
+                ndup > fc::MAX_DUP ? fc::MAX_DUP : ndup;
+            for (int i = 0; i < selected_count; ++i) {
+                const std::vector<float>& row = dup_buf[i];
+
+                int ix = static_cast<int>(row[fc::col_pixx]);
+                int iy = static_cast<int>(row[fc::col_pixy]);
+                int ccd_val = static_cast<int>(std::lround(row[fc::col_ccd]));
+                bool bad_ccd = false;
+                for (int j = 0; j < fc::n_bad_ccds; ++j) {
+                    if (ccd_val == fc::bad_ccds[j]) {
+                        bad_ccd = true;
+                        break;
+                    }
+                }
+                if (bad_ccd) continue;
+                if (ix < fc::chip_xmin || ix > fc::chip_xmax ||
+                    iy < fc::chip_ymin || iy > fc::chip_ymax) continue;
+                if (fc::ft_cut >= 0.0 &&
+                    std::fabs(row[fc::col_flags_ft] - fc::ft_cut) > 1e-3) continue;
+                if (fc::fg_cut >= 0.0 &&
+                    std::fabs(row[fc::col_flags_fg] - fc::fg_cut) > 1e-3) continue;
+                if (fc::gold_cut >= 0.0 &&
+                    std::fabs(row[fc::col_flags_gold] - fc::gold_cut) > 1e-3) continue;
+                if (fc::ext_cut >= 0.0 &&
+                    std::fabs(row[fc::col_ext_mash] - fc::ext_cut) > 1e-3) continue;
+                if (row[fc::col_SNR_F] < fc::snrfcut) continue;
+
+                float snr = row[fc::col_h_flux] /
+                            std::sqrt(row[fc::col_h_area]);
+                if (fc::snrlow > 0.0 && snr < fc::snrlow) continue;
+                if (fc::snrhigh > 0.0 && snr > fc::snrhigh) continue;
+                if (fc::r_half_thresh > 0.0) {
+                    float r_half =
+                        std::sqrt(row[fc::col_h_area] / LensingConfig::pi) *
+                        LensingConfig::pixel_size * 2.0;
+                    if (r_half <= fc::r_half_thresh * row[fc::col_PSF]) continue;
+                }
+                if (row[fc::col_mag_i] < 10.0 || row[fc::col_mag_i] > 30.0) continue;
+                if (row[fc::col_polychi2] > fc::psf_chi2_mltp) continue;
+                if (row[fc::col_star] < fc::starcut) continue;
+                if (!fc::FD_PER_EXPOSURE_STAR_BAR &&
+                    row[fc::col_chi2] > fc::chi2_thresh) continue;
+                if (row[fc::col_flag] <= fc::flagcut) continue;
+                if (row[fc::col_imax] >= fc::imaxcut) continue;
+                if (row[fc::col_jmax] >= fc::jmaxcut) continue;
+                if (row[fc::col_zp] <= fc::zplow) continue;
+                if (row[fc::col_zp] >= fc::zphigh) continue;
+                if (std::fabs(row[fc::col_gf1]) > 0.0015) continue;
+                if (std::fabs(row[fc::col_gf2]) > 0.0015) continue;
+
                 int idx = data.ng;
                 if (idx >= fc::nmax_per_core) {
                     std::cerr << "nmax_per_core is too small!" << std::endl;
@@ -185,17 +170,82 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
             ndup = 0;
         }
 
-        // Store current row in duplicate buffer
-        if (ndup < fc::MAX_DUP) {
-            for (int u = 0; u < fc::ICHI2; ++u)
-                dup_buf[ndup][u] = item[u];
+        if (!have_group || new_galaxy) {
+            last_dec = current_dec;
+            last_ra = current_ra;
+            have_group = true;
         }
-        ndup++;
+
+        // ==========================================
+        // Logic: Uniformly retain MAX_DUP measurements from the raw group
+        // Method: Apply reservoir sampling before any scientific cut, using
+        //         the per-rank ran1 stream initialized once by main.cpp.
+        // ==========================================
+        if (ndup < fc::MAX_DUP) {
+            dup_buf[ndup] = item;
+        } else {
+            const int reservoir_index = static_cast<int>(
+                NumericalRecipes::ran1() * static_cast<double>(ndup + 1));
+            if (reservoir_index < fc::MAX_DUP) {
+                dup_buf[reservoir_index] = item;
+            }
+        }
+        ++ndup;
     }
 
     // Flush remaining duplicates
     if (ndup > 0) {
-        for (int i = 0; i < ndup && i < fc::MAX_DUP; ++i) {
+        const int selected_count =
+            ndup > fc::MAX_DUP ? fc::MAX_DUP : ndup;
+        for (int i = 0; i < selected_count; ++i) {
+            const std::vector<float>& row = dup_buf[i];
+
+            int ix = static_cast<int>(row[fc::col_pixx]);
+            int iy = static_cast<int>(row[fc::col_pixy]);
+            int ccd_val = static_cast<int>(std::lround(row[fc::col_ccd]));
+            bool bad_ccd = false;
+            for (int j = 0; j < fc::n_bad_ccds; ++j) {
+                if (ccd_val == fc::bad_ccds[j]) {
+                    bad_ccd = true;
+                    break;
+                }
+            }
+            if (bad_ccd) continue;
+            if (ix < fc::chip_xmin || ix > fc::chip_xmax ||
+                iy < fc::chip_ymin || iy > fc::chip_ymax) continue;
+            if (fc::ft_cut >= 0.0 &&
+                std::fabs(row[fc::col_flags_ft] - fc::ft_cut) > 1e-3) continue;
+            if (fc::fg_cut >= 0.0 &&
+                std::fabs(row[fc::col_flags_fg] - fc::fg_cut) > 1e-3) continue;
+            if (fc::gold_cut >= 0.0 &&
+                std::fabs(row[fc::col_flags_gold] - fc::gold_cut) > 1e-3) continue;
+            if (fc::ext_cut >= 0.0 &&
+                std::fabs(row[fc::col_ext_mash] - fc::ext_cut) > 1e-3) continue;
+            if (row[fc::col_SNR_F] < fc::snrfcut) continue;
+
+            float snr = row[fc::col_h_flux] /
+                        std::sqrt(row[fc::col_h_area]);
+            if (fc::snrlow > 0.0 && snr < fc::snrlow) continue;
+            if (fc::snrhigh > 0.0 && snr > fc::snrhigh) continue;
+            if (fc::r_half_thresh > 0.0) {
+                float r_half =
+                    std::sqrt(row[fc::col_h_area] / LensingConfig::pi) *
+                    LensingConfig::pixel_size * 2.0;
+                if (r_half <= fc::r_half_thresh * row[fc::col_PSF]) continue;
+            }
+            if (row[fc::col_mag_i] < 10.0 || row[fc::col_mag_i] > 30.0) continue;
+            if (row[fc::col_polychi2] > fc::psf_chi2_mltp) continue;
+            if (row[fc::col_star] < fc::starcut) continue;
+            if (!fc::FD_PER_EXPOSURE_STAR_BAR &&
+                row[fc::col_chi2] > fc::chi2_thresh) continue;
+            if (row[fc::col_flag] <= fc::flagcut) continue;
+            if (row[fc::col_imax] >= fc::imaxcut) continue;
+            if (row[fc::col_jmax] >= fc::jmaxcut) continue;
+            if (row[fc::col_zp] <= fc::zplow) continue;
+            if (row[fc::col_zp] >= fc::zphigh) continue;
+            if (std::fabs(row[fc::col_gf1]) > 0.0015) continue;
+            if (std::fabs(row[fc::col_gf2]) > 0.0015) continue;
+
             int idx = data.ng;
             if (idx >= fc::nmax_per_core) {
                 std::cerr << "nmax_per_core is too small!" << std::endl;

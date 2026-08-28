@@ -15,7 +15,16 @@ namespace LensingConfig {
 
     // Stage control parameters
     constexpr int ASTROMETRY_trivial = 0;  // Use Gaia astrometry; one selects identity mapping.
-    constexpr int PROCESS_stage = 2 * 3 * 5 * 7 * 11 * 13 * 17 * 19 * 23;  // Prime-product stage selector.
+    constexpr int PROCESS_stage =          // Prime-product stage selector.
+                                2 *        // Pre-Process
+                                3 *        // Astrometry
+                                5 *        // Source extractor
+                                7 *        // FFT for star candidate
+                                11 *       // Star selection
+                                13 *       // FFT for source
+                                17 *       // Shear measurement
+                                19 *       // Exposure info
+                                23;        // Catalog Combiners
     constexpr int include_FLAT = 0;  // Apply super-flat correction when one.
     constexpr int include_Mask = 2;  // Select the DQ-mask input mode.
     constexpr int include_BGsub = 1;  // Subtract the fitted science-image background.
