@@ -4,7 +4,7 @@
 
 ## 概述
 
-面向 DECam 数据的 Fourier_Quad 弱透镜 MPI 软件。本仓库提供当前 C++17 与旧版
+基于Fourier_Quad 剪切测量方法的 Fourier_Quad 弱透镜 MPI 软件。本仓库提供当前 C++17 与旧版
 Fortran 两种实现，每种实现均有 Standard 和 Lite 版本。
 
 ## Pipeline 版本
@@ -110,7 +110,7 @@ mpirun -np 4 ./Fourier_Quad_Pipe /data/work/expo_gband.list
 | 输入 | 必选 | 用途 | 最低要求 |
 |---|---:|---|---|
 | Science images | 是 | Pipeline 对其执行源检测、形状测量和弱透镜处理的科学曝光图像。 | 代码支持的 Science FITS/FZ 数据，且文件组织符合配置的曝光与 CCD 识别规则。 |
-| Gaia catalog | 是 | 为天体匹配和测天标定提供高精度天球坐标参考。 | 覆盖 Science images 天区，并转换为所选 Pipeline 预期的 Gaia tile/catalog 格式。 |
+| Gaia catalog | 是 | 为天体匹配和测天标定提供高精度天球坐标参考。 | 覆盖 Science images 天区；每个文件第一行为表头，后续行两个字段为数值型 `ra`、`dec`。 |
 | External source catalog | 是 | 为外部源匹配和下游处理提供天球位置、`zp` 与光度。 | 包含 `ra`、`dec`、`zp` 和至少一个观测波段的星等。 |
 | DQ masks | 取决于配置（输入类别可选） | 标记坏像素、饱和、探测器缺陷及其他无效像素。 | 仅当所选配置不读取 DQ masks 时才可省略。 |
 
@@ -123,8 +123,23 @@ Science images 是主要科学曝光图像，不是标定星表或输出目录�
 ### Gaia catalog
 
 Gaia catalog 为天体匹配和测天标定提供精确 RA/Dec 参考位置。它必须覆盖实际 Science
-images 天区，采用 Pipeline 预期的 tile/catalog 组织方式，并配置正确的 Gaia catalog
-路径。它无需包含与 External source catalog 相同的光度列。
+images 天区，并直接存放在配置的 `ASTROMETRY_CAT` 目录下。读取器会跳过第一行表头，
+再把后续每行的前两个数值字段读作 RA 和 Dec；数据行可用逗号或空白分隔，额外字段会
+被忽略。
+
+**文件名规范：** 
+-  `|Dec| < 80°` : `gaia_<p|m><D>_<RR>.cat`
+其中`D = floor(|Dec| / 10) + 1`（1-8），`RR = floor(RA / 10)`（00-35，不足两位
+补零）。
+-  `|Dec| >= 80°` : 不带 RA 后缀 `gaia_<p|m>9.cat`。
+- 其中, `p`表示 Dec 非负，`m` 表示 Dec 为负。
+- 单个文件必须包含一行表头
+> 示例：
+> 1. gaia_p1_00.cat 覆盖 `0° <= RA < 10°`、`0° <= Dec < 10°`
+> 2. gaia_m3_12.cat 覆盖 `120° <= RA < 130°`、`-30° < Dec <= -20°` 
+> 3. gaia_p9.cat 覆盖 `0° <= RA < 360°`、`80° <= Dec <= 90°`
+*为了保证位于10°×10°格点边缘的曝光仍能选到星，建议单个星表的dec覆盖上下限在上述基础上
+增减2°，ra上下限在0°/30°/60°范围分别增减2°/4°/6°。*
 
 ### External source catalog
 
@@ -140,6 +155,13 @@ images 天区，采用 Pipeline 预期的 tile/catalog 组织方式，并配置�
 用户可以保留额外颜色、redshift、object class、shape 和 flag，但它们不属于最低输入
 要求。实际列位置、列名、delimiter、header 处理和投影由 `config/ExtCatConfig.hpp`
 或其已记录的 CLI 覆盖项配置。
+
+**文件名规范：** 
+- 1° × 1° 分片 : `des_y6_RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`
+- RA 边界固定为三位数字；Dec 边界由 `p` 或 `m` 加两位绝对值组成；每个上边界比下边界大 1 度。
+- 单个文件必须包含一行表头
+> 示例：
+> `des_y6_RA_123_124_Dec_m05_m04.dat` 覆盖 `123° <= RA < 124°`、`-5° <= Dec < -4°`。
 
 ### DQ masks（可选）
 

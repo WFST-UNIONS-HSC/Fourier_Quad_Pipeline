@@ -1497,7 +1497,8 @@ namespace PSFModel {
 
     // ==========================================
     // Function: Fit and serialize local PSF models.
-    // Method: Preserve F77 model layout with 17-digit double serialization.
+    // Method: Preserve F77 model layout while separating analytic-LOO model
+    //         diagnostics from final full-fit residuals used by Stage-6 PCA.
     // ==========================================
     void makePSFLocalFit(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, ExposurePSFState& state) {
         int ns = LensingConfig::ns;
@@ -1620,33 +1621,46 @@ namespace PSFModel {
                     ExStar::anaChi2Simple(ns, model.data(), model0.data(), poly_cochi2[i]);
 
                     std::vector<float> loo_model(static_cast<std::size_t>(ns) * ns);
-                    std::vector<float> loo_residual(static_cast<std::size_t>(ns) * ns);
+                    std::vector<float> full_fit_residual;
+                    if (LensingConfig::PSF_Ms == 1) {
+                        full_fit_residual.resize(static_cast<std::size_t>(ns) * ns);
+                    }
+
+                    // ==========================================
+                    // Critical logic: Separate diagnostic and reconstruction residual semantics.
+                    // Method: Retain ordinary residuals for PCA while deriving the LOO model independently.
+                    // ==========================================
                     for (int idx = 0; idx < ns * ns; ++idx) {
                         const double observed = star_local[
                             static_cast<std::size_t>(i) * ns * ns + idx];
-                        double residual_value = 0.0;
-                        double model_value = 0.0;
+                        if (LensingConfig::PSF_Ms == 1) {
+                            full_fit_residual[idx] = static_cast<float>(
+                                observed - static_cast<double>(model[idx]));
+                        }
+
+                        double loo_residual_value = 0.0;
+                        double loo_model_value = 0.0;
                         if (!Internal::computeAnalyticLOO(
                                 observed, model[idx], final_leverage[i],
                                 LensingConfig::psf_loo_min_denom,
-                                residual_value, model_value)) {
+                                loo_residual_value, loo_model_value)) {
                             MPIFailure::abortWorld(
                                 "generate final PSF LOO diagnostics",
                                 "exposure=" + prefix_e
                                     + " chip=" + std::to_string(k + 1)
                                     + " star=" + std::to_string(i));
                         }
-                        loo_residual[idx] = static_cast<float>(residual_value);
-                        loo_model[idx] = static_cast<float>(model_value);
+                        loo_model[idx] = static_cast<float>(loo_model_value);
                     }
 
-                    std::array<double, 2> ee = {0.0, 0.0};
-                    double size = 0.0;
-                    getPowerAll(ns, ns, loo_model, ee, size, 0.02f);
+                    std::array<double, 2> loo_model_shape = {0.0, 0.0};
+                    double loo_model_size = 0.0;
+                    getPowerAll(
+                        ns, ns, loo_model, loo_model_shape, loo_model_size, 0.02f);
 
-                    double msshape_size = size;
-                    double msshape_e1 = ee[0];
-                    double msshape_e2 = ee[1];
+                    double msshape_size = loo_model_size;
+                    double msshape_e1 = loo_model_shape[0];
+                    double msshape_e2 = loo_model_shape[1];
 
                     float px = static_cast<float>(posi[i][0]);
                     float py = static_cast<float>(posi[i][1]);
@@ -1656,16 +1670,25 @@ namespace PSFModel {
                            << msshape_size << " " << msshape_e1 << " " << msshape_e2 << "\n";
 
                     if (LensingConfig::PSF_Ms == 1) {
-                        if (size < 0.1 || !std::isfinite(loo_model[0])) {
+                        // ==========================================
+                        // Critical logic: Keep paired PCA inputs on final full-fit semantics.
+                        // Method: Validate the full-fit model and store its rescaled ordinary residual.
+                        // ==========================================
+                        std::array<double, 2> full_model_shape = {0.0, 0.0};
+                        double full_model_size = 0.0;
+                        getPowerAll(
+                            ns, ns, model, full_model_shape, full_model_size, 0.02f);
+
+                        if (full_model_size < 0.1 || !std::isfinite(model[0])) {
                             file20 << "-1 -1\n";
                         } else {
                             file20 << px << " " << py << "\n";
                         }
 
-                        std::vector<float> temp_res = loo_residual;
-                        PSF_rescale(temp_res, res_factor);
+                        PSF_rescale(full_fit_residual, res_factor);
                         for (int idx = 0; idx < ns * ns; ++idx) {
-                            psf_residual[static_cast<size_t>(i) * ns * ns + idx] = temp_res[idx];
+                            psf_residual[static_cast<size_t>(i) * ns * ns + idx] =
+                                full_fit_residual[idx];
                         }
                     }
                 }

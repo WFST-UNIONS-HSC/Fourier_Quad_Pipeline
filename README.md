@@ -4,9 +4,8 @@
 
 ## Overview
 
-MPI software for Fourier_Quad weak-lensing processing of DECam data. The
-repository provides current C++17 and legacy Fortran implementations, each in
-Standard and Lite variants.
+Modern C++17 and Legacy F77 implementation of the Fourier_Quad weak-lensing shear measurement pipeline. The
+repository provides current C++17 and legacy Fortran implementations, each in Standard and Lite variants.
 
 ## Pipeline variants
 
@@ -115,7 +114,7 @@ arguments, phase selection, and run examples.
 | Input | Required | Purpose | Minimum requirement |
 |---|---:|---|---|
 | Science images | Yes | Exposures on which the Pipeline performs source detection, shape measurement, and weak-lensing processing. | Supported Science FITS/FZ data whose file organization matches the configured exposure and CCD recognition rules. |
-| Gaia catalog | Yes | High-precision sky-coordinate reference for source matching and astrometric calibration. | Covers the Science-image footprint and is converted to the Gaia tile/catalog format expected by the selected Pipeline. |
+| Gaia catalog | Yes | High-precision sky-coordinate reference for source matching and astrometric calibration. | Covers the Science-image footprint; each file has one header line, followed by rows whose two fields are numeric `ra` and `dec`. |
 | External source catalog | Yes | Supplies sky positions, `zp`, and photometry for external-source matching and downstream processing. | Contains `ra`, `dec`, `zp`, and a magnitude in at least one observed band. |
 | DQ masks | Configuration-dependent (optional input class) | Marks bad, saturated, defective, or otherwise invalid pixels. | May be omitted only when the selected configuration does not read DQ masks. |
 
@@ -130,10 +129,25 @@ and list conventions described in the detailed guide.
 
 The Gaia catalog supplies accurate RA/Dec reference positions for object
 matching and astrometric calibration. It must cover the actual Science-image
-footprint, use the tile/catalog organization expected by the Pipeline, and be
-configured at the correct Gaia catalog path. It does not need the same
-photometric columns as the External source catalog.
+footprint and be stored directly under the configured `ASTROMETRY_CAT` directory.
+The reader skips the first line as a header, then reads the first two numeric
+fields of each remaining row as RA and Dec. Rows may be comma- or
+whitespace-separated; additional fields are ignored.
 
+**Filename convention:**
+
+- `|Dec| < 80°`: `gaia_<p|m><D>_<RR>.cat`, where
+  `D = floor(|Dec| / 10) + 1` (1-8) and `RR = floor(RA / 10)` (00-35,
+  zero-padded).
+- `|Dec| >= 80°`: `gaia_<p|m>9.cat`, without an RA suffix.
+- `p` denotes nonnegative Dec; `m` denotes negative Dec.
+- Each file must contain one header line.
+
+> Examples:
+> 1. gaia_p1_00.cat covers `0° <= RA < 10°` and `0° <= Dec < 10°`
+> 2. gaia_m3_12.cat covers `120° <= RA < 130°` and `-30° < Dec <= -20°` 
+> 3. gaia_p9.cat covers `0° <= RA < 360°` and `80° <= Dec <= 90°`
+*To ensure that stars can still be selected for exposures located at the edges of the 10°×10° grid, it is recommended to expand the upper and lower Dec coverage limits of a single star catalog by 2° based on the aforementioned limits, and expand the upper and lower RA limits by 2°, 4°, and 6° within the 0°, 30°, and 60° ranges, respectively.*
 ### External source catalog
 
 The minimum schema is intentionally survey- and band-independent:
@@ -149,6 +163,17 @@ Additional colors, redshifts, object classes, shapes, and flags may be retained,
 but they are not part of this minimum input contract. Configure actual column
 positions, names, delimiter, header handling, and projection in
 `config/ExtCatConfig.hpp` or with its documented CLI overrides.
+
+**Filename convention:**
+
+- 1° × 1° tile: `des_y6_RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`.
+- RA boundaries use three digits. Dec boundaries use `p` or `m` plus a two-digit
+  absolute value. Each upper boundary is one degree above its lower boundary.
+- Each file must contain one header line.
+
+> Example:
+> `des_y6_RA_123_124_Dec_m05_m04.dat` covers `123° <= RA < 124°` and
+> `-5° <= Dec < -4°`.
 
 ### DQ masks (optional)
 
