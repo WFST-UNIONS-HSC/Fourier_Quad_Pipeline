@@ -92,6 +92,41 @@ Common values include:
 | `TARGET_SUBCAT_ROWS` | `500000` | Target rows per spatial partition. |
 | `fd_num`, `PDF_BINS` | `21`, `4` | FD outer and inner bin counts. |
 
+### Stage-5 PSF star selection
+
+These controls are compile-time settings shared by Standard and Lite:
+
+| Symbol | Default | Meaning |
+|---|---:|---|
+| `psf_exposure_min_candidates` | `60` | Minimum quality-valid candidates before exposure selection. |
+| `psf_fwhm_hist_bins` | `128` | FWHM-locus histogram bins. |
+| `psf_fwhm_locus_sigma` | `4.0` | Robust FWHM-locus width multiplier. |
+| `psf_fwhm_locus_min_samples` | `30` | Minimum samples for a valid exposure locus. |
+| `psf_minchi_reference_fraction` | `1/3` | Largest exposure-wide locus fraction eligible as threshold references. |
+| `psf_minchi_reference_max_per_chip` | `5` | Maximum references retained per chip within that top fraction. |
+| `psf_minchi_sigma_cut` | `4.0` | Upper-tail cut for the reference-all pair sample. |
+| `PsfGroupingType` | `2` | `1` legacy threshold graph; `2` survivor-only mutual KNN. |
+| `psf_knn_k` | `8` | Exact neighbours retained in mutual-KNN mode. |
+| `psf_group_merge_ratio` | `0.30` | Secondary/main group size ratio. |
+| `psf_group_merge_min_gaia` | `2` | Gaia matches required for a secondary group. |
+| `psf_press_rejection_enabled` | `true` | Enable optional standardized-PRESS removal/refit. |
+| `psf_press_sigma_cut` | `4.0` | Exposure cut for leverage-standardized PRESS. |
+| `psf_press_max_removals` | `5` | Maximum proposed removals allowed per chip. |
+| `psf_loo_min_denom` | `1e-6` | Minimum accepted analytic-LOO denominator `1-h`. |
+
+Every same-chip locus pair contributes to the endpoint `min_chi` values. Only
+unique pairs with at least one capped large-size reference contribute to the
+common minChi threshold. The Type-1 graph continues to estimate its private
+legacy all-FWHM-pair threshold.
+
+Raw PRESS is the central-window analytic-LOO RMS. Rejection uses
+`raw_press * sqrt(1 - leverage)` without another amplitude normalization. The
+first fit remains final when rejection is disabled, no outlier is found, more
+than five are flagged, fewer than 16 would remain, or the temporary refit
+fails. Thus `psf_press_rejection_enabled=false` disables only rejection, not
+the first fit, leverage, analytic LOO, raw/standardized scores, or final LOO
+residual generation.
+
 Standard retains eight selectable branches. Lite fixes them to Gaia
 astrometry, no flat, DQ mask mode 2, external catalog, frame-star PSF,
 deblending, local PSF, and no PCA. Missing Lite branches cannot be restored by

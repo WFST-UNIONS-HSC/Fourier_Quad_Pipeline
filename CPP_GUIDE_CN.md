@@ -55,8 +55,18 @@ make -j4
 ./Fourier_Quad_Pipe --help
 ```
 
-其他安装位置可传入 `CXX`、`STACK_PREFIX` 与 `EIGEN_INCLUDE`。当前 Makefile 目标只有
-`all`、`clean`、`test-general-infrastructure`。
+其他安装位置可传入 `CXX`、`STACK_PREFIX` 与 `EIGEN_INCLUDE`。当前 Makefile 目标包括
+`all`、`clean`、`test-general-infrastructure`、`test-psf-star-selection`、
+`test-psf-model-state` 与组合目标 `test-stage5`。后者执行两个 Stage-5 专项测试。
+本地验证环境为 GCC 15.2.0 的 MPI C++ wrapper，并可用 CFITSIO 4.6.3 与
+FFTW3 3.3.10；该环境未安装 Eigen3，因此生产源码编译必须使用包含上述全部依赖的
+完整站点软件栈。
+
+Stage 5 使用所有同 CCD FWHM-locus 无序配对计算每个候选体的真实最近形态距离，
+曝光阈值则单独由“受限大尺寸 reference 与其他 locus 星”的唯一配对估计。合法的首次
+PSF 拟合始终作为回退：raw analytic PRESS 只作为诊断，leverage-standardized PRESS
+仅驱动有删除上限的可选删除/重拟合事务。关闭 rejection 不会关闭拟合、leverage、
+LOO 或 PRESS 诊断。
 
 ## 配置与 CLI
 

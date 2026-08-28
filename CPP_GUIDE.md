@@ -67,8 +67,20 @@ make CXX=/path/to/mpicxx STACK_PREFIX=/opt/science-stack \
      EIGEN_INCLUDE=/opt/eigen/include/eigen3 -j4
 ```
 
-Current Make targets are `all`, `clean`, and
-`test-general-infrastructure`.
+Current Make targets are `all`, `clean`, `test-general-infrastructure`,
+`test-psf-star-selection`, `test-psf-model-state`, and `test-stage5`.
+The last target runs both focused Stage-5 suites. Local verification used a
+GCC 15.2.0 MPI C++ wrapper with CFITSIO 4.6.3 and FFTW3 3.3.10 available.
+Eigen3 is not installed in that local environment, so production-source
+compilation must use a complete site stack containing every library above.
+
+Stage 5 uses all same-chip FWHM-locus pairs to compute each candidate's true
+nearest morphology distance. Its exposure threshold is estimated separately
+from unique pairs touching capped large-size references. The first PSF fit is
+always retained as a valid fallback: raw analytic PRESS remains a diagnostic,
+while leverage-standardized PRESS drives an optional, capped removal/refit
+transaction. Disabling rejection does not disable fitting, leverage, LOO, or
+PRESS diagnostics.
 
 ## Configuration and CLI
 

@@ -69,7 +69,10 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(DEPS) $(TARGET) /tmp/FourierQuadGeneralInfrastructureTest
+	rm -f $(OBJS) $(DEPS) $(TARGET) \
+		/tmp/FourierQuadGeneralInfrastructureTest \
+		/tmp/FourierQuadPipelineStandardPSFStarSelectionTest \
+		/tmp/FourierQuadPipelineStandardPSFModelStateTest
 
 test-general-infrastructure:
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) \
@@ -80,6 +83,22 @@ test-general-infrastructure:
 	OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
 		$(MPIRUN) -np 2 /tmp/FourierQuadGeneralInfrastructureTest
 
+test-psf-star-selection:
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) \
+		tests/PSFStarSelectionTest.cpp \
+		src/process_main/PSFStarSelection.cpp \
+		-o /tmp/FourierQuadPipelineStandardPSFStarSelectionTest
+	/tmp/FourierQuadPipelineStandardPSFStarSelectionTest
+
+test-psf-model-state:
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) \
+		tests/PSFModelStateTest.cpp \
+		-o /tmp/FourierQuadPipelineStandardPSFModelStateTest
+	/tmp/FourierQuadPipelineStandardPSFModelStateTest
+
+test-stage5: test-psf-star-selection test-psf-model-state
+
 -include $(DEPS)
 
-.PHONY: all clean test-general-infrastructure
+.PHONY: all clean test-general-infrastructure test-psf-star-selection \
+	test-psf-model-state test-stage5

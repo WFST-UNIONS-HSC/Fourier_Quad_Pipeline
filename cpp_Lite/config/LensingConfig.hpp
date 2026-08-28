@@ -61,26 +61,37 @@ namespace LensingConfig {
     // Method: Preserve Lite's frozen local-PSF/Gaia branches while keeping the
     //         common selection topology and rejection thresholds explicit.
     // ==========================================
-    constexpr int psf_exposure_min_candidates = 192;  // Minimum exposure-wide PSF candidates.
+    constexpr int psf_exposure_min_candidates = 60;  // Minimum exposure-wide PSF candidates.
     constexpr int psf_fwhm_hist_bins = 128;  // FWHM histogram bin count.
     constexpr double psf_fwhm_locus_sigma = 4.0;  // Exposure FWHM-locus sigma window.
     constexpr int psf_fwhm_locus_min_samples = 30;  // Minimum FWHM-locus samples.
     constexpr int PsfGroupingType = 2;  // One selects threshold graph; two selects mutual KNN.
+    constexpr double psf_minchi_reference_fraction = 1.0 / 3.0;  // Exposure top-size reference fraction.
+    constexpr int psf_minchi_reference_max_per_chip = 5;  // Reference-star cap per chip.
     constexpr double psf_minchi_sigma_cut = 4.0;  // Minimum-chi rejection sigma.
     constexpr int psf_knn_k = 8;  // Neighbors retained by the PSF KNN graph.
     constexpr double psf_group_merge_ratio = 0.30;  // Secondary-group relative-size threshold.
     constexpr int psf_group_merge_min_gaia = 2;  // Minimum Gaia matches in a merged group.
     constexpr double psf_gaia_match_radius_pix = 2.5;  // Gaia match radius in pixels.
     constexpr int psf_gaia_locus_min_matches = 10;  // Minimum Gaia matches for locus support.
-    constexpr double psf_press_sigma_cut = 4.0;  // Analytic PRESS rejection sigma.
+    constexpr bool psf_press_rejection_enabled = true;  // Enable optional post-fit PRESS cleanup.
+    constexpr double psf_press_sigma_cut = 4.0;  // Standardized PRESS rejection sigma.
+    constexpr int psf_press_max_removals = 5;  // Maximum PRESS removals permitted per chip.
     constexpr double psf_loo_min_denom = 1.0e-6;  // Minimum leave-one-out denominator.
     static_assert(PsfGroupingType == 1 || PsfGroupingType == 2,
                   "PsfGroupingType must be 1 or 2");
     static_assert(psf_exposure_min_candidates > 0,
                   "PSF exposure minimum must be positive");
+    static_assert(psf_minchi_reference_fraction > 0.0
+                      && psf_minchi_reference_fraction <= 1.0,
+                  "PSF minChi reference fraction must lie in (0,1]");
+    static_assert(psf_minchi_reference_max_per_chip > 0,
+                  "PSF minChi reference cap must be positive");
     static_assert(psf_fwhm_hist_bins >= 3,
                   "PSF FWHM histogram requires at least three bins");
     static_assert(psf_knn_k > 0, "PSF KNN count must be positive");
+    static_assert(psf_press_max_removals >= 0,
+                  "PSF PRESS removal cap must be non-negative");
     static_assert(psf_loo_min_denom > 0.0 && psf_loo_min_denom < 1.0,
                   "PSF LOO denominator floor must lie in (0,1)");
 
