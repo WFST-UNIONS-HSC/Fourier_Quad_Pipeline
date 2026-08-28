@@ -8,10 +8,13 @@ repository, this version has no INI configuration layer.
 
 ## Variants and layout
 
-[`cpp_Standard`](cpp_Standard/) retains optional flat, mask, identity
-astrometry, external/hybrid PSF, and PCA branches. [`cpp_Lite`](cpp_Lite/)
+[`cpp_Standard`](cpp_Standard/) (C++ Standard) retains optional flat, mask,
+identity astrometry, external/hybrid PSF, and PCA branches.
+[`cpp_Lite`](cpp_Lite/) (C++ Lite)
 physically removes those alternatives and keeps Gaia astrometry, per-chip DQ
-masks, external sources, deblending, local-polynomial PSF, and no PCA.
+masks, External source catalog matching, deblending, local-polynomial PSF, and
+no PCA. Because C++ Lite fixes the per-chip DQ branch, its runs require DQ masks;
+C++ Standard can select a configuration that does not read them.
 
 Each variant contains `main.cpp`, `config/`, `include/`, `src/`, `tests/`, and a
 Makefile. Shared exposure-list, path, MPI, scheduler, and numerical utilities
@@ -26,7 +29,7 @@ The executable invokes enabled phases in this fixed order:
 | Phase | CLI switch | Purpose |
 |---|---|---|
 | `process_extcat` | `--run-extcat` | Repartition raw text catalogs into sky tiles. |
-| `process_init` | `--run-init` | Extract Science/DQ chips and publish exposure lists. |
+| `process_init` | `--run-init` | Extract Science images and DQ-mask chips and publish exposure lists. |
 | `process_main` | `--run-main` | Run the nine numerical stages. |
 | `process_rearr` | `--run-rearr` | Spatially partition `*_all.cat`. |
 | `process_fd` | `--run-fd` | Perform the field-distortion shear test. |
@@ -67,12 +70,10 @@ make CXX=/path/to/mpicxx STACK_PREFIX=/opt/science-stack \
      EIGEN_INCLUDE=/opt/eigen/include/eigen3 -j4
 ```
 
-Current Make targets are `all`, `clean`, `test-general-infrastructure`,
-`test-psf-star-selection`, `test-psf-model-state`, and `test-stage5`.
-The last target runs both focused Stage-5 suites. Local verification used a
-GCC 15.2.0 MPI C++ wrapper with CFITSIO 4.6.3 and FFTW3 3.3.10 available.
-Eigen3 is not installed in that local environment, so production-source
-compilation must use a complete site stack containing every library above.
+The current Makefiles expose only `all` and `clean`. Validate a build first with
+`./Fourier_Quad_Pipe --help`, then run a representative phase or dataset for the
+configuration being changed. The repository's pinned container stack uses GCC
+12.3.0, OpenMPI 4.1.8, CFITSIO 4.6.4, FFTW3 3.3.11, and Eigen3 3.4.0.
 
 Stage 5 uses all same-chip FWHM-locus pairs to compute each candidate's true
 nearest morphology distance. Its exposure threshold is estimated separately
@@ -141,6 +142,12 @@ sequentially.
 
 ## Inputs and outputs
 
+Prepare the four user input classes—Science images, Gaia catalog, External
+source catalog, and configuration-dependent DQ masks—according to the
+[top-level input data requirements](README.md#input-data-requirements). That
+section is the single minimum-schema contract; this guide describes the C++
+runtime layout and products.
+
 An exposure list contains one chip-list path per nonblank record; a trailing
 legacy chip count is accepted. Initialization reads archives in place and
 creates `science/`, `dqmask/`, `stamps/`, and `result/` below each dataset,
@@ -158,14 +165,15 @@ Principal products are:
 Stage 7 writes 24 fields through WCS parity. Stage 9 appends exposure
 chi-square, so the default final row has 18 external fields + one CCD number +
 25 pipeline fields = 44 fields. Explicit external projection changes the
-external prefix width. RA, Dec, and photo-z must remain available to the
-pipeline.
+external prefix width. Preserve the `ra`, `dec`, `zp`, and observed-band
+magnitude fields required by the input contract, plus any additional fields
+consumed by enabled downstream stages.
 
 ## Common errors
 
 - Do not enable Stage 9 without Stage 8.
 - The external-catalog output cannot equal or be below its input directory.
-- Explicit projection must contain raw RA, Dec, and photo-z fields.
+- Explicit projection must preserve the fields consumed by every enabled stage.
 - Lite cannot enable branches that were removed from its source.
 - Use container paths in CLI arguments executed inside Docker/Apptainer.
 

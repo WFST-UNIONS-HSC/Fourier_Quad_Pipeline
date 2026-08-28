@@ -7,9 +7,11 @@
 
 ## 版本与目录
 
-[`cpp_Standard`](cpp_Standard/) 保留平场、掩膜、简化测天、外部/混合 PSF 与 PCA
-等可选分支。[`cpp_Lite`](cpp_Lite/) 物理删除这些替代路径，只保留 Gaia 测天、逐 CCD
-DQ 掩膜、外部源、去混叠、局域多项式 PSF 和无 PCA 路径。
+[`cpp_Standard`](cpp_Standard/)（C++ Standard）保留平场、掩膜、简化测天、外部/混合
+PSF 与 PCA 等可选分支。[`cpp_Lite`](cpp_Lite/)（C++ Lite）物理删除这些替代路径，
+只保留 Gaia 测天、逐 CCD DQ masks、External source catalog 匹配、去混叠、局域多项式
+PSF 和无 PCA 路径。由于 C++ Lite 固定使用逐 CCD DQ 分支，其运行必须提供 DQ masks；
+C++ Standard 可以选择不读取 DQ 的配置。
 
 每个版本包含 `main.cpp`、`config/`、`include/`、`src/`、`tests/` 与 Makefile。
 曝光表、路径、MPI、调度和通用数值工具位于 `include/general/`、`src/general/`；阶段代码
@@ -22,7 +24,7 @@ DQ 掩膜、外部源、去混叠、局域多项式 PSF 和无 PCA 路径。
 | 阶段 | CLI | 作用 |
 |---|---|---|
 | `process_extcat` | `--run-extcat` | 将原始文本星表重分块。 |
-| `process_init` | `--run-init` | 提取 Science/DQ CCD 并发布曝光表。 |
+| `process_init` | `--run-init` | 提取 Science images 与 DQ-mask CCD 并发布曝光表。 |
 | `process_main` | `--run-main` | 执行九个数值阶段。 |
 | `process_rearr` | `--run-rearr` | 空间分区 `*_all.cat`。 |
 | `process_fd` | `--run-fd` | 执行场畸变剪切检验。 |
@@ -55,12 +57,10 @@ make -j4
 ./Fourier_Quad_Pipe --help
 ```
 
-其他安装位置可传入 `CXX`、`STACK_PREFIX` 与 `EIGEN_INCLUDE`。当前 Makefile 目标包括
-`all`、`clean`、`test-general-infrastructure`、`test-psf-star-selection`、
-`test-psf-model-state` 与组合目标 `test-stage5`。后者执行两个 Stage-5 专项测试。
-本地验证环境为 GCC 15.2.0 的 MPI C++ wrapper，并可用 CFITSIO 4.6.3 与
-FFTW3 3.3.10；该环境未安装 Eigen3，因此生产源码编译必须使用包含上述全部依赖的
-完整站点软件栈。
+其他安装位置可传入 `CXX`、`STACK_PREFIX` 与 `EIGEN_INCLUDE`。当前 Makefile 只提供
+`all` 与 `clean`。应先用 `./Fourier_Quad_Pipe --help` 检查构建，再针对所改配置运行
+代表性阶段或数据集。仓库固定容器软件栈使用 GCC 12.3.0、OpenMPI 4.1.8、
+CFITSIO 4.6.4、FFTW3 3.3.11 与 Eigen3 3.4.0。
 
 Stage 5 使用所有同 CCD FWHM-locus 无序配对计算每个候选体的真实最近形态距离，
 曝光阈值则单独由“受限大尺寸 reference 与其他 locus 星”的唯一配对估计。合法的首次
@@ -114,6 +114,10 @@ mpirun -np 8 ./Fourier_Quad_Pipe \
 
 ## 输入与输出
 
+请先按照[顶层输入数据要求](README_CN.md#输入数据要求)准备 Science images、Gaia
+catalog、External source catalog 与取决于配置的 DQ masks。顶层章节是唯一的最低 schema
+约定；本节只说明 C++ 运行布局和产物。
+
 曝光表每个非空记录包含一个 CCD 列表路径，可带兼容 CCD 数量。初始化器原地读取归档，
 在每个数据集下创建 `science/`、`dqmask/`、`stamps/`、`result/`，并发布曝光/fits
 列表与 manifest。
@@ -129,10 +133,11 @@ mpirun -np 8 ./Fourier_Quad_Pipe \
 
 阶段 7 输出截至 WCS parity 的 24 个字段；阶段 9 追加曝光 `chi2`。默认最终行宽为
 18 个外部字段 + 1 个 CCD 编号 + 25 个流水线字段 = 44。显式外部列投影只改变外部
-前缀宽度，RA、Dec、photo-z 必须仍可用。
+前缀宽度；必须保留最低输入约定中的 `ra`、`dec`、`zp` 和观测波段星等，以及所有
+已启用下游阶段实际使用的额外字段。
 
-常见错误包括：阶段 9 未同时启用阶段 8；外部星表输出位于输入目录内；投影缺少
-RA/Dec/photo-z；在 Lite 中启用已删除分支；在容器参数中使用宿主路径。
+常见错误包括：阶段 9 未同时启用阶段 8；External source catalog 输出位于输入目录内；
+投影遗漏已启用阶段消费的字段；在 C++ Lite 中启用已删除分支；在容器参数中使用宿主路径。
 
 参数和输出列见 [CPP_PIPELINE_PARAMETERS.md](CPP_PIPELINE_PARAMETERS.md)。容器见
 [cpp_docker/README-CN.md](cpp_docker/README-CN.md)，Slurm 见

@@ -7,8 +7,8 @@
 
 ## 选择版本
 
-- `f77`：完整分支，包含 `00_psf_module.f` 中的可选 PCA/多尺度 PSF 存储。
-- `f77_Lite`：固定生产路径，已删除替代测天、平场、掩膜、源、PSF、去混叠、混合与
+- `f77`（F77 Standard）：完整分支，包含 `00_psf_module.f` 中的可选 PCA/多尺度 PSF 存储。
+- `f77_Lite`（F77 Lite）：固定生产路径，已删除替代测天、平场、掩膜、源、PSF、去混叠、混合与
   PCA 分支。
 
 两者均生成 `Fourier_Quad_Pipe`。
@@ -34,6 +34,10 @@
 
 ## 配置
 
+请先按照[顶层输入数据要求](README_CN.md#输入数据要求)准备 Science images、Gaia
+catalog、External source catalog 和取决于配置的 DQ masks。F77 Lite 使用其冻结的 mask
+路径；除非已确认所选源码和配置不读取 DQ，否则不要省略 DQ masks。
+
 所有设置修改后都必须重编译：
 
 | 文件 | 作用 |
@@ -49,7 +53,9 @@ Lite 的冻结分支写在 `para.inc` 开头；仅添加参数不能恢复已删
 
 ## 编译
 
-需要 `mpif77`、CFITSIO、LAPACK、BLAS。
+需要 `mpif77`、CFITSIO、LAPACK、BLAS；Fourier 例程从仓库自带的 `FFTPACK.f`
+编译，因此当前 Makefile 不要求外部 FFTW 库。普通 Linux 与 HPC 条件见顶层 F77
+环境表。
 
 ```bash
 cd f77                         # 或 f77_Lite

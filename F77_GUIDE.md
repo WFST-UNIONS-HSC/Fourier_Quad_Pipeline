@@ -8,9 +8,9 @@ exposure-list path.
 
 ## Choose a variant
 
-- `f77`: full branch set, including optional PCA/multi-scale PSF storage in
+- `f77` (F77 Standard): full branch set, including optional PCA/multi-scale PSF storage in
   `00_psf_module.f`.
-- `f77_Lite`: fixed production path with alternate astrometry, flat, mask,
+- `f77_Lite` (F77 Lite): fixed production path with alternate astrometry, flat, mask,
   source, PSF, deblending, hybrid, and PCA branches removed.
 
 Both variants build `Fourier_Quad_Pipe`.
@@ -36,6 +36,12 @@ running Stage 9 so the combined catalog has valid exposure diagnostics.
 
 ## Configure
 
+Prepare Science images, Gaia catalog, External source catalog, and
+configuration-dependent DQ masks according to the
+[top-level input data requirements](README.md#input-data-requirements). F77 Lite
+uses its frozen mask path, so do not omit DQ masks unless the selected source and
+configuration have been verified not to read them.
+
 All settings require rebuilding:
 
 | File | Purpose |
@@ -53,7 +59,10 @@ deleted alternatives cannot be re-enabled by adding a parameter.
 
 ## Build
 
-Required tools are `mpif77`, CFITSIO, LAPACK, and BLAS.
+Required tools are `mpif77`, CFITSIO, LAPACK, and BLAS; Fourier routines are
+compiled from the included `FFTPACK.f`, so the current Makefile does not require
+an external FFTW library. See the top-level F77 prerequisite table for regular
+Linux and HPC requirements.
 
 ```bash
 cd f77                         # or f77_Lite
