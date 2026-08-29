@@ -18,12 +18,17 @@ locations. Current Make targets are `all`, `clean`,
 `test-psf-model-state`, and the combined `test-stage5`.
 
 Local focused verification uses the MPI C++ wrapper from GCC 15.2.0, with
-CFITSIO 4.6.3 and FFTW3 3.3.10 available. Eigen3 is absent locally, so a full
-build requires a complete site-provided C++17 MPI, Eigen3, LAPACK, and BLAS
-stack; module names and versions are site-specific.
+CFITSIO 4.6.3 and FFTW3 3.3.10 available. The local full build uses Eigen3 from
+`/usr/include/eigen3`; other sites must provide equivalent C++17 MPI, Eigen3,
+LAPACK, and BLAS dependencies.
 
 Lite defaults to initialization and main enabled, with rearrangement and FD
 disabled. Its removed branches cannot be enabled by adding constants.
+
+The optional one-time `process_astrocat` phase runs before `process_extcat` and
+publishes deduplicated one-degree Gaia tiles. Its `--astrocat-output` directory
+is independent of `LensingConfig::ASTROMETRY_CAT`; configure the consumer path
+separately.
 
 Stage 7 writes 24 fields and Stage 9 appends exposure chi-square. See the
 [C++ guide](../CPP_GUIDE.md) and

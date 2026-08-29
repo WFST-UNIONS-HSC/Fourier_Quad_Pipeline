@@ -15,6 +15,7 @@ its source parameter and keep the associated assertions and consumers consistent
 
 | Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
 |---|---|---|---|---|---|---|---|---|
+| `RUN_PROCESS_ASTROCAT` | `bool` | `false` | `false` | `--run-astrocat` | Boolean | Run Gaia-catalog tiling. | Select phases per run with CLI. | CLI override; rebuild not required |
 | `RUN_PROCESS_EXTCAT` | `bool` | `false` | `false` | `--run-extcat` | Boolean | Run external-catalog tiling. | Select phases per run with CLI. | CLI override; rebuild not required |
 | `RUN_PROCESS_INIT` | `bool` | `true` | `true` | `--run-init` | Boolean | Run archive initialization. | Select phases per run with CLI. | CLI override; rebuild not required |
 | `RUN_PROCESS_MAIN` | `bool` | `true` | `true` | `--run-main` | Boolean | Run the nine-stage numerical pipeline. | Select phases per run with CLI. | CLI override; rebuild not required |
@@ -29,8 +30,8 @@ its source parameter and keep the associated assertions and consumers consistent
 | `FD_OUTPUT_DIRECTORY` | `const char*` | `"fdout"` | same | `--fd-output-dir` | Directory name/path | FD result directory. | Change when output layout changes. | CLI override; rebuild not required |
 | `FD_OUTPUT_BASE_DIRECTORY` | `const char*` | empty | empty | `--fd-output-base` | Empty = dataset root | Optional FD output base. | Change when outputs live outside the dataset root. | CLI override; rebuild not required |
 
-The `WorkflowOptions`, `PipelineOptions`, `CatalogOptions`, `ExtCatOptions`,
-`InitOptions`, `RearrOptions`, `FDOptions`, and `RuntimeOptions` structs are the
+The `WorkflowOptions`, `PipelineOptions`, `CatalogOptions`, `AstroCatOptions`,
+`ExtCatOptions`, `InitOptions`, `RearrOptions`, `FDOptions`, and `RuntimeOptions` structs are the
 runtime copies of values listed in this and the next two header tables. Their
 members are parser state, not a second set of user defaults. `help_requested`
 and `external_exposure_list_supplied` are internal parser flags.
@@ -48,6 +49,19 @@ and `external_exposure_list_supplied` are internal parser flags.
 | `CONTAINS` | `std::vector<std::string>` | `{"v1"}` | same | Repeatable `--contains` | Non-empty case-sensitive basename tokens; OR matching | Additional Science-image and DQ-mask archive filename filters. | Change when archive naming changes. | CLI override; rebuild not required |
 | `EXISTING` | `const char*` | `"fail"` | same | `--existing` | `fail`, `resume`, `overwrite` | Existing-output policy for initialization. | Select intentionally per run. | CLI override; rebuild not required |
 | `F77_MAX_PATH` | `int` | `150` | `150` | `--f77-max-path` | Non-negative; `0` disables | Compatibility guard for generated path lengths. | Change only for path-policy compatibility. | CLI override; rebuild not required |
+
+## `config/AstroCatConfig.hpp`
+
+| Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
+|---|---|---|---|---|---|---|---|---|
+| `ASTROCAT_INPUT_DIRECTORY` | `const char*` | empty | empty | `--astrocat-input` | Readable flat directory | Raw Gaia files; each data row begins with RA and Dec. | Set when running `process_astrocat`. | CLI override; rebuild not required |
+| `ASTROCAT_OUTPUT_DIRECTORY` | `std::string` | compiled `ASTROMETRY_CAT` value | same | `--astrocat-output` | Writable directory distinct from input | Destination for one-degree Type-2 Gaia tiles. | Set independently for each publication. | CLI override; rebuild not required |
+| `ASTROCAT_ADD_HEADER` | `bool` | `true` | `true` | `--astrocat-add-header` | `true` starts at the first line; `false` skips exactly one line per input file | Controls raw-input header handling; output tiles always contain `RA    DEC`. | Change to match the raw files. | CLI override; rebuild not required |
+| `ASTROCAT_EXISTING_POLICY` | `const char*` | `"fail"` | same | `--astrocat-existing` | `fail`, `overwrite` | Existing generated-tile policy. | Select intentionally for reruns. | CLI override; rebuild not required |
+
+`--astrocat-output` is an independent `process_astrocat` destination. It is not
+compared with, propagated to, or otherwise coupled to
+`LensingConfig::ASTROMETRY_CAT`.
 
 ## `config/ExtCatConfig.hpp`
 

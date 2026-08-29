@@ -25,8 +25,16 @@ namespace LensingConfig {
     //   deblending         = 1  -> de-blending always applied
     //   PSF_type           = 1  -> local polynomial PSF fit
     //   PSF_Ms             = 0  -> no multi-scale / PCA PSF reconstruction
-    // Still selectable: PROCESS_stage, CCD_split, gal_smooth, star_smooth, NstampType.
+    // Still selectable: AstroCatType, PROCESS_stage, CCD_split, gal_smooth, star_smooth, NstampType.
     // ==========================================
+
+    // ==========================================
+    // Configuration: Astrometric reference catalog layout
+    // Method: Select legacy large Gaia tiles (1) or repartitioned 1-degree tiles (2).
+    // ==========================================
+    constexpr int AstroCatType = 1;
+    static_assert(AstroCatType == 1 || AstroCatType == 2,
+                  "AstroCatType must be 1 or 2");
 
     // Stage control parameters
     constexpr int PROCESS_stage =          // Prime-product stage selector.

@@ -502,8 +502,22 @@ namespace PreProcess {
         std::string astroFilename = OutputLayout::chipPath(
             dirOutput, "astrometry/dat_Astro", prefix, "_astro.dat");
 
-        std::string catfile = UniversalUtils::generateGaiaFileName(LensingConfig::ASTROMETRY_CAT, wcs.crval, proc_error);
-        Astrometry::genAstrometryData(catfile, nx, ny, normap, weight, wcs, astroFilename, proc_error);
+        // ==========================================
+        // Logic: Select the Gaia astrometry catalog layout
+        // Method: Preserve Lite's unconditional Gaia branch while selecting the legacy
+        //         large tile or accumulated 1-degree candidates rooted at ASTROMETRY_CAT.
+        // ==========================================
+        if (LensingConfig::AstroCatType == 1) {
+            std::string catfile = UniversalUtils::generateGaiaFileName(
+                LensingConfig::ASTROMETRY_CAT, wcs.crval, proc_error);
+            Astrometry::genAstrometryData(
+                catfile, nx, ny, normap, weight, wcs, astroFilename, proc_error);
+        } else {
+            std::vector<std::string> catfiles = UniversalUtils::generateGalCatFileNames(
+                LensingConfig::ASTROMETRY_CAT, wcs.crval);
+            Astrometry::genAstrometryDataMulti(
+                catfiles, nx, ny, normap, weight, wcs, astroFilename, proc_error);
+        }
 
         locateDefects(nx, ny, array, normap, weight, LensingConfig::area_max, LensingConfig::area_thresh, proc_error);
         mergeDefects(nx, ny, weight, normap, LensingConfig::area_max, LensingConfig::source_thresh, LensingConfig::area_thresh, proc_error);

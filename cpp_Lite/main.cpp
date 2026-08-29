@@ -5,8 +5,10 @@
 #include "process_main/ExternalCatalogReader.hpp"
 #include "LensingConfig.hpp"
 #include "ProcessConfig.hpp"
+#include "AstroCatConfig.hpp"
 #include "ExtCatConfig.hpp"
 #include "InitConfig.hpp"
+#include "process_astrocat/process_astrocat.hpp"
 #include "process_extcat/process_extcat.hpp"
 #include "process_init/process_init.hpp"
 #include "process_main/process_main.hpp"
@@ -204,7 +206,27 @@ bool applyNamedOption(const std::string& name,
                       ProcessConfig::RuntimeOptions& options,
                       ParserState& state,
                       std::string& error) {
-    if (name == "--run-extcat") {
+    if (name == "--run-astrocat") {
+        if (!parseBoolean(value, options.workflow.run_astrocat)) {
+            error = "--run-astrocat must be true, false, 1, 0, on, or off";
+            return false;
+        }
+    } else if (name == "--astrocat-input") {
+        options.astrocat.input_directory = value;
+    } else if (name == "--astrocat-output") {
+        options.astrocat.output_directory = value;
+    } else if (name == "--astrocat-add-header") {
+        if (!parseBoolean(value, options.astrocat.add_header)) {
+            error = "--astrocat-add-header must be true, false, 1, 0, on, or off";
+            return false;
+        }
+    } else if (name == "--astrocat-existing") {
+        if (value != "fail" && value != "overwrite") {
+            error = "--astrocat-existing must be fail or overwrite";
+            return false;
+        }
+        options.astrocat.existing_policy = value;
+    } else if (name == "--run-extcat") {
         if (!parseBoolean(value, options.workflow.run_extcat)) {
             error = "--run-extcat must be true, false, 1, 0, on, or off";
             return false;
@@ -385,10 +407,28 @@ bool validateOptions(const ProcessConfig::RuntimeOptions& options, std::string& 
     if (options.workflow.help_requested) {
         return true;
     }
-    if (!options.workflow.run_extcat && !options.workflow.run_init
+    if (!options.workflow.run_astrocat && !options.workflow.run_extcat
+        && !options.workflow.run_init
         && !options.workflow.run_fd
         && !options.workflow.run_main && !options.workflow.run_rearr) {
-        error = "--run-extcat, --run-init, --run-main, --run-rearr, and --run-fd cannot all be false";
+        error = "--run-astrocat, --run-extcat, --run-init, --run-main, "
+                "--run-rearr, and --run-fd cannot all be false";
+        return false;
+    }
+    if (options.workflow.run_astrocat
+        && options.astrocat.input_directory.empty()) {
+        error = "astrometry-catalog input directory must not be empty";
+        return false;
+    }
+    if (options.workflow.run_astrocat
+        && options.astrocat.output_directory.empty()) {
+        error = "astrometry-catalog output directory must not be empty";
+        return false;
+    }
+    if (options.workflow.run_astrocat
+        && options.astrocat.existing_policy != "fail"
+        && options.astrocat.existing_policy != "overwrite") {
+        error = "astrometry-catalog existing policy must be fail or overwrite";
         return false;
     }
     if ((options.workflow.run_extcat || options.workflow.run_main)
@@ -618,6 +658,13 @@ std::string configuredExtcatContainsText() {
 void printUsage(const char* program_name) {
     std::cout
         << "Usage: " << program_name << " [options] [LEGACY_EXPO_LIST]\n"
+        << "  --run-astrocat BOOL   Repartition raw Gaia catalogs before process_extcat (default: "
+        << (ProcessConfig::RUN_PROCESS_ASTROCAT ? "true" : "false") << ")\n"
+        << "  --astrocat-input PATH Directory containing raw two-column Gaia catalogs\n"
+        << "  --astrocat-output P   Independent output directory for one-degree Gaia tiles (default: "
+        << AstroCatConfig::ASTROCAT_OUTPUT_DIRECTORY << ")\n"
+        << "  --astrocat-add-header B  true: raw files start with data; false: skip first line\n"
+        << "  --astrocat-existing P fail or overwrite generated Gaia tiles\n"
         << "  --run-extcat BOOL     Repartition raw external catalogs first (default: "
         << (ProcessConfig::RUN_PROCESS_EXTCAT ? "true" : "false") << ")\n"
         << "  --run-init BOOL       Run initializer (default: "
@@ -679,7 +726,9 @@ void printUsage(const char* program_name) {
         << "When process_main runs, LIST must contain the configured RA, Dec, and ZP "
            "raw columns. A rearr-only run requires RA and Dec but not ZP; output "
            "positions follow LIST order.\n"
-        << "process_extcat runs once before the dataset loop. When later phases run, each "
+        << "process_astrocat runs once before process_extcat and the dataset loop; its output "
+           "option controls only that phase. process_extcat also runs once before datasets. "
+           "When later phases run, each "
            "process_init-generated absolute exposure-list "
            "path overrides external input for its dataset.\n";
 }
@@ -767,6 +816,26 @@ int prepareRuntimeOptions(int argc,
         printUsage(argv[0]);
     }
     return 2;
+}
+
+// ==========================================
+// Function: Run the optional astrometry-catalog phase
+// Method: Preserve its once-before-process_extcat position and synchronize all
+//         ranks only after successful publication of the final tile set.
+// ==========================================
+int runAstrocatPhase(const ProcessConfig::RuntimeOptions& options) {
+    if (!options.workflow.run_astrocat) {
+        return 0;
+    }
+    if (MPIScheduler::state.rank == 0) {
+        std::cout << "Running process_astrocat before process_extcat"
+                  << std::endl;
+    }
+    const int result = process_astrocat(options);
+    if (result == 0) {
+        MPIScheduler::barrier();
+    }
+    return result;
 }
 
 // ==========================================
@@ -966,11 +1035,14 @@ int runDataset(const InitConfig::DatasetSpec& dataset,
 
 // ==========================================
 // Function: Run the complete configured workflow
-// Method: Execute process_extcat once, then process datasets sequentially with
-//         fail-fast return codes and the existing inter-dataset barrier.
+// Method: Execute process_astrocat and process_extcat once, then process
+//         datasets sequentially with fail-fast returns and existing barriers.
 // ==========================================
 int runWorkflow(const ProcessConfig::RuntimeOptions& options) {
-    int result = runExtcatPhase(options);
+    int result = runAstrocatPhase(options);
+    if (result == 0) {
+        result = runExtcatPhase(options);
+    }
     bool rng_initialized = false;
     const bool dataset_phase_enabled = options.workflow.run_init
                                        || options.workflow.run_main

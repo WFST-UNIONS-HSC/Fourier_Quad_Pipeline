@@ -1,6 +1,7 @@
 #ifndef PROCESS_CONFIG_HPP
 #define PROCESS_CONFIG_HPP
 
+#include "AstroCatConfig.hpp"
 #include "ExtCatConfig.hpp"
 #include "InitConfig.hpp"
 
@@ -11,6 +12,7 @@
 
 namespace ProcessConfig {
 
+inline constexpr bool RUN_PROCESS_ASTROCAT = false;  // Run Gaia-catalog tiling by default.
 inline constexpr bool RUN_PROCESS_EXTCAT = false;  // Run external-catalog tiling by default.
 inline constexpr bool RUN_PROCESS_INIT = true;     // Run archive initialization by default.
 inline constexpr bool RUN_PROCESS_MAIN = true;     // Run the nine-stage pipeline by default.
@@ -37,12 +39,28 @@ inline constexpr const char* FD_OUTPUT_BASE_DIRECTORY = "";  // Empty uses the d
 //         let the unified parser override only explicitly supplied options.
 // ==========================================
 struct WorkflowOptions {
+    bool run_astrocat = RUN_PROCESS_ASTROCAT;  // Enable process_astrocat for this run.
     bool run_extcat = RUN_PROCESS_EXTCAT;  // Enable process_extcat for this run.
     bool run_init = RUN_PROCESS_INIT;      // Enable process_init for this run.
     bool run_main = RUN_PROCESS_MAIN;      // Enable process_main for this run.
     bool run_rearr = RUN_PROCESS_REARR;    // Enable process_rearr for this run.
     bool run_fd = RUN_PROCESS_FD;          // Enable process_fd for this run.
     bool help_requested = false;           // Print usage without running phases.
+};
+
+// ==========================================
+// Configuration: Runtime process_astrocat options
+// Method: Seed the independent raw-input and tile-output contract from the
+//         dedicated config without coupling it to process_main at runtime.
+// ==========================================
+struct AstroCatOptions {
+    std::string input_directory =
+        AstroCatConfig::ASTROCAT_INPUT_DIRECTORY;  // Raw two-column Gaia files.
+    std::string output_directory =
+        AstroCatConfig::ASTROCAT_OUTPUT_DIRECTORY;  // Generated one-degree tiles.
+    bool add_header = AstroCatConfig::ASTROCAT_ADD_HEADER;  // Raw input starts with data.
+    std::string existing_policy =
+        AstroCatConfig::ASTROCAT_EXISTING_POLICY;  // fail or overwrite.
 };
 
 struct PipelineOptions {
@@ -98,6 +116,7 @@ struct FDOptions {
 
 struct RuntimeOptions {
     WorkflowOptions workflow;  // Phase switches and help state.
+    AstroCatOptions astrocat;  // Independent Gaia-catalog tiling options.
     PipelineOptions pipeline;  // Dataset-level shared inputs and outputs.
     CatalogOptions catalog;    // Shared external-catalog contract.
     ExtCatOptions extcat;      // process_extcat parsing and discovery options.

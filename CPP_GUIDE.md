@@ -20,8 +20,8 @@ C++ Standard can select a configuration that does not read them.
 Each variant contains `main.cpp`, `config/`, `include/`, `src/`, `tests/`, and a
 Makefile. Shared exposure-list, path, MPI, scheduler, and numerical utilities
 live below `include/general/` and `src/general/`; phase code lives below
-`process_extcat`, `process_init`, `process_main`, `process_rearr`, and
-`process_fd`.
+`process_astrocat`, `process_extcat`, `process_init`, `process_main`,
+`process_rearr`, and `process_fd`.
 
 ## Top-level phases
 
@@ -29,14 +29,15 @@ The executable invokes enabled phases in this fixed order:
 
 | Phase | CLI switch | Purpose |
 |---|---|---|
+| `process_astrocat` | `--run-astrocat` | Repartition raw two-column Gaia catalogs into deduplicated one-degree tiles. |
 | `process_extcat` | `--run-extcat` | Repartition raw catalogs into the pipeline's standard tile format. |
 | `process_init` | `--run-init` | Extract Science images and DQ-mask chips and publish exposure lists. |
 | `process_main` | `--run-main` | Run the nine numerical stages. |
 | `process_rearr` | `--run-rearr` | Spatially partition `*_all.cat`. |
 | `process_fd` | `--run-fd` | Perform the field-distortion shear test. |
 
-`process_extcat` runs once. Other phases run per dataset; datasets are
-sequential and the first failure stops the run.
+`process_astrocat` and `process_extcat` run once, in that order. Other phases
+run per dataset; datasets are sequential and the first failure stops the run.
 
 `process_main` stages are selected by prime factors in `PROCESS_stage`:
 
@@ -101,12 +102,13 @@ run `make` again. Do not edit derived dimensions or column indices independently
 
 | Category | Parameters (current defaults) | How to change | When to change / constraints |
 |---|---|---|---|
-| Top-level phases | `RUN_PROCESS_EXTCAT`, `RUN_PROCESS_INIT`, `RUN_PROCESS_MAIN`, `RUN_PROCESS_REARR`, `RUN_PROCESS_FD` | `config/ProcessConfig.hpp`; runtime `--run-extcat`, `--run-init`, `--run-main`, `--run-rearr`, `--run-fd` | Select work for this invocation. Standard defaults to `false/true/true/true/true`; Lite to `false/true/true/false/false`. |
+| Top-level phases | `RUN_PROCESS_ASTROCAT`, `RUN_PROCESS_EXTCAT`, `RUN_PROCESS_INIT`, `RUN_PROCESS_MAIN`, `RUN_PROCESS_REARR`, `RUN_PROCESS_FD` | `config/ProcessConfig.hpp`; runtime `--run-astrocat`, `--run-extcat`, `--run-init`, `--run-main`, `--run-rearr`, `--run-fd` | Select work for this invocation. Standard defaults to `false/false/true/true/true/true`; Lite to `false/false/true/true/false/false`. |
 | Science/DQ archives and datasets | `SCIENCE_ROOT`, `DQ_ROOT`, `OUTPUT_ROOT`, `DATASETS`, `CONTAINS`, `EXISTING`, `F77_MAX_PATH=150` | `config/InitConfig.hpp`; runtime `--science-root`, `--dq-root`, `--output-root`, `--dataset`, `--contains`, `--existing`, `--f77-max-path` | Change for another observation archive, basename prefix, discovery token, output root, or initializer path-length guard. Lite requires per-chip DQ masks. |
 | Exposure lists and phase outputs | `EXPO_LIST`, `REARR_OUTPUT_DIRECTORY`, `REARR_OUTPUT_BASE_DIRECTORY`, `REARRANGED_EXPO_LIST_FILENAME`, `REARRANGED_EXPO_LIST_DIRECTORY`, `FD_EXPO_LIST`, `FD_OUTPUT_DIRECTORY`, `FD_OUTPUT_BASE_DIRECTORY` | `config/ProcessConfig.hpp`; runtime `--expo-list`, `--rearr-output-dir`, `--rearr-output-base`, `--rearr-list-name`, `--rearr-list-dir`, `--fd-expo-list`, `--fd-output-dir`, `--fd-output-base` | Change for downstream-only runs or different rearrangement/FD list and output locations. |
+| Gaia-catalog tiling | `ASTROCAT_INPUT_DIRECTORY`, `ASTROCAT_OUTPUT_DIRECTORY`, `ASTROCAT_ADD_HEADER=true`, `ASTROCAT_EXISTING_POLICY=fail` | `config/AstroCatConfig.hpp`; runtime `--astrocat-input`, `--astrocat-output`, `--astrocat-add-header`, `--astrocat-existing` | Change for a new raw Gaia catalog or rerun policy. The output option controls only `process_astrocat`; it is not checked against or propagated to `ASTROMETRY_CAT`. |
 | External-catalog discovery and parsing | `EXTCAT_INPUT_DIRECTORY`, `EXTCAT_OUTPUT_DIRECTORY`, `EXTCAT_FILENAME_TOKENS`, `EXTCAT_RECURSIVE`, `EXTCAT_DELIMITER=auto`, `EXTCAT_HEADER_MODE=auto`, `EXTCAT_MALFORMED_POLICY=fail`, `EXTCAT_EXISTING_POLICY=fail`, `EXTCAT_CHUNK_MIB=64` | `config/ExtCatConfig.hpp`; runtime `--extcat-input`, `--extcat-output`, `--extcat-contains`, `--extcat-recursive`, `--extcat-delimiter`, `--extcat-header`, `--extcat-malformed`, `--extcat-existing`, `--extcat-chunk-mib` | Change with file layout, delimiter, header, bad-row policy, or MPI chunk size. The output directory cannot equal or sit below the input directory. |
 | External-catalog schema | `EXTCAT_TOTAL_COLUMNS=18`, `EXTCAT_USE_EXPLICIT_COLUMNS=false`, `EXTCAT_INPUT_COLUMNS_ONE_BASED={1..18}`, `EXTCAT_USE_EXPLICIT_COORDINATE_COLUMNS=false`, `EXTCAT_RA_COLUMN_ONE_BASED=5`, `EXTCAT_DEC_COLUMN_ONE_BASED=6`, `EXTCAT_ZP_COLUMN_ONE_BASED=17` | `config/ExtCatConfig.hpp`; runtime `--extcat-columns`, `--extcat-ra-column`, `--extcat-dec-column`, `--extcat-zp-column` for projection/field locations | Change for another survey or column order. A projection must retain RA, Dec, ZP, and fields consumed by enabled phases; changing total width also requires review of rearrangement and FD indices. |
-| Gaia, source-catalog, and calibration paths | `ASTROMETRY_CAT`, `SOURCE_CAT_DEFAULT` (effective `SOURCE_CAT`), `FLAT_PATH`, `PSF_PATH` | `config/LensingConfig.hpp`; `--extcat-output` sets the effective `SOURCE_CAT` at runtime; the others are compile-time | Change for another Gaia tile set, normalized source catalog, flat, or external-PSF source. Container paths must match bind destinations. |
+| Gaia, source-catalog, and calibration paths | `ASTROMETRY_CAT`, `SOURCE_CAT_DEFAULT` (effective `SOURCE_CAT`), `FLAT_PATH`, `PSF_PATH` | `config/LensingConfig.hpp`; `--extcat-output` sets the effective `SOURCE_CAT` at runtime; the others are compile-time | Change for another Gaia tile set, normalized source catalog, flat, or external-PSF source. `--astrocat-output` remains independent of `ASTROMETRY_CAT`. Container paths must match bind destinations. |
 | Standard branch selection | `ASTROMETRY_trivial=0`, `include_FLAT=0`, `include_Mask=2`, `ext_cat=1`, `ext_PSF=0`, `PSF_type=1`, `PSF_Ms=0` | `config/LensingConfig.hpp`, compile-time | Only Standard can switch these branches. Lite is fixed to Gaia, no flat, per-chip DQ, external source catalog, frame-star PSF, local polynomial, and no PCA. |
 | Image and detector geometry | `npx=3000`, `npy=5000`, `CCD_split=2`, `chipnx=2046`, `chipny=4094`, `pixel_size=0.2628`, `NMAX_CHIP=62`, `NMAX_EXPO=25000` | `config/LensingConfig.hpp`, compile-time | Change for another camera, CCD size, amplifier layout, pixel scale, or batch exposure count; review geometry values as a coupled set. |
 | Numerical stages | `PROCESS_stage=223092870` | `config/LensingConfig.hpp`, compile-time | Select the nine main stages by prime factors; Stage 9 (23) requires Stage 8 (19). |
@@ -147,6 +149,20 @@ mpirun -np 8 ./Fourier_Quad_Pipe \
   --output-root /data/work \
   --dataset g2019:c4d_19 --existing resume
 ```
+
+Repartition raw Gaia catalogs only:
+
+```bash
+mpirun -np 8 ./Fourier_Quad_Pipe \
+  --run-astrocat true --run-extcat false --run-init false --run-main false \
+  --run-rearr false --run-fd false \
+  --astrocat-input /data/raw_gaia --astrocat-output /data/gaia/tiles \
+  --astrocat-add-header true --astrocat-existing fail
+```
+
+The `--astrocat-output` path above controls only this phase. Set
+`LensingConfig::ASTROMETRY_CAT` separately when `process_main` should consume
+that directory.
 
 Normalize an External source catalog for this pipeline only:
 

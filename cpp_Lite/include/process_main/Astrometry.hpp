@@ -50,6 +50,11 @@ namespace Astrometry {
                            const std::vector<float>& map, const std::vector<int>& weight,
                            WCSParams& wcs, const std::string& filename, int& procError);
 
+    // Accumulate readable 1-degree Gaia tiles before running the unchanged matching workflow.
+    void genAstrometryDataMulti(const std::vector<std::string>& catStandards, int nx, int ny,
+                                const std::vector<float>& map, const std::vector<int>& weight,
+                                WCSParams& wcs, const std::string& filename, int& procError);
+
     void getAstrometryCatalog(int nx, int ny, const std::vector<float>& image,
                               const std::vector<int>& weight,
                               int& ns, std::vector<double>& xs, std::vector<double>& ys);

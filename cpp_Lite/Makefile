@@ -20,6 +20,7 @@ SRCS = main.cpp \
        src/general/ExposureList.cpp \
        src/general/MPIUtils.cpp \
        src/general/PathUtils.cpp \
+       src/process_astrocat/process_astrocat.cpp \
        src/process_extcat/process_extcat.cpp \
        src/process_rearr/process_rearr.cpp \
        src/process_rearr/CatalogRearranger.cpp \

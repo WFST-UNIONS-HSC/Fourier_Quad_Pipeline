@@ -17,7 +17,7 @@ C++ Standard 可以选择不读取 DQ 的配置。
 
 每个版本包含 `main.cpp`、`config/`、`include/`、`src/`、`tests/` 与 Makefile。
 曝光表、路径、MPI、调度和通用数值工具位于 `include/general/`、`src/general/`；阶段代码
-位于五个 `process_*` 子目录。
+位于六个 `process_*` 子目录。
 
 ## 顶层阶段
 
@@ -25,13 +25,14 @@ C++ Standard 可以选择不读取 DQ 的配置。
 
 | 阶段 | CLI | 作用 |
 |---|---|---|
+| `process_astrocat` | `--run-astrocat` | 将原始两列 Gaia 星表重分块、去重为一度瓦片。 |
 | `process_extcat` | `--run-extcat` | 将原始星表重分块为程序标准格式。 |
 | `process_init` | `--run-init` | 提取 Science images 与 DQ-mask CCD 并发布曝光表。 |
 | `process_main` | `--run-main` | 执行九个数值阶段。 |
 | `process_rearr` | `--run-rearr` | 空间分区 `*_all.cat`。 |
 | `process_fd` | `--run-fd` | 执行场畸变剪切检验。 |
 
-`process_extcat` 只执行一次，其余阶段按数据集顺序执行；首次失败会停止任务。
+`process_astrocat`、`process_extcat` 依次各执行一次，其余阶段按数据集顺序执行；首次失败会停止任务。
 
 `process_main` 用 `PROCESS_stage` 的素因数选择阶段：
 
@@ -83,12 +84,13 @@ CLI 支持 `--name value` 与 `--name=value`。布尔值支持 `true/false`、`1
 
 | 类别 | 参数（当前默认） | 修改方式 | 何时修改与约束 |
 |---|---|---|---|
-| 顶层阶段 | `RUN_PROCESS_EXTCAT`、`RUN_PROCESS_INIT`、`RUN_PROCESS_MAIN`、`RUN_PROCESS_REARR`、`RUN_PROCESS_FD` | `config/ProcessConfig.hpp`；运行时 `--run-extcat`、`--run-init`、`--run-main`、`--run-rearr`、`--run-fd` | 选择本次执行的阶段。Standard 默认 `false/true/true/true/true`，Lite 默认 `false/true/true/false/false`。 |
+| 顶层阶段 | `RUN_PROCESS_ASTROCAT`、`RUN_PROCESS_EXTCAT`、`RUN_PROCESS_INIT`、`RUN_PROCESS_MAIN`、`RUN_PROCESS_REARR`、`RUN_PROCESS_FD` | `config/ProcessConfig.hpp`；运行时 `--run-astrocat`、`--run-extcat`、`--run-init`、`--run-main`、`--run-rearr`、`--run-fd` | 选择本次执行的阶段。Standard 默认 `false/false/true/true/true/true`，Lite 默认 `false/false/true/true/false/false`。 |
 | Science/DQ 归档与数据集 | `SCIENCE_ROOT`、`DQ_ROOT`、`OUTPUT_ROOT`、`DATASETS`、`CONTAINS` | `config/InitConfig.hpp`；运行时 `--science-root`、`--dq-root`、`--output-root`、`--dataset`、`--contains` | 更换观测归档、文件名前缀、筛选 token、输出根目录时修改。Lite 必须提供逐 CCD DQ masks。 |
 | 曝光表与阶段输出 | `EXPO_LIST`、`REARR_OUTPUT_DIRECTORY`、`REARR_OUTPUT_BASE_DIRECTORY`、`REARRANGED_EXPO_LIST_FILENAME`、`REARRANGED_EXPO_LIST_DIRECTORY`、`FD_EXPO_LIST`、`FD_OUTPUT_DIRECTORY`、`FD_OUTPUT_BASE_DIRECTORY` | `config/ProcessConfig.hpp`；运行时 `--expo-list`、`--rearr-output-dir`、`--rearr-output-base`、`--rearr-list-name`、`--rearr-list-dir`、`--fd-expo-list`、`--fd-output-dir`、`--fd-output-base` | 下游单独运行、改变重排/FD 输出目录或曝光表位置时修改（）。 |
+| Gaia 星表分块 | `ASTROCAT_INPUT_DIRECTORY`、`ASTROCAT_OUTPUT_DIRECTORY`、`ASTROCAT_ADD_HEADER=true`、`ASTROCAT_EXISTING_POLICY=fail` | `config/AstroCatConfig.hpp`；运行时 `--astrocat-input`、`--astrocat-output`、`--astrocat-add-header`、`--astrocat-existing` | 更换 Gaia 原始星表或重跑策略时修改。输出选项只控制 `process_astrocat`，不与 `ASTROMETRY_CAT` 校验，也不会传播给它。 |
 | 外部星表发现与解析 | `EXTCAT_INPUT_DIRECTORY`、`EXTCAT_OUTPUT_DIRECTORY` | `config/ExtCatConfig.hpp`；运行时 `--extcat-input`、`--extcat-output` | 更换外部星表文件组织时修改。输出目录不能等于或位于输入目录内。 |
 | 外部星表 schema | `EXTCAT_TOTAL_COLUMNS`、`EXTCAT_INPUT_COLUMNS_ONE_BASED`、`EXTCAT_RA_COLUMN_ONE_BASED`、`EXTCAT_DEC_COLUMN_ONE_BASED`、`EXTCAT_ZP_COLUMN_ONE_BASED` | `config/ExtCatConfig.hpp`；投影和 RA/Dec/ZP 列可用 `--extcat-columns`、`--extcat-ra-column`、`--extcat-dec-column`、`--extcat-zp-column` 运行时修改 | 更换 survey 或列顺序时修改。显式投影必须保留 RA、Dec、ZP 和启用阶段消费的字段；改变总列数还需同步审查重排与 FD 列号。 |
-| Gaia、外部星表与标定路径 | `ASTROMETRY_CAT`、`SOURCE_CAT_DEFAULT`（有效 `SOURCE_CAT`）、`FLAT_PATH`、`PSF_PATH` | `config/LensingConfig.hpp`；`--extcat-output` 可在运行时设置有效 `SOURCE_CAT`，其余为编译时 | 更换 Gaia 瓦片、规范化源星表、平场或外部 PSF 数据源时修改；容器内路径必须与 bind 目标一致。 |
+| Gaia、外部星表与标定路径 | `ASTROMETRY_CAT`、`SOURCE_CAT_DEFAULT`（有效 `SOURCE_CAT`）、`FLAT_PATH`、`PSF_PATH` | `config/LensingConfig.hpp`；`--extcat-output` 可在运行时设置有效 `SOURCE_CAT`，其余为编译时 | 更换 Gaia 瓦片、规范化源星表、平场或外部 PSF 数据源时修改；`--astrocat-output` 与 `ASTROMETRY_CAT` 相互独立；容器内路径必须与 bind 目标一致。 |
 | Standard 分支选择 | `ASTROMETRY_trivial=0`、`include_FLAT=0`、`include_Mask=2`、`ext_cat=1`、`ext_PSF=0`、`PSF_type=1`、`PSF_Ms=0` | `config/LensingConfig.hpp`，编译时 | 只有 Standard 可切换这些分支。Lite 已固定为 Gaia、无平场、逐 CCD DQ、外部源星表、帧内 PSF、局域多项式且无 PCA。 |
 | 图像与探测器几何 | `npx=3000`、`npy=5000`、`CCD_split=2`、`chipnx=2046`、`chipny=4094`、`pixel_size=0.2628`、`NMAX_CHIP=62`、`NMAX_EXPO=25000` | `config/LensingConfig.hpp`，编译时 | 更换相机、CCD 尺寸、放大器布局、像元尺度或单批曝光规模时修改；几何量必须成组核对。 |
 | 数值阶段 | `PROCESS_stage=223092870` | `config/LensingConfig.hpp`，编译时 | 用素因数选择九个主流程阶段；阶段 9（23）必须与阶段 8（19）同时启用。 |
@@ -119,6 +121,19 @@ mpirun -np 8 ./Fourier_Quad_Pipe \
   --science-root /data/archive/science --dq-root /data/archive/dqmask \
   --output-root /data/work --dataset g2019:c4d_19 --existing resume
 ```
+
+仅重分块原始 Gaia 星表：
+
+```bash
+mpirun -np 8 ./Fourier_Quad_Pipe \
+  --run-astrocat true --run-extcat false --run-init false --run-main false \
+  --run-rearr false --run-fd false \
+  --astrocat-input /data/raw_gaia --astrocat-output /data/gaia/tiles \
+  --astrocat-add-header true --astrocat-existing fail
+```
+
+上述 `--astrocat-output` 只控制该阶段；如需 `process_main` 消费此目录，应另行设置
+`LensingConfig::ASTROMETRY_CAT`。
 
 仅生成适用于本程序的规范化外部源星表：
 
