@@ -17,6 +17,16 @@ schedulers, or vendor fabrics need separate validation.
 
 ## Build and verify
 
+### Pull the GHCR image
+
+```bash
+docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/cpppipeline:latest
+```
+
+### Download the source and build
+
+Download the latest `cpp_docker.zip` from Releases.
+
 ```bash
 docker build --platform linux/amd64 --target runtime \
   --build-arg BUILD_JOBS=4 \
@@ -32,13 +42,33 @@ cp .env.example .env
 docker compose run --rm FourierQuad-CPP
 ```
 
+### Common `.env` parameters
+
+Copy `.env.example`, then update the table for the host layout and selected
+phases. `*_HOST` is a host path; `*_CONTAINER` is the absolute path visible to
+the program inside the container.
+
+| Parameter | Typical setting | Constraint |
+|---|---|---|
+| `IMAGE_NAME` | The image tag to run or build locally. | Must match the pulled image or `docker build -t` value. |
+| `BUILD_JOBS` | Parallel jobs allowed while building the image. | Size for available CPU and memory. |
+| `HOST_UID`, `HOST_GID` | Current host-user UID/GID. | Change when outputs must be directly writable by the host user. |
+| `CPP_SOURCE_HOST` | The `cpp_Standard` or `cpp_Lite` source directory. | Mounted read/write at `/workspace/src_pipe` so build products persist. |
+| `SCIENCE_ROOT_HOST/CONTAINER` | Science-image archive and its container path. | Needed only by `process_init`; use the container path in CLI arguments. |
+| `DQ_ROOT_HOST/CONTAINER` | DQ-mask archive and its container path. | Required when DQ access is enabled; Lite always needs it. |
+| `ASTROMETRY_CAT_HOST/CONTAINER` | Gaia catalog directory. | Container path must equal the compiled `ASTROMETRY_CAT`. |
+| `SOURCE_CAT_HOST/CONTAINER` | Normalized External source catalog directory. | Container path must equal the effective `SOURCE_CAT` or `--extcat-output`. |
+| `FLAT_PATH_HOST/CONTAINER` | Flat-calibration directory. | Needed only by a flat-enabled branch; container path must equal compiled `FLAT_PATH`. |
+| `PROCESS_DATA_HOST/CONTAINER` | Writable processing directory. | Holds exposure lists, intermediates, and results; default container path is `/data/DataProcess`. |
+| `EXTCAT_INPUT_*`, `REARR_OUTPUT_*`, `EXPOLIST_DIR_*`, `FD_OUTPUT_*` | Set only when those phase paths need independent mounts. | Include `compose.optional.yaml` when used; otherwise use defaults below processing data. |
+
 Inside the container:
 
 ```bash
 make -C /workspace/src_pipe -j4
 /workspace/src_pipe/Fourier_Quad_Pipe --help
 mpirun -np 4 /workspace/src_pipe/Fourier_Quad_Pipe \
-  --run-init false --run-main true --run-rearr false --run-fd false \
+  --run-extcat true --run-init false --run-main true --run-rearr false --run-fd false \
   --expo-list /data/DataProcess/expo_list.list
 ```
 

@@ -21,6 +21,16 @@ Dependency sources and checksums are recorded in [SOURCES.md](SOURCES.md) and
 
 ## Build and verify
 
+### Pull the GHCR image
+
+```bash
+docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/f77pipeline:latest
+```
+
+### Download the source and build
+
+Download the latest `f77_docker.zip` from Releases.
+
 ```bash
 docker build --platform linux/amd64 --build-arg BUILD_JOBS=4 \
   -t f77pipeline-dev:gnu4.8.5 .
@@ -34,6 +44,24 @@ cp .env.example .env
 # Set F77_SOURCE_HOST and the catalog/calibration/processing host paths.
 docker compose run --rm FourierQuad-F77
 ```
+
+### Common `.env` parameters
+
+Copy `.env.example`, then update the table for the actual host layout.
+`*_HOST` is a host path; `*_CONTAINER` is the absolute path visible to the
+program inside the container.
+
+| Parameter | Typical setting | Constraint |
+|---|---|---|
+| `IMAGE_NAME` | The F77 image tag to run or build locally. | Must match the pulled image or `docker build -t` value. |
+| `BASE_IMAGE` | Base-image registry reference or pinned digest. | Change only when rebuilding the toolchain image. |
+| `BUILD_JOBS` | Parallel jobs for building image dependencies. | Size for available CPU and memory. |
+| `HOST_UID`, `HOST_GID` | Current host-user UID/GID. | Change when outputs must be directly writable by the host user. |
+| `F77_SOURCE_HOST` | The `f77` or `f77_Lite` source directory. | Mounted read/write at `/workspace/f77` so build products persist. |
+| `ASTROMETRY_CAT_HOST/CONTAINER` | Gaia catalog directory. | Container path must match the astrometry-catalog path in `para.inc`. |
+| `SOURCE_CAT_HOST/CONTAINER` | External source catalog directory. | Container path must match the source-catalog path in `para.inc`. |
+| `FLAT_PATH_HOST/CONTAINER` | Flat-calibration directory. | Needed only by a flat-enabled branch and must match `para.inc`. |
+| `PROCESS_DATA_HOST/CONTAINER` | Writable processing directory. | Holds exposure lists, intermediates, and results; program arguments use container paths. |
 
 Inside the container, compile the mounted source with the image libraries:
 

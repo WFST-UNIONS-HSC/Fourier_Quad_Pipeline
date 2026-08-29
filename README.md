@@ -69,6 +69,13 @@ make LAPACK_LIB_DIR=/path/to/lapack/lib \
 mpirun -np 4 ./Fourier_Quad_Pipe /data/work/expo_gband.list
 ```
 
+Docker and HPC documentation entrances:
+
+| Implementation | Local Docker | HPC / Slurm + Apptainer |
+|---|---|---|
+| C++ | [C++ Docker guide](cpp_docker/README.md) | [C++ runner guide](cpp_docker/runner/README.md) |
+| F77 | [F77 Docker guide](f77_docker/README.md) | [F77 runner guide](f77_docker/runner/README.md) |
+
 See the [C++ guide](CPP_GUIDE.md) or [F77 guide](F77_GUIDE.md) for complete
 arguments, phase selection, and run examples.
 
@@ -76,47 +83,26 @@ arguments, phase selection, and run examples.
 
 ### C++ Pipeline
 
-| Category | Prerequisite | Regular Linux | HPC / Slurm | Notes |
-|---|---|---:|---:|---|
-| Operating system | 64-bit Linux | Required | Required | A modern Linux distribution is recommended. |
-| C++ compiler | MPI C++ wrapper with C++17 support | Required | Required | The current container toolchain uses GCC 12.3.0. |
-| MPI | OpenMPI or a compatible MPI implementation | Required | Required | The current container uses OpenMPI 4.1.8. |
-| CFITSIO | CFITSIO development library | Required | Required | FITS/FZ I/O; container version 4.6.4. |
-| FFTW3 | Double- and single-precision FFTW3 libraries | Required | Required | Fourier transforms; container version 3.3.11. |
-| Eigen3 | Eigen3 headers | Required | Required | C++ numerical operations; container version 3.4.0. |
-| BLAS / LAPACK | BLAS and LAPACK libraries | Required | Required | Linear algebra. |
-| Build tools | `make`, shell, standard GNU tools | Required | Required | Builds and helper scripts. |
-| Shared filesystem | All ranks/nodes see the same inputs and outputs | No | Required | Required for multi-node jobs. |
-| Slurm | Site scheduler and `srun` | No | Required for Slurm jobs | Batch allocation and launch. |
-| PMI2-compatible launch | Slurm `pmi2` support and compatible MPI | No | Required for the repository HPC container path | Used for direct Slurm MPI launch. |
-| Apptainer / Singularity | Rootless container runtime | No | Required when using the repository HPC container path | Must be available on compute nodes. |
-| Writable processing directory | Shared output/work directory writable by all ranks | Required | Required | Source data and outputs should not be mixed. |
+| Environment | Prerequisite | Notes |
+|---|---|---|
+| Regular Linux | 64-bit Linux; MPI C++ compiler with C++17 support; OpenMPI or compatible MPI; CFITSIO; FFTW3 (double and single precision); Eigen3; BLAS / LAPACK | GCC 12.3.0; OpenMPI 4.1.8; CFITSIO 4.6.4; FFTW 3.3.11; Eigen 3.4.0 |
+| HPC / Slurm | Regular Linux prerequisites; shared filesystem; Slurm; PMI2-compatible launch; Apptainer / Singularity | GCC 12.3.0; OpenMPI 4.1.8; CFITSIO 4.6.4; FFTW 3.3.11; Eigen 3.4.0 |
 
 ### F77 Pipeline
 
-| Category | Prerequisite | Regular Linux | HPC / Slurm | Notes |
-|---|---|---:|---:|---|
-| Operating system | 64-bit Linux | Required | Required | Target platform for the F77 Pipeline. |
-| Fortran compiler | Compatible GNU Fortran toolchain with `mpif77` | Required | Required | The pinned container uses GNU Fortran 4.8.5. |
-| MPI | MPICH or a compatible Fortran MPI implementation | Required | Required | The pinned container uses MPICH 4.1.2. |
-| CFITSIO | CFITSIO library | Required | Required | FITS/FZ I/O; container version 4.3.1. |
-| Fourier routines | Repository-provided `FFTPACK.f` | Included | Included | The current F77 Makefile does not require an external FFTW library. |
-| BLAS / LAPACK | BLAS and LAPACK libraries | Required | Required | The container supplies LAPACK 3.8.0 and its BLAS. |
-| Build tools | `make`, shell, standard GNU tools | Required | Required | Builds and run scripts. |
-| Shared filesystem | All tasks/nodes see the same inputs and outputs | No | Required | Required for multi-node jobs. |
-| Slurm | Site scheduler | No | Required for Slurm jobs | Batch allocation and launch. |
-| MPI-compatible launch | A launcher compatible with the selected container/host MPI mode | No | Required | The repository runner supports its documented MPICH and PMI-compatible modes. |
-| Apptainer / Singularity | Rootless container runtime | No | Required when using the repository HPC container path | Must be available on compute nodes. |
-| Writable processing directory | Shared output/work directory writable by all tasks | Required | Required | Do not write products into original archives. |
+| Environment | Prerequisite | Notes |
+|---|---|---|
+| Regular Linux | 64-bit Linux; GNU Fortran toolchain with `mpif77`; MPICH or compatible Fortran MPI; CFITSIO; repository-provided `FFTPACK.f`; BLAS / LAPACK | GNU Fortran 4.8.5; MPICH 4.1.2; CFITSIO 4.3.1; LAPACK 3.8.0 |
+| HPC / Slurm | Regular Linux prerequisites; shared filesystem; Slurm; MPI-compatible launch; Apptainer / Singularity | GNU Fortran 4.8.5; MPICH 4.1.2; CFITSIO 4.3.1; LAPACK 3.8.0 |
 
 ## Input data requirements
 
-| Input | Required | Purpose | Minimum requirement |
-|---|---:|---|---|
-| Science images | Yes | Exposures on which the Pipeline performs source detection, shape measurement, and weak-lensing processing. | Supported Science FITS/FZ data whose file organization matches the configured exposure and CCD recognition rules. |
-| Gaia catalog | Yes | High-precision sky-coordinate reference for source matching and astrometric calibration. | Covers the Science-image footprint; each file has one header line, followed by rows whose two fields are numeric `ra` and `dec`. |
-| External source catalog | Yes | Supplies sky positions, `zp`, and photometry for external-source matching and downstream processing. | Contains `ra`, `dec`, `zp`, and a magnitude in at least one observed band. |
-| DQ masks | Configuration-dependent (optional input class) | Marks bad, saturated, defective, or otherwise invalid pixels. | May be omitted only when the selected configuration does not read DQ masks. |
+| Input | Purpose | Minimum requirement |
+|---|---|---|
+| Science images | Exposures on which the Pipeline performs source detection, shape measurement, and weak-lensing processing. | Supported Science FITS/FZ data whose file organization matches the configured exposure and CCD recognition rules. |
+| Gaia catalog | High-precision sky-coordinate reference for source matching and astrometric calibration. | Covers the Science-image footprint; each file has one header line, followed by rows whose two fields are numeric `ra` and `dec`. |
+| External source catalog | Supplies sky positions, `zp`, and photometry for external-source matching and downstream processing. | Contains `ra`, `dec`, `zp`, and a magnitude in at least one observed band. |
+| DQ masks (*Optional*) | Marks bad, saturated, defective, or otherwise invalid pixels. | May be omitted only when the selected configuration does not read DQ masks. |
 
 ### Science images
 
@@ -145,8 +131,9 @@ whitespace-separated; additional fields are ignored.
 
 > Examples:
 > 1. gaia_p1_00.cat covers `0° <= RA < 10°` and `0° <= Dec < 10°`
-> 2. gaia_m3_12.cat covers `120° <= RA < 130°` and `-30° < Dec <= -20°` 
+> 2. gaia_m3_12.cat covers `120° <= RA < 130°` and `-30° < Dec <= -20°`
 > 3. gaia_p9.cat covers `0° <= RA < 360°` and `80° <= Dec <= 90°`
+
 *To ensure that stars can still be selected for exposures located at the edges of the 10°×10° grid, it is recommended to expand the upper and lower Dec coverage limits of a single star catalog by 2° based on the aforementioned limits, and expand the upper and lower RA limits by 2°, 4°, and 6° within the 0°, 30°, and 60° ranges, respectively.*
 ### External source catalog
 

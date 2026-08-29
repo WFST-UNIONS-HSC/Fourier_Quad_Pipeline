@@ -16,6 +16,16 @@ OpenBLAS 0.3.33。
 
 ## 构建与验证
 
+### 拉取GHCR镜像
+
+```bash
+docker pull ghcr.io/wfst-unions-hsc/fourier_quad_pipeline/cpppipeline:latest
+```
+
+### 下载源码编译
+
+下载Release中最新版cpp_docker.zip。
+
 ```bash
 docker build --platform linux/amd64 --target runtime \
   --build-arg BUILD_JOBS=4 \
@@ -31,13 +41,32 @@ cp .env.example .env
 docker compose run --rm FourierQuad-CPP
 ```
 
+### 常改 `.env` 参数
+
+先复制 `.env.example`，再按实际宿主目录和所选阶段修改下表。`*_HOST` 是宿主路径，
+`*_CONTAINER` 是程序在容器内看到的绝对路径。
+
+| 参数 | 通常如何修改 | 约束 |
+|---|---|---|
+| `IMAGE_NAME` | 设为准备运行或本地构建的镜像 tag。 | 必须与 `docker build -t` 或已拉取镜像一致。 |
+| `BUILD_JOBS` | 设为构建镜像时允许的并行任务数。 | 按本机 CPU 和内存调整。 |
+| `HOST_UID`、`HOST_GID` | 设为当前宿主用户 UID/GID。 | 输出需要由宿主用户直接读写时修改。 |
+| `CPP_SOURCE_HOST` | 指向 `cpp_Standard` 或 `cpp_Lite` 源码目录。 | 以读写方式挂载到 `/workspace/src_pipe`，用于保存编译产物。 |
+| `SCIENCE_ROOT_HOST/CONTAINER` | 指向 Science image 归档及其容器路径。 | 仅 `process_init` 需要；CLI 中使用容器路径。 |
+| `DQ_ROOT_HOST/CONTAINER` | 指向 DQ mask 归档及其容器路径。 | 启用 DQ 访问时必须设置；Lite 必须提供。 |
+| `ASTROMETRY_CAT_HOST/CONTAINER` | 指向 Gaia 星表目录。 | 容器路径必须等于编译的 `ASTROMETRY_CAT`。 |
+| `SOURCE_CAT_HOST/CONTAINER` | 指向规范化 External source catalog 目录。 | 容器路径必须等于有效 `SOURCE_CAT`，或与 `--extcat-output` 一致。 |
+| `FLAT_PATH_HOST/CONTAINER` | 指向平场标定目录。 | 仅启用平场分支时需要；容器路径必须等于编译的 `FLAT_PATH`。 |
+| `PROCESS_DATA_HOST/CONTAINER` | 指向可写处理目录。 | 保存曝光表、中间文件和结果；容器内默认 `/data/DataProcess`。 |
+| `EXTCAT_INPUT_*`、`REARR_OUTPUT_*`、`EXPOLIST_DIR_*`、`FD_OUTPUT_*` | 只为需要独立挂载的相应阶段设置。 | 使用时同时加载 `compose.optional.yaml`；未设置时使用处理目录下默认位置。 |
+
 容器内执行：
 
 ```bash
 make -C /workspace/src_pipe -j4
 /workspace/src_pipe/Fourier_Quad_Pipe --help
 mpirun -np 4 /workspace/src_pipe/Fourier_Quad_Pipe \
-  --run-init false --run-main true --run-rearr false --run-fd false \
+  --run-extcat true --run-init false --run-main true --run-rearr false --run-fd false \
   --expo-list /data/DataProcess/expo_list.list
 ```
 

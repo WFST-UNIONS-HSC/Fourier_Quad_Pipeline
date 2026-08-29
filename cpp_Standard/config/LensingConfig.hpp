@@ -15,6 +15,13 @@ namespace LensingConfig {
 
     // Stage control parameters
     constexpr int ASTROMETRY_trivial = 0;  // Use Gaia astrometry; one selects identity mapping.
+    // ==========================================
+    // Configuration: Astrometric reference catalog layout
+    // Method: Select legacy large Gaia tiles (1) or repartitioned 1-degree tiles (2).
+    // ==========================================
+    constexpr int AstroCatType = 1;
+    static_assert(AstroCatType == 1 || AstroCatType == 2,
+                  "AstroCatType must be 1 or 2");
     constexpr int PROCESS_stage =          // Prime-product stage selector.
                                 2 *        // Pre-Process
                                 3 *        // Astrometry
