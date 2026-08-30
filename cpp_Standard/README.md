@@ -21,8 +21,9 @@ CFITSIO 4.6.3 and FFTW3 3.3.10 available. The local full build uses Eigen3 from
 LAPACK, and BLAS dependencies.
 
 Standard defaults to initialization, main, rearrangement, and FD enabled.
-Review phase switches and paths before running. CLI overrides workflow paths;
-scientific branches and thresholds in `config/LensingConfig.hpp` require
+Review phase switches and paths before running. Fixed path defaults and output
+layout names are centralized in `config/pathconfig.hpp`; CLI overrides workflow
+paths. Scientific branches and thresholds in `config/LensingConfig.hpp` require
 rebuilding.
 
 The optional one-time `process_astrocat` phase runs before `process_extcat` and

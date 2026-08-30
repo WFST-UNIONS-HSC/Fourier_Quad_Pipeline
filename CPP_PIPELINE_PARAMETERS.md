@@ -1,17 +1,23 @@
 # C++ Pipeline Parameter Reference
 
-This reference follows the live C++ source. Each configuration header has one
+This reference follows the live C++ source. Each configuration namespace has one
 complete table; Standard and Lite values are compared in the same row. The C++
 driver seeds `ProcessConfig::RuntimeOptions` from these compiled defaults and
 only the options named in the **CLI override** column can change a value without
 rebuilding.
+
+All fixed input/output path definitions are physically centralized in
+`config/pathconfig.hpp`. The tables below keep them grouped with their consuming
+configuration namespaces; the namespace-qualified symbol names and runtime
+override behavior are unchanged. `OutputLayout::NON_CHIP_BASE_DIRECTORIES` and
+`OutputLayout::CHIP_PRODUCT_DIRECTORIES` are defined in the same path header.
 
 `N/A — removed in Lite` means the Lite source physically removed the alternate
 branch. Adding the constant back does not restore that behavior. A **derived
 parameter** is retained for completeness but must not be edited directly; change
 its source parameter and keep the associated assertions and consumers consistent.
 
-## `config/ProcessConfig.hpp`
+## `ProcessConfig` (`config/ProcessConfig.hpp` and `config/pathconfig.hpp`)
 
 | Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
 |---|---|---|---|---|---|---|---|---|
@@ -36,7 +42,7 @@ runtime copies of values listed in this and the next two header tables. Their
 members are parser state, not a second set of user defaults. `help_requested`
 and `external_exposure_list_supplied` are internal parser flags.
 
-## `config/InitConfig.hpp`
+## `InitConfig` (`config/InitConfig.hpp` and `config/pathconfig.hpp`)
 
 | Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
 |---|---|---|---|---|---|---|---|---|
@@ -50,7 +56,7 @@ and `external_exposure_list_supplied` are internal parser flags.
 | `EXISTING` | `const char*` | `"fail"` | same | `--existing` | `fail`, `resume`, `overwrite` | Existing-output policy for initialization. | Select intentionally per run. | CLI override; rebuild not required |
 | `F77_MAX_PATH` | `int` | `150` | `150` | `--f77-max-path` | Non-negative; `0` disables | Compatibility guard for generated path lengths. | Change only for path-policy compatibility. | CLI override; rebuild not required |
 
-## `config/AstroCatConfig.hpp`
+## `AstroCatConfig` (`config/AstroCatConfig.hpp` and `config/pathconfig.hpp`)
 
 | Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
 |---|---|---|---|---|---|---|---|---|
@@ -76,7 +82,7 @@ and contain round-trip-precision doubles. `overwrite` removes only files that
 match this generated basename contract and preserves unrelated directory
 content.
 
-## `config/ExtCatConfig.hpp`
+## `ExtCatConfig` (`config/ExtCatConfig.hpp` and `config/pathconfig.hpp`)
 
 | Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
 |---|---|---|---|---|---|---|---|---|
@@ -97,7 +103,7 @@ content.
 | `EXTCAT_DEC_COLUMN_ONE_BASED` | `std::size_t` | `6` | `6` | `--extcat-dec-column` | Positive one-based index | Raw `dec` field position. | Change for another catalog schema. | CLI override; rebuild not required |
 | `EXTCAT_ZP_COLUMN_ONE_BASED` | `std::size_t` | `17` | `17` | `--extcat-zp-column` | Positive one-based index | Raw `zp` field position consumed downstream. | Change for another catalog schema. | CLI override; rebuild not required |
 
-## `config/LensingConfig.hpp`
+## `LensingConfig` (`config/LensingConfig.hpp` and `config/pathconfig.hpp`)
 
 | Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
 |---|---|---|---|---|---|---|---|---|
@@ -272,7 +278,7 @@ content.
 | `pca_negative_eigenvalue_threshold` | `double` | `-1.0e-5` | `N/A — removed in Lite` | No | Non-positive tolerance | Invalid PCA eigenvalue cutoff. | Numerical guard; normally unchanged. | Yes |
 | `nmax_star_pchip` | `int` | `1000000` | `N/A — removed in Lite` | No | Positive reservation capacity | Legacy PCA star capacity. | Change only for Standard PCA memory planning. | Yes |
 
-## `config/ProcessRearrConfig.hpp`
+## `ProcessRearrConfig` (`config/ProcessRearrConfig.hpp` and `config/pathconfig.hpp`)
 
 | Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
 |---|---|---|---|---|---|---|---|---|

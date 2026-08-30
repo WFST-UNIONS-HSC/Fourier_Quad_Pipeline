@@ -4,6 +4,7 @@
 #include "AstroCatConfig.hpp"
 #include "ExtCatConfig.hpp"
 #include "InitConfig.hpp"
+#include "pathconfig.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -18,20 +19,6 @@ inline constexpr bool RUN_PROCESS_INIT = true;     // Run archive initialization
 inline constexpr bool RUN_PROCESS_MAIN = true;     // Run the nine-stage pipeline by default.
 inline constexpr bool RUN_PROCESS_REARR = true;    // Run catalog rearrangement by default.
 inline constexpr bool RUN_PROCESS_FD = true;       // Run the field-distortion test by default.
-
-// ==========================================
-// Configuration: Path interface defaults for process_rearr and process_fd
-// Method: These I/O path constants are the compile-time defaults seeded into
-//         RuntimeOptions below.  CLI options override them at runtime without rebuild.
-// ==========================================
-inline constexpr const char* EXPO_LIST = "";  // Default top-level exposure-list path.
-inline constexpr const char* REARR_OUTPUT_DIRECTORY = "baked";  // Rearranged catalog directory.
-inline constexpr const char* REARR_OUTPUT_BASE_DIRECTORY = "";  // Empty uses the dataset root.
-inline constexpr const char* REARRANGED_EXPO_LIST_FILENAME = "cat_gband_ori.list";  // FD input list name.
-inline constexpr const char* REARRANGED_EXPO_LIST_DIRECTORY = "";  // Empty uses the input-list directory.
-inline constexpr const char* FD_EXPO_LIST = "";  // Optional explicit FD exposure-list path.
-inline constexpr const char* FD_OUTPUT_DIRECTORY = "fdout";  // FD result directory name.
-inline constexpr const char* FD_OUTPUT_BASE_DIRECTORY = "";  // Empty uses the dataset root.
 
 // ==========================================
 // Configuration: Runtime workflow options

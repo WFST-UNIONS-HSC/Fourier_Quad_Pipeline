@@ -23,6 +23,9 @@ LAPACK, and BLAS dependencies.
 
 Lite defaults to initialization and main enabled, with rearrangement and FD
 disabled. Its removed branches cannot be enabled by adding constants.
+Fixed path defaults and output layout names are centralized in
+`config/pathconfig.hpp`; runtime CLI values still override their compiled
+workflow defaults.
 
 The optional one-time `process_astrocat` phase runs before `process_extcat` and
 publishes deduplicated one-degree Gaia tiles. Its `--astrocat-output` directory

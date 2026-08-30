@@ -14,6 +14,7 @@
 // ==========================================
 
 #include "LensingConfig.hpp"
+#include "pathconfig.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -22,9 +23,6 @@
 
 namespace ExtCatConfig {
 
-inline constexpr const char* EXTCAT_INPUT_DIRECTORY = "";  // Root containing raw catalog files.
-inline constexpr const char* EXTCAT_OUTPUT_DIRECTORY =
-    LensingConfig::SOURCE_CAT_DEFAULT;  // Tile output and process_main input directory.
 inline const std::vector<std::string> EXTCAT_FILENAME_TOKENS = {};  // OR-matched basename filters.
 inline constexpr bool EXTCAT_RECURSIVE = true;  // Recurse below the input directory.
 inline constexpr const char* EXTCAT_DELIMITER = "auto";  // Input delimiter detection mode.

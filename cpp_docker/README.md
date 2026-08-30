@@ -78,7 +78,7 @@ Science/DQ archives and extcat/rearr/exposure-list/FD mounts are optional and
 should be enabled only for phases that need them.
 
 Catalog and calibration destinations used by compiled scientific branches
-must match `config/LensingConfig.hpp`. `--extcat-output` can override the
+must match `config/pathconfig.hpp`. `--extcat-output` can override the
 external source-catalog tile path for one invocation.
 
 For `process_astrocat`, expose the raw Gaia directory through a suitable

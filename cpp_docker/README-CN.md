@@ -73,7 +73,7 @@ mpirun -np 4 /workspace/src_pipe/Fourier_Quad_Pipe \
 程序参数必须使用容器路径。核心 bind 为源码、测天/源星表、平场和可写处理目录；
 Science/DQ 归档以及 extcat/rearr/曝光表/FD 挂载只在对应阶段需要时启用。
 
-编译科学分支使用的星表/标定目标必须与 `config/LensingConfig.hpp` 一致。
+编译科学分支使用的星表/标定目标必须与 `config/pathconfig.hpp` 一致。
 `--extcat-output` 可覆盖单次调用的外部源星表瓦片路径。
 
 运行 `process_astrocat` 时，应通过合适的只读 bind 暴露原始 Gaia 目录，并用
