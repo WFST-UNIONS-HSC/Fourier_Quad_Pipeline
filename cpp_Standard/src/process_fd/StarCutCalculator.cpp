@@ -130,9 +130,11 @@ void StarCutCalculator::calculateGlobalStarCut(const FDData& data,
                   << " S_std=" << S_std << " S_cut=" << S_cut << std::endl;
 }
 
-// ------------------------------------------------------------------
-// Per-exposure star cut (one bar per exposure)
-// ------------------------------------------------------------------
+// ==========================================
+// Function: Calculate one stellar-size cut per original exposure
+// Method: Keep catalog exposure IDs 1-based while mapping every exposure-sized
+//         vector access through the zero-based index eidx = iex - 1.
+// ==========================================
 void StarCutCalculator::calculateGlobalStarCutAuto(
     const FDData& data,
     std::vector<float>& S_mean_arr,
@@ -198,6 +200,7 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
     std::vector<bool> skip_iter(NMAX_E, false);
 
     for (int iex = 1; iex <= global_max_iex; ++iex) {
+        const int eidx = iex - 1;
         float max_concentration = 0.0;
         int best_j = -1;
         for (int j = 0; j < nm; ++j) {
@@ -214,7 +217,7 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
             if (concentration > max_concentration) {
                 max_concentration = concentration;
                 best_j = j;
-                S_init_arr[iex] = fc::size_min + (peak + 0.5) * size_bin_w;
+                S_init_arr[eidx] = fc::size_min + (peak + 0.5) * size_bin_w;
             }
         }
         // Determine active mag bins for this exposure
@@ -231,7 +234,7 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
                 if (peak > 0) sum_peak += global_hist3d[((iex - 1) * nm + j) * ns + peak - 1];
                 if (peak < ns - 1) sum_peak += global_hist3d[((iex - 1) * nm + j) * ns + peak + 1];
                 float concentration = float(sum_peak) / float(mc);
-                if (std::fabs(peak_size - S_init_arr[iex]) <= fc::peak_match_tol &&
+                if (std::fabs(peak_size - S_init_arr[eidx]) <= fc::peak_match_tol &&
                     concentration >= fc::min_concentration)
                     active_mag_bins3d[(iex - 1) * nm + j] = true;
             }
@@ -246,11 +249,12 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
         if (data.src_snr[idx] <= fc::stage1_snr) continue;
         int iex = data.iexpo[idx];
         if (iex < 1 || iex > global_max_iex) continue;
+        const int eidx = iex - 1;
         int j = int((data.magi[idx] - fc::mag_min_val) / mag_bin_w);
         if (j >= 0 && j < nm && active_mag_bins3d[(iex - 1) * nm + j] &&
-            std::fabs(data.sizerel[idx] - S_init_arr[iex]) < fc::init_win_active) {
-            local_sum_arr[iex] += data.sizerel[idx];
-            local_count_arr[iex]++;
+            std::fabs(data.sizerel[idx] - S_init_arr[eidx]) < fc::init_win_active) {
+            local_sum_arr[eidx] += data.sizerel[idx];
+            local_count_arr[eidx]++;
         }
     }
     MPI_Allreduce(local_sum_arr.data(), global_sum_arr.data(), global_max_iex,
@@ -258,8 +262,10 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
     MPI_Allreduce(local_count_arr.data(), global_count_arr.data(), global_max_iex,
                   MPI_INT, MPI_SUM, communicator);
 
-    for (int iex = 1; iex <= global_max_iex; ++iex)
-        use_fallback[iex] = (global_count_arr[iex] <= 1);
+    for (int iex = 1; iex <= global_max_iex; ++iex) {
+        const int eidx = iex - 1;
+        use_fallback[eidx] = (global_count_arr[eidx] <= 1);
+    }
 
     // Fallback with wider window
     std::fill(local_sum_arr.begin(), local_sum_arr.end(), 0.0);
@@ -267,12 +273,14 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
     for (int idx = 0; idx < data.ng; ++idx) {
         if (data.src_snr[idx] <= fc::stage1_snr) continue;
         int iex = data.iexpo[idx];
-        if (iex < 1 || iex > global_max_iex || !use_fallback[iex]) continue;
+        if (iex < 1 || iex > global_max_iex) continue;
+        const int eidx = iex - 1;
+        if (!use_fallback[eidx]) continue;
         int j = int((data.magi[idx] - fc::mag_min_val) / mag_bin_w);
         if (j >= 0 && j < nm &&
-            std::fabs(data.sizerel[idx] - S_init_arr[iex]) < fc::init_win_fallback) {
-            local_sum_arr[iex] += data.sizerel[idx];
-            local_count_arr[iex]++;
+            std::fabs(data.sizerel[idx] - S_init_arr[eidx]) < fc::init_win_fallback) {
+            local_sum_arr[eidx] += data.sizerel[idx];
+            local_count_arr[eidx]++;
         }
     }
     std::vector<float> fb_sum(NMAX_E, 0.0);
@@ -281,11 +289,13 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
                   MPI_FLOAT, MPI_SUM, communicator);
     MPI_Allreduce(local_count_arr.data(), fb_count.data(), global_max_iex,
                   MPI_INT, MPI_SUM, communicator);
-    for (int iex = 1; iex <= global_max_iex; ++iex)
-        if (use_fallback[iex]) {
-            global_sum_arr[iex] = fb_sum[iex];
-            global_count_arr[iex] = fb_count[iex];
+    for (int iex = 1; iex <= global_max_iex; ++iex) {
+        const int eidx = iex - 1;
+        if (use_fallback[eidx]) {
+            global_sum_arr[eidx] = fb_sum[eidx];
+            global_count_arr[eidx] = fb_count[eidx];
         }
+    }
 
     // Initialize S_mean_temp and S_std_temp
     std::vector<float> S_mean_t(NMAX_E, fc::default_s_init);
@@ -293,28 +303,35 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
     std::vector<float> clip_limit(NMAX_E, fc::init_win_active);
 
     for (int iex = 1; iex <= global_max_iex; ++iex) {
-        if (global_count_arr[iex] > 1) {
-            skip_iter[iex] = false;
-            S_mean_t[iex] = global_sum_arr[iex] / float(global_count_arr[iex]);
-            S_std_t[iex] = use_fallback[iex] ? fc::init_win_fallback : fc::init_win_active;
+        const int eidx = iex - 1;
+        if (global_count_arr[eidx] > 1) {
+            skip_iter[eidx] = false;
+            S_mean_t[eidx] = global_sum_arr[eidx] / float(global_count_arr[eidx]);
+            S_std_t[eidx] = use_fallback[eidx]
+                                ? fc::init_win_fallback
+                                : fc::init_win_active;
         } else {
-            skip_iter[iex] = true;
-            S_mean_t[iex] = S_init_arr[iex];
-            S_std_t[iex] = fc::default_s_std;
+            skip_iter[eidx] = true;
+            S_mean_t[eidx] = S_init_arr[eidx];
+            S_std_t[eidx] = fc::default_s_std;
         }
     }
 
     // Iterative sigma-clipping (3 iterations)
     for (int i_iter = 0; i_iter < 3; ++i_iter) {
         for (int iex = 1; iex <= global_max_iex; ++iex) {
-            if (skip_iter[iex]) continue;
-            float iw = use_fallback[iex] ? fc::init_win_fallback : fc::init_win_active;
-            if (i_iter == 0) clip_limit[iex] = iw;
-            else if (i_iter == 1) clip_limit[iex] = 0.5f * iw;
+            const int eidx = iex - 1;
+            if (skip_iter[eidx]) continue;
+            float iw = use_fallback[eidx]
+                           ? fc::init_win_fallback
+                           : fc::init_win_active;
+            if (i_iter == 0) clip_limit[eidx] = iw;
+            else if (i_iter == 1) clip_limit[eidx] = 0.5f * iw;
             else {
-                clip_limit[iex] = fc::clip_nsigma * S_std_t[iex];
-                if (clip_limit[iex] > 0.5f * iw) clip_limit[iex] = 0.5f * iw;
-                if (clip_limit[iex] < fc::min_clip_limit) clip_limit[iex] = fc::min_clip_limit;
+                clip_limit[eidx] = fc::clip_nsigma * S_std_t[eidx];
+                if (clip_limit[eidx] > 0.5f * iw) clip_limit[eidx] = 0.5f * iw;
+                if (clip_limit[eidx] < fc::min_clip_limit)
+                    clip_limit[eidx] = fc::min_clip_limit;
             }
         }
 
@@ -324,25 +341,30 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
         for (int idx = 0; idx < data.ng; ++idx) {
             if (data.src_snr[idx] <= fc::stage1_snr) continue;
             int iex = data.iexpo[idx];
-            if (iex < 1 || iex > global_max_iex || skip_iter[iex]) continue;
+            if (iex < 1 || iex > global_max_iex) continue;
+            const int eidx = iex - 1;
+            if (skip_iter[eidx]) continue;
             int j = int((data.magi[idx] - fc::mag_min_val) / mag_bin_w);
             if (j >= 0 && j < nm &&
-                (use_fallback[iex] || active_mag_bins3d[(iex - 1) * nm + j]) &&
-                std::fabs(data.sizerel[idx] - S_mean_t[iex]) < clip_limit[iex]) {
-                local_sum_arr[iex] += data.sizerel[idx];
-                local_count_arr[iex]++;
+                (use_fallback[eidx] || active_mag_bins3d[(iex - 1) * nm + j]) &&
+                std::fabs(data.sizerel[idx] - S_mean_t[eidx]) < clip_limit[eidx]) {
+                local_sum_arr[eidx] += data.sizerel[idx];
+                local_count_arr[eidx]++;
             }
         }
         MPI_Allreduce(local_sum_arr.data(), global_sum_arr.data(), global_max_iex,
                       MPI_FLOAT, MPI_SUM, communicator);
         MPI_Allreduce(local_count_arr.data(), global_count_arr.data(), global_max_iex,
                       MPI_INT, MPI_SUM, communicator);
-        for (int iex = 1; iex <= global_max_iex; ++iex)
-            if (!skip_iter[iex]) {
-                if (global_count_arr[iex] > 1)
-                    S_mean_t[iex] = global_sum_arr[iex] / float(global_count_arr[iex]);
-                else skip_iter[iex] = true;
+        for (int iex = 1; iex <= global_max_iex; ++iex) {
+            const int eidx = iex - 1;
+            if (!skip_iter[eidx]) {
+                if (global_count_arr[eidx] > 1)
+                    S_mean_t[eidx] = global_sum_arr[eidx]
+                                     / float(global_count_arr[eidx]);
+                else skip_iter[eidx] = true;
             }
+        }
 
         // B. Compute std
         std::vector<float> local_sq(NMAX_E, 0.0), global_sq(NMAX_E, 0.0);
@@ -350,55 +372,64 @@ void StarCutCalculator::calculateGlobalStarCutAuto(
         for (int idx = 0; idx < data.ng; ++idx) {
             if (data.src_snr[idx] <= fc::stage2_snr) continue;
             int iex = data.iexpo[idx];
-            if (iex < 1 || iex > global_max_iex || skip_iter[iex]) continue;
+            if (iex < 1 || iex > global_max_iex) continue;
+            const int eidx = iex - 1;
+            if (skip_iter[eidx]) continue;
             int j = int((data.magi[idx] - fc::mag_min_val) / mag_bin_w);
             if (j >= 0 && j < nm &&
-                (use_fallback[iex] || active_mag_bins3d[(iex - 1) * nm + j]) &&
-                std::fabs(data.sizerel[idx] - S_mean_t[iex]) < clip_limit[iex]) {
-                local_sq[iex] += (data.sizerel[idx] - S_mean_t[iex]) * (data.sizerel[idx] - S_mean_t[iex]);
-                local_cnt_s[iex]++;
+                (use_fallback[eidx] || active_mag_bins3d[(iex - 1) * nm + j]) &&
+                std::fabs(data.sizerel[idx] - S_mean_t[eidx]) < clip_limit[eidx]) {
+                local_sq[eidx] += (data.sizerel[idx] - S_mean_t[eidx])
+                                   * (data.sizerel[idx] - S_mean_t[eidx]);
+                local_cnt_s[eidx]++;
             }
         }
         MPI_Allreduce(local_sq.data(), global_sq.data(), global_max_iex,
                       MPI_FLOAT, MPI_SUM, communicator);
         MPI_Allreduce(local_cnt_s.data(), global_cnt_s.data(), global_max_iex,
                       MPI_INT, MPI_SUM, communicator);
-        for (int iex = 1; iex <= global_max_iex; ++iex)
-            if (!skip_iter[iex]) {
-                if (global_cnt_s[iex] > 1)
-                    S_std_t[iex] = std::sqrt(global_sq[iex] / float(global_cnt_s[iex] - 1));
-                else S_std_t[iex] = fc::default_s_std;
-                if (S_std_t[iex] < fc::min_clip_limit / fc::clip_nsigma)
-                    S_std_t[iex] = fc::min_clip_limit / fc::clip_nsigma;
+        for (int iex = 1; iex <= global_max_iex; ++iex) {
+            const int eidx = iex - 1;
+            if (!skip_iter[eidx]) {
+                if (global_cnt_s[eidx] > 1)
+                    S_std_t[eidx] = std::sqrt(
+                        global_sq[eidx] / float(global_cnt_s[eidx] - 1));
+                else S_std_t[eidx] = fc::default_s_std;
+                if (S_std_t[eidx] < fc::min_clip_limit / fc::clip_nsigma)
+                    S_std_t[eidx] = fc::min_clip_limit / fc::clip_nsigma;
             }
+        }
     }
 
     // Finalize: average successful exposures for fallback
     int n_success = 0;
     float sum_mean = 0.0, sum_std = 0.0;
-    for (int iex = 1; iex <= global_max_iex; ++iex)
-        if (!skip_iter[iex]) {
+    for (int iex = 1; iex <= global_max_iex; ++iex) {
+        const int eidx = iex - 1;
+        if (!skip_iter[eidx]) {
             n_success++;
-            sum_mean += S_mean_t[iex];
-            sum_std += S_std_t[iex];
+            sum_mean += S_mean_t[eidx];
+            sum_std += S_std_t[eidx];
         }
+    }
     float avg_mean = n_success > 0 ? sum_mean / n_success : fc::default_s_init;
     float avg_std = n_success > 0 ? sum_std / n_success : fc::default_s_std;
 
     for (int iex = 1; iex <= global_max_iex; ++iex) {
-        if (!skip_iter[iex]) {
-            S_mean_arr[iex] = S_mean_t[iex];
-            S_std_arr[iex] = S_std_t[iex];
+        const int eidx = iex - 1;
+        if (!skip_iter[eidx]) {
+            S_mean_arr[eidx] = S_mean_t[eidx];
+            S_std_arr[eidx] = S_std_t[eidx];
         } else {
-            S_mean_arr[iex] = avg_mean;
-            S_std_arr[iex] = avg_std;
+            S_mean_arr[eidx] = avg_mean;
+            S_std_arr[eidx] = avg_std;
         }
-        S_cut_arr[iex] = S_mean_arr[iex] + k_sigma * S_std_arr[iex];
+        S_cut_arr[eidx] = S_mean_arr[eidx] + k_sigma * S_std_arr[eidx];
     }
-    for (int iex = global_max_iex + 1; iex < NMAX_E; ++iex) {
-        S_mean_arr[iex] = avg_mean;
-        S_std_arr[iex] = avg_std;
-        S_cut_arr[iex] = avg_mean + k_sigma * avg_std;
+    for (int eidx = global_max_iex; eidx < NMAX_E; ++eidx) {
+        S_mean_arr[eidx] = avg_mean;
+        S_std_arr[eidx] = avg_std;
+        S_cut_arr[eidx] = avg_mean + k_sigma * avg_std;
     }
 
     if (rank == 0)
@@ -438,9 +469,10 @@ void StarCutCalculator::applySingleStarCut(FDData& data, float S_cut) {
     data.ng = write_idx;
 }
 
-// ------------------------------------------------------------------
-// Apply advanced cuts (per-exposure star cut + SNR cuts)
-// ------------------------------------------------------------------
+// ==========================================
+// Function: Apply per-exposure stellar-size and SNR cuts
+// Method: Resolve each 1-based exposure ID to its zero-based cut-vector entry.
+// ==========================================
 void StarCutCalculator::applyAdvancedCuts(FDData& data,
                                           const std::vector<float>& S_cut_arr) {
     const int NMAX_E = LensingConfig::NMAX_EXPO;
@@ -459,7 +491,7 @@ void StarCutCalculator::applyAdvancedCuts(FDData& data,
         // Per-exposure size cut
         int iex = data.iexpo[idx];
         float scut = max_scut;
-        if (iex >= 1 && iex < NMAX_E) scut = S_cut_arr[iex];
+        if (iex >= 1 && iex <= NMAX_E) scut = S_cut_arr[iex - 1];
         if (data.sizerel[idx] <= scut && data.src_snr[idx] > 20.0) continue;
 
         // Keep this galaxy

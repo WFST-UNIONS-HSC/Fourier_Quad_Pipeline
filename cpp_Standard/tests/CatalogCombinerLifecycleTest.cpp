@@ -136,10 +136,13 @@ public:
     // ==========================================
     void combine(float chi2) const {
         CatalogCombiner::combineExpoCatalog(
-            1, std::vector<std::string>{image_file_}, root_.string(), chi2);
+            1, std::vector<std::string>{image_file_}, root_.string(),
+            exposureIndex(), chi2);
     }
 
     const std::string& outputFile() const noexcept { return output_file_; }
+    int chipIndex() const { return UniversalUtils::getChipId(image_file_); }
+    static constexpr int exposureIndex() noexcept { return 7; }
 
 private:
     std::filesystem::path root_;
@@ -176,8 +179,8 @@ void testNoOutputCases(TemporaryCatalogTree& tree) {
 }
 
 // ==========================================
-// Function: Verify lazy creation and terminal Chi2 serialization
-// Method: Combine one aligned data row and inspect both output lines.
+// Function: Verify lazy creation and the complete combined-catalog schema
+// Method: Check header/data EXPO_NUM placement, row width, CCD, and terminal Chi2.
 // ==========================================
 void testLiveOutput(TemporaryCatalogTree& tree) {
     constexpr float chi2 = 0.005f;
@@ -197,15 +200,35 @@ void testLiveOutput(TemporaryCatalogTree& tree) {
                 && header.substr(header.size() - 4) == "Chi2",
             "combined catalog header must end in Chi2");
 
+    std::istringstream header_values(header);
+    std::vector<std::string> header_columns;
+    std::string header_column;
+    while (header_values >> header_column) {
+        header_columns.push_back(header_column);
+    }
+    require(header_columns.size() >= 4
+                && header_columns[2] == "EXPO_NUM"
+                && header_columns[3] == "ccD_NUM",
+            "EXPO_NUM must immediately precede ccD_NUM after external fields");
+
     std::istringstream values(row);
     double value = 0.0;
     double last_value = 0.0;
-    int columns = 0;
+    std::vector<double> row_columns;
     while (values >> value) {
         last_value = value;
-        ++columns;
+        row_columns.push_back(value);
     }
-    require(columns > 0 && std::abs(last_value - chi2) < 1.0e-7,
+    require(row_columns.size() == header_columns.size()
+                && row_columns.size()
+                       == static_cast<std::size_t>(2 + 2 + LensingConfig::npara),
+            "combined header and data must use the expanded schema width");
+    require(static_cast<int>(std::lround(row_columns[2]))
+                    == TemporaryCatalogTree::exposureIndex()
+                && static_cast<int>(std::lround(row_columns[3]))
+                       == tree.chipIndex(),
+            "data row must serialize exposure identity before CCD identity");
+    require(!row_columns.empty() && std::abs(last_value - chi2) < 1.0e-7,
             "combined catalog data must end in the exposure Chi2");
 }
 

@@ -111,9 +111,12 @@ Science images 是主要科学曝光图像，不是标定星表或输出目录�
 ### Gaia catalog
 
 Gaia catalog 为天体匹配和测天标定提供精确 RA/Dec 参考位置。它必须覆盖实际 Science
-images 天区，并直接存放在配置的 `ASTROMETRY_CAT` 目录下。读取器会跳过第一行表头，
-再把后续每行的前两个数值字段读作 RA 和 Dec；数据行可用逗号或空白分隔，额外字段会
-被忽略。
+images 天区，并直接存放在配置的 `ASTROMETRY_CAT` 目录下。每个被消费的瓦片第一行是
+表头，后续每行的前两个数值字段作为 RA 和 Dec；数据行可用逗号或空白分隔，额外字段
+会被忽略。
+
+`LensingConfig::AstroCatType` 选择两种文件布局：类型 `1` 是下述旧式大瓦片；类型 `2`
+是一度瓦片，可由 `process_astrocat` 从平铺目录中的原始文件生成。
 
 **文件名规范：**
 -  `|Dec| < 80°` : `gaia_<p|m><D>_<RR>.cat`
@@ -127,8 +130,17 @@ images 天区，并直接存放在配置的 `ASTROMETRY_CAT` 目录下。读取�
 > 2. gaia_m3_12.cat 覆盖 `120° <= RA < 130°`、`-30° < Dec <= -20°`
 > 3. gaia_p9.cat 覆盖 `0° <= RA < 360°`、`80° <= Dec <= 90°`
 
-*为了保证位于10°×10°格点边缘的曝光仍能选到星，建议单个星表的dec覆盖上下限在上述基础上
+*对于类型 1，为了保证位于10°×10°格点边缘的曝光仍能选到星，建议单个星表的dec覆盖上下限在上述基础上
 增减2°，ra上下限在0°/30°/60°范围分别增减2°/4°/6°。*
+
+类型 2 文件名为
+`des_y6_RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`，RA 边界固定三位，Dec 边界使用
+`p`/`m` 加两位绝对值。例如 `des_y6_RA_123_124_Dec_m05_m04.dat` 覆盖
+`123° <= RA < 124°`、`-5° <= Dec < -4°`。
+
+`process_astrocat` 只读取 `--astrocat-input` 的直接普通文件，生成上述类型 2 瓦片，并
+删除两个坐标上精确或相差不超过 1 ULP 的重复记录。`--astrocat-output` 只控制发布目录；
+如需主流程消费结果，应另行把 `ASTROMETRY_CAT` 指向该目录并设置 `AstroCatType=2`。
 
 ### External source catalog
 

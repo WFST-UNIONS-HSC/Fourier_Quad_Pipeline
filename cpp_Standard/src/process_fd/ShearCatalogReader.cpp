@@ -127,6 +127,21 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
                 if (std::fabs(row[fc::col_gf1]) > 0.0015) continue;
                 if (std::fabs(row[fc::col_gf2]) > 0.0015) continue;
 
+                // ==========================================
+                // Logic: Preserve the source's original exposure identity
+                // Method: Read the 1-based catalog value and reject IDs that
+                //         cannot address an exposure-sized vector.
+                // ==========================================
+                int source_expo = 0;
+                if (fc::FD_PER_EXPOSURE_STAR_BAR) {
+                    source_expo = static_cast<int>(
+                        std::lround(row[fc::col_expo]));
+                    if (source_expo < 1
+                        || source_expo > lc::NMAX_EXPO) {
+                        continue;
+                    }
+                }
+
                 int idx = data.ng;
                 if (idx >= fc::nmax_per_core) {
                     std::cerr << "nmax_per_core is too small!" << std::endl;
@@ -162,7 +177,7 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
                 data.ddec[idx] = dup_buf[i][fc::col_dec];
 
                 if (fc::FD_PER_EXPOSURE_STAR_BAR) {
-                    data.iexpo[idx] = static_cast<int>(std::lround(dup_buf[i][fc::col_chi2]));
+                    data.iexpo[idx] = source_expo;
                     data.snrf[idx]  = dup_buf[i][fc::col_SNR_F];
                 }
                 data.ng++;
@@ -246,6 +261,21 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
             if (std::fabs(row[fc::col_gf1]) > 0.0015) continue;
             if (std::fabs(row[fc::col_gf2]) > 0.0015) continue;
 
+            // ==========================================
+            // Logic: Preserve the source's original exposure identity
+            // Method: Read the 1-based catalog value and reject IDs that
+            //         cannot address an exposure-sized vector.
+            // ==========================================
+            int source_expo = 0;
+            if (fc::FD_PER_EXPOSURE_STAR_BAR) {
+                source_expo = static_cast<int>(
+                    std::lround(row[fc::col_expo]));
+                if (source_expo < 1
+                    || source_expo > lc::NMAX_EXPO) {
+                    continue;
+                }
+            }
+
             int idx = data.ng;
             if (idx >= fc::nmax_per_core) {
                 std::cerr << "nmax_per_core is too small!" << std::endl;
@@ -280,7 +310,7 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
             data.ddec[idx] = dup_buf[i][fc::col_dec];
 
             if (fc::FD_PER_EXPOSURE_STAR_BAR) {
-                data.iexpo[idx] = static_cast<int>(std::lround(dup_buf[i][fc::col_chi2]));
+                data.iexpo[idx] = source_expo;
                 data.snrf[idx]  = dup_buf[i][fc::col_SNR_F];
             }
             data.ng++;

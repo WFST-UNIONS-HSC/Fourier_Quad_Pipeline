@@ -76,3 +76,11 @@ With no arguments, the runner passes `CPP_EXPO_LIST_CONTAINER` as the legacy
 exposure-list argument. The source bind is writable for compilation; do not
 build the same copy concurrently. Adjust Slurm resource directives for the
 site without changing the `srun --mpi=pmi2` launch boundary.
+
+For `process_astrocat`, add the raw Gaia directory to `HPC_EXTRA_BINDS` as a
+read-only bind and write the generated tiles below the writable
+`PROCESS_DATA_CONTAINER` (or another explicit writable bind). Pass both
+container paths through `--astrocat-input` and `--astrocat-output`. The output
+option remains independent of compiled `LensingConfig::ASTROMETRY_CAT`; a
+consumer job must separately bind the generated directory at that path, set
+`LensingConfig::AstroCatType = 2`, and rebuild.

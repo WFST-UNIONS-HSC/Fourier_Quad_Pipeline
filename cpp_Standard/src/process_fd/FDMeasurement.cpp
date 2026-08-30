@@ -280,14 +280,14 @@ void FDMeasurement::plotComparison(int n, int nbin,
                     dd_jk[igal_jk] = dd[igal];
                     igal_jk++;
                 }
+                int ntot_jk = 0;
+                MPI_Allreduce(&igal_jk, &ntot_jk, 1, MPI_INT, MPI_SUM,
+                              communicator);
                 float ggpt = 0.0, sspt = 0.0;
-                statis(igal_jk, ntot, yy_jk.data(), dd_jk.data(),
+                statis(igal_jk, ntot_jk, yy_jk.data(), dd_jk.data(),
                        fc::FD_USE_PDF_STATIS ? (nbin - 1) : 0, ggpt, sspt);
                 gg_jk[ijack] = ggpt;
-                int w_p = igal_jk;
-                int w_tot = 0;
-                MPI_Allreduce(&w_p, &w_tot, 1, MPI_INT, MPI_SUM, communicator);
-                w_jk[ijack] = float(ntot - w_tot);
+                w_jk[ijack] = static_cast<float>(ntot - ntot_jk);
             }
 
             // Full sample

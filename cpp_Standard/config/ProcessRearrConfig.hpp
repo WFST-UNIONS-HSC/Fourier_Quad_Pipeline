@@ -13,14 +13,16 @@ namespace ProcessRearrConfig {
 
 // ==========================================
 // Configuration: Derived _all.cat column layout
-// Method: Treat ichi2 as the 25 fields appended by process_main after CCD_NUM,
-//         then apply external columns + 1 CCD column + ichi2 exactly once.
+// Method: Treat ichi2 as the 25 fields appended by process_main after the
+//         fixed EXPO_NUM and CCD_NUM prefix columns.
 // ==========================================
 inline constexpr std::size_t ichi2 =
     static_cast<std::size_t>(LensingConfig::ichi2) + 1;  // Appended process_main field count.
+inline constexpr std::size_t EXPO_COLUMN_COUNT = 1;  // EXPO_NUM field count.
 inline constexpr std::size_t CCD_COLUMN_COUNT = 1;  // CCD_NUM field count.
 inline constexpr std::size_t ALL_CAT_TOTAL_COLUMNS =
-    ExtCatConfig::EXTCAT_TOTAL_COLUMNS + CCD_COLUMN_COUNT + ichi2;  // Default complete row width.
+    ExtCatConfig::EXTCAT_TOTAL_COLUMNS + EXPO_COLUMN_COUNT
+    + CCD_COLUMN_COUNT + ichi2;  // Default complete row width.
 
 // ==========================================
 // Configuration: Spatial partitioning and output defaults
@@ -57,12 +59,13 @@ inline std::size_t externalCatalogColumns(
 
 // ==========================================
 // Function: Compute the complete _all.cat row width
-// Method: Apply external catalog total columns + 1 + ichi2 in the
-//         process_rearr-specific parameter header as required.
+// Method: Add the fixed exposure and CCD columns after the runtime-effective
+//         external catalog prefix, followed by the process_main payload.
 // ==========================================
 inline std::size_t allCatalogColumns(
     const ProcessConfig::RuntimeOptions& options) {
-    return externalCatalogColumns(options) + CCD_COLUMN_COUNT + ichi2;
+    return externalCatalogColumns(options) + EXPO_COLUMN_COUNT
+           + CCD_COLUMN_COUNT + ichi2;
 }
 
 static_assert(ichi2 == 25, "process_main must append 25 fields through exposure Chi2");

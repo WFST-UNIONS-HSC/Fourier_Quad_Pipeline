@@ -94,9 +94,10 @@ bdf_mag_y bdf_mag_err_y dnf_z dnf_zsigma
 
 ## Use tiles in the pipeline
 
-For C++, either run the integrated first phase with `--run-extcat true` or use
-the standalone tool and pass its destination as `--extcat-output`. The
-integrated option names add the `--extcat-` prefix to standalone policies.
+For C++, either run the integrated `process_extcat` phase with
+`--run-extcat true` or use the standalone tool and pass its destination as
+`--extcat-output`. The integrated option names add the `--extcat-` prefix to
+standalone policies.
 
 For Fortran, set `SOURCE_CAT` in `f77/para.inc` or `f77_Lite/para.inc` and
 rebuild. The default pipeline schema expects RA, Dec, and photo-z at one-based

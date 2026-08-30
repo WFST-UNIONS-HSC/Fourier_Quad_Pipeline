@@ -33,7 +33,11 @@ static inline std::string trimRight(std::string str) {
 // Method: Remove stale output, skip Stage-7 header-only sentinels, validate live
 //         external row pairs, and open the final catalog only for shear data.
 // ==========================================
-void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, float chi2) {
+void combineExpoCatalog(int nchip,
+                        const std::vector<std::string>& imageFiles,
+                        const std::string& dirOutput,
+                        int expo_index,
+                        float chi2) {
     if (nchip <= 0 || imageFiles.empty()) {
         MPIFailure::abortWorld(
             "combine exposure catalog", "exposure contains no chip paths");
@@ -127,7 +131,8 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
         if (!output_opened) {
             fout20.open(out_filename);
             fout20 << std::setprecision(10);
-            fout20 << cat_list2 << " ccD_NUM " << cat_list1 << " Chi2\n";
+            fout20 << cat_list2 << " EXPO_NUM ccD_NUM "
+                   << cat_list1 << " Chi2\n";
             output_opened = true;
         }
 
@@ -168,7 +173,7 @@ void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, c
             cat[LensingConfig::ig1] = static_cast<float>(cat[LensingConfig::ig1] - g1c * cat[LensingConfig::ide] + g1c * cat[LensingConfig::ih1] + g2c * cat[LensingConfig::ih2]);
             cat[LensingConfig::ig2] = static_cast<float>(cat[LensingConfig::ig2] - g2c * cat[LensingConfig::ide] + g1c * cat[LensingConfig::ih2] - g2c * cat[LensingConfig::ih1]);
 
-            fout20 << cat_content << " " << chip_index;
+            fout20 << cat_content << " " << expo_index << " " << chip_index;
             for (int u = 0; u < num_cols; ++u) {
                 fout20 << " " << cat[u];
             }
@@ -206,7 +211,8 @@ void procComb(int iexpo) {
         chi2 = ExposureInfo::state.parameters[(iexpo - 1) * 6 + 2]; // 3rd element in Fortran, index 2
     }
 
-    combineExpoCatalog(static_cast<int>(image_files.size()), image_files, dir_output, chi2);
+    combineExpoCatalog(
+        static_cast<int>(image_files.size()), image_files, dir_output, iexpo, chi2);
 }
 
 } // namespace CatalogCombiner

@@ -115,10 +115,14 @@ and list conventions described in the detailed guide.
 
 The Gaia catalog supplies accurate RA/Dec reference positions for object
 matching and astrometric calibration. It must cover the actual Science-image
-footprint and be stored directly under the configured `ASTROMETRY_CAT` directory.
-The reader skips the first line as a header, then reads the first two numeric
-fields of each remaining row as RA and Dec. Rows may be comma- or
-whitespace-separated; additional fields are ignored.
+footprint and be stored directly under the configured `ASTROMETRY_CAT`
+directory. Every consumed tile starts with one header line; subsequent rows use
+the first two numeric fields as RA and Dec. Rows may be comma- or
+whitespace-separated and additional fields are ignored.
+
+`LensingConfig::AstroCatType` selects one of two filename layouts. Type `1` is
+the legacy large-tile layout below. Type `2` uses the one-degree layout and may
+be generated from raw flat-directory files by `process_astrocat`.
 
 **Filename convention:**
 
@@ -134,7 +138,19 @@ whitespace-separated; additional fields are ignored.
 > 2. gaia_m3_12.cat covers `120° <= RA < 130°` and `-30° < Dec <= -20°`
 > 3. gaia_p9.cat covers `0° <= RA < 360°` and `80° <= Dec <= 90°`
 
-*To ensure that stars can still be selected for exposures located at the edges of the 10°×10° grid, it is recommended to expand the upper and lower Dec coverage limits of a single star catalog by 2° based on the aforementioned limits, and expand the upper and lower RA limits by 2°, 4°, and 6° within the 0°, 30°, and 60° ranges, respectively.*
+*For Type 1, to ensure that stars can still be selected for exposures located at the edges of the 10°×10° grid, it is recommended to expand the upper and lower Dec coverage limits of a single star catalog by 2° based on the aforementioned limits, and expand the upper and lower RA limits by 2°, 4°, and 6° within the 0°, 30°, and 60° ranges, respectively.*
+
+Type 2 files are named
+`des_y6_RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`, with three-digit RA bounds and
+signed `p`/`m` two-digit Dec bounds. For example,
+`des_y6_RA_123_124_Dec_m05_m04.dat` covers
+`123° <= RA < 124°`, `-5° <= Dec < -4°`.
+
+`process_astrocat` reads only direct regular files from `--astrocat-input`,
+produces these Type-2 tiles, and removes exact/one-ULP coordinate duplicates.
+Its `--astrocat-output` option controls only publication. To consume the result,
+set `ASTROMETRY_CAT` to that directory and set `AstroCatType=2` separately.
+
 ### External source catalog
 
 The minimum schema is intentionally survey- and band-independent:

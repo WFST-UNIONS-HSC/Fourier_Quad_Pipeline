@@ -5,7 +5,15 @@
 #include <string>
 
 namespace CatalogCombiner {
-    void combineExpoCatalog(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, float chi2);
+    // ==========================================
+    // Function: Combine one exposure into its final source catalog
+    // Method: Preserve the 1-based exposure identity ahead of the CCD column.
+    // ==========================================
+    void combineExpoCatalog(int nchip,
+                            const std::vector<std::string>& imageFiles,
+                            const std::string& dirOutput,
+                            int expo_index,
+                            float chi2);
     void procComb(int iexpo);
 }
 

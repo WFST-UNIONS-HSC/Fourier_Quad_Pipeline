@@ -86,8 +86,9 @@ CLI 支持 `--name value` 与 `--name=value`。布尔值支持 `true/false`、`1
 |---|---|---|---|
 | 顶层阶段 | `RUN_PROCESS_ASTROCAT`、`RUN_PROCESS_EXTCAT`、`RUN_PROCESS_INIT`、`RUN_PROCESS_MAIN`、`RUN_PROCESS_REARR`、`RUN_PROCESS_FD` | `config/ProcessConfig.hpp`；运行时 `--run-astrocat`、`--run-extcat`、`--run-init`、`--run-main`、`--run-rearr`、`--run-fd` | 选择本次执行的阶段。Standard 默认 `false/false/true/true/true/true`，Lite 默认 `false/false/true/true/false/false`。 |
 | Science/DQ 归档与数据集 | `SCIENCE_ROOT`、`DQ_ROOT`、`OUTPUT_ROOT`、`DATASETS`、`CONTAINS` | `config/InitConfig.hpp`；运行时 `--science-root`、`--dq-root`、`--output-root`、`--dataset`、`--contains` | 更换观测归档、文件名前缀、筛选 token、输出根目录时修改。Lite 必须提供逐 CCD DQ masks。 |
-| 曝光表与阶段输出 | `EXPO_LIST`、`REARR_OUTPUT_DIRECTORY`、`REARR_OUTPUT_BASE_DIRECTORY`、`REARRANGED_EXPO_LIST_FILENAME`、`REARRANGED_EXPO_LIST_DIRECTORY`、`FD_EXPO_LIST`、`FD_OUTPUT_DIRECTORY`、`FD_OUTPUT_BASE_DIRECTORY` | `config/ProcessConfig.hpp`；运行时 `--expo-list`、`--rearr-output-dir`、`--rearr-output-base`、`--rearr-list-name`、`--rearr-list-dir`、`--fd-expo-list`、`--fd-output-dir`、`--fd-output-base` | 下游单独运行、改变重排/FD 输出目录或曝光表位置时修改（）。 |
+| 曝光表与阶段输出 | `EXPO_LIST`、`REARR_OUTPUT_DIRECTORY`、`REARR_OUTPUT_BASE_DIRECTORY`、`REARRANGED_EXPO_LIST_FILENAME`、`REARRANGED_EXPO_LIST_DIRECTORY`、`FD_EXPO_LIST`、`FD_OUTPUT_DIRECTORY`、`FD_OUTPUT_BASE_DIRECTORY` | `config/ProcessConfig.hpp`；运行时 `--expo-list`、`--rearr-output-dir`、`--rearr-output-base`、`--rearr-list-name`、`--rearr-list-dir`、`--fd-expo-list`、`--fd-output-dir`、`--fd-output-base` | 下游单独运行，或改变重排/FD 输出目录、曝光表位置时修改。 |
 | Gaia 星表分块 | `ASTROCAT_INPUT_DIRECTORY`、`ASTROCAT_OUTPUT_DIRECTORY`、`ASTROCAT_ADD_HEADER=true`、`ASTROCAT_EXISTING_POLICY=fail` | `config/AstroCatConfig.hpp`；运行时 `--astrocat-input`、`--astrocat-output`、`--astrocat-add-header`、`--astrocat-existing` | 更换 Gaia 原始星表或重跑策略时修改。输出选项只控制 `process_astrocat`，不与 `ASTROMETRY_CAT` 校验，也不会传播给它。 |
+| Gaia 星表布局 | `AstroCatType=1` | `config/LensingConfig.hpp`，编译时 | `1` 读取旧式大 `gaia_*.cat` 瓦片；`2` 累积读取 `process_astrocat` 生成的一度 `des_y6_*.dat` 瓦片。Stage 1 消费的目录仍应单独写入 `ASTROMETRY_CAT`；修改类型后必须重编译。 |
 | 外部星表发现与解析 | `EXTCAT_INPUT_DIRECTORY`、`EXTCAT_OUTPUT_DIRECTORY` | `config/ExtCatConfig.hpp`；运行时 `--extcat-input`、`--extcat-output` | 更换外部星表文件组织时修改。输出目录不能等于或位于输入目录内。 |
 | 外部星表 schema | `EXTCAT_TOTAL_COLUMNS`、`EXTCAT_INPUT_COLUMNS_ONE_BASED`、`EXTCAT_RA_COLUMN_ONE_BASED`、`EXTCAT_DEC_COLUMN_ONE_BASED`、`EXTCAT_ZP_COLUMN_ONE_BASED` | `config/ExtCatConfig.hpp`；投影和 RA/Dec/ZP 列可用 `--extcat-columns`、`--extcat-ra-column`、`--extcat-dec-column`、`--extcat-zp-column` 运行时修改 | 更换 survey 或列顺序时修改。显式投影必须保留 RA、Dec、ZP 和启用阶段消费的字段；改变总列数还需同步审查重排与 FD 列号。 |
 | Gaia、外部星表与标定路径 | `ASTROMETRY_CAT`、`SOURCE_CAT_DEFAULT`（有效 `SOURCE_CAT`）、`FLAT_PATH`、`PSF_PATH` | `config/LensingConfig.hpp`；`--extcat-output` 可在运行时设置有效 `SOURCE_CAT`，其余为编译时 | 更换 Gaia 瓦片、规范化源星表、平场或外部 PSF 数据源时修改；`--astrocat-output` 与 `ASTROMETRY_CAT` 相互独立；容器内路径必须与 bind 目标一致。 |
@@ -95,7 +96,7 @@ CLI 支持 `--name value` 与 `--name=value`。布尔值支持 `true/false`、`1
 | 图像与探测器几何 | `npx=3000`、`npy=5000`、`CCD_split=2`、`chipnx=2046`、`chipny=4094`、`pixel_size=0.2628`、`NMAX_CHIP=62`、`NMAX_EXPO=25000` | `config/LensingConfig.hpp`，编译时 | 更换相机、CCD 尺寸、放大器布局、像元尺度或单批曝光规模时修改；几何量必须成组核对。 |
 | 数值阶段 | `PROCESS_stage=223092870` | `config/LensingConfig.hpp`，编译时 | 用素因数选择九个主流程阶段；阶段 9（23）必须与阶段 8（19）同时启用。 |
 | 源检测与像素阈值 | `saturation_thresh=25000` | `config/LensingConfig.hpp`，编译时 | 更换图像源后，以代表性数据重新标定。 |
-| FD 星表列布局 | `col_flags_*`、`col_cra/cdec`、`col_mag_*`、`col_zp`、`col_ccd` 及派生 `col_*` | `config/FDConfig.hpp`，编译时并需协调 reader/writer | 默认绑定 18 列 DES schema。改变外部字段宽度或顺序时，必须同步审查 `ExtCatConfig`、外部星表 reader、重排布局和 FD reader，不能只改一个列号。 |
+| FD 星表列布局 | `col_flags_*`、`col_cra/cdec`、`col_mag_*`、`col_zp`、`col_expo`、`col_ccd` 及派生 `col_*` | `config/FDConfig.hpp`，编译时并需协调 reader/writer | 默认绑定 18 列 DES schema，其后依次为 `EXPO_NUM` 与 `ccD_NUM`。改变外部字段宽度或顺序时，必须同步审查 `ExtCatConfig`、外部星表 reader、重排布局和 FD reader，不能只改一个列号。 |
 | FD 探测器规则 | `bad_ccds={2,31,53,61}`、`chip_xmin=50`、`chip_xmax=1990`、`chip_ymin=100`、`chip_ymax=3990` | `config/FDConfig.hpp`，编译时 | 更换相机、坏 CCD 清单或边缘 mask 策略时修改，并同步 `n_bad_ccds`。 |
 
 每个独立参数的 Standard/Lite 默认值、合法值、CLI 覆盖和重编译要求见
@@ -165,7 +166,9 @@ catalog、External source catalog 与取决于配置的 DQ masks。顶层章节�
 <dataset>/<fd-output-dir>/FD_test_comb.dat
 ```
 
-`_all.cat`是按曝光为单位的剪切目录，默认包含外部星表字段 + 1 个 CCD 编号 + 25 个流水线字段。
+`_all.cat`是按曝光为单位的剪切目录，默认包含外部星表字段、原始 1-based
+`EXPO_NUM`、1 个 CCD 编号和 25 个流水线字段，共 45 列。schema 升级后需重新生成
+Stage 9、rearr 与 FD 产物；旧 44 列数据不能与新版混用。
 `subcat_*.cat`是按RA/DEC 重新分块的目录，单个源的所有测量记录连续排列，便于快速去重。
 `FD_test_comb.dat`是程序process FD生成的场畸变测试表格文件，用于矫正剪切测量。
 

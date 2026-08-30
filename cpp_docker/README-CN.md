@@ -76,6 +76,13 @@ Science/DQ 归档以及 extcat/rearr/曝光表/FD 挂载只在对应阶段需要
 编译科学分支使用的星表/标定目标必须与 `config/LensingConfig.hpp` 一致。
 `--extcat-output` 可覆盖单次调用的外部源星表瓦片路径。
 
+运行 `process_astrocat` 时，应通过合适的只读 bind 暴露原始 Gaia 目录，并用
+`--astrocat-input` 传入其容器路径。测天星表 bind 是只读的，因此须用
+`--astrocat-output` 把输出指定到可写位置，通常放在 `PROCESS_DATA_CONTAINER` 下。
+该参数只控制转换器的写出目录，不会与编译期 `LensingConfig::ASTROMETRY_CAT` 校验，
+也不会更新它。后续运行若要消费 Type 2 分片，须另行把结果 bind 到编译的测天目录、
+设置 `LensingConfig::AstroCatType = 2` 并重新编译。
+
 ## Slurm
 
 将同一镜像转换为一个 SIF，然后按 [runner 中文指南](runner/README-CN.md) 操作。

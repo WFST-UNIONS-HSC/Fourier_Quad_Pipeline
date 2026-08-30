@@ -212,6 +212,7 @@ bool resolveCatalogLayout(const ProcessConfig::RuntimeOptions& options,
     }
     if (external_columns
         > std::numeric_limits<std::size_t>::max()
+              - ProcessRearrConfig::EXPO_COLUMN_COUNT
               - ProcessRearrConfig::CCD_COLUMN_COUNT
               - ProcessRearrConfig::ichi2) {
         error = "process_rearr _all.cat column count overflows size_t";

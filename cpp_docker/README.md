@@ -81,6 +81,15 @@ Catalog and calibration destinations used by compiled scientific branches
 must match `config/LensingConfig.hpp`. `--extcat-output` can override the
 external source-catalog tile path for one invocation.
 
+For `process_astrocat`, expose the raw Gaia directory through a suitable
+read-only bind and pass its container path with `--astrocat-input`. The
+astrometry-catalog bind is read-only, so pass `--astrocat-output` to a writable
+location, normally below `PROCESS_DATA_CONTAINER`. This option controls only
+where the converter writes: it is not checked against and does not update the
+compiled `LensingConfig::ASTROMETRY_CAT`. A later run that consumes the Type 2
+tiles must bind them at the compiled astrometry path, set
+`LensingConfig::AstroCatType = 2`, and rebuild separately.
+
 ## Slurm
 
 Convert the same image to one SIF and follow the

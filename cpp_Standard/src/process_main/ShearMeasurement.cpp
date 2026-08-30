@@ -416,7 +416,8 @@ void expoShear(int nchip, const std::vector<std::string>& imageFiles, const std:
                 std::vector<float> psf_model(ns * ns, 0.0f);
                 std::vector<float> psf_model0(ns * ns, 0.0f);
                 if (LensingConfig::ext_PSF == 1) {
-                    PSFModel::getPSFModel(ns, 1, local_coe, x, y, psf_model, psf_model0);
+                    PSFModel::getPSFModel(
+                        ns, npl, local_coe, x, y, psf_model, psf_model0);
                 } else {
                     if (LensingConfig::PSF_type == 1) {
                         if (LensingConfig::PSF_Ms == 1) {

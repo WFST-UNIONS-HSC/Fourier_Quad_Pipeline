@@ -55,13 +55,26 @@ and `external_exposure_list_supplied` are internal parser flags.
 | Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
 |---|---|---|---|---|---|---|---|---|
 | `ASTROCAT_INPUT_DIRECTORY` | `const char*` | empty | empty | `--astrocat-input` | Readable flat directory | Raw Gaia files; each data row begins with RA and Dec. | Set when running `process_astrocat`. | CLI override; rebuild not required |
-| `ASTROCAT_OUTPUT_DIRECTORY` | `std::string` | compiled `ASTROMETRY_CAT` value | same | `--astrocat-output` | Writable directory distinct from input | Destination for one-degree Type-2 Gaia tiles. | Set independently for each publication. | CLI override; rebuild not required |
+| `ASTROCAT_OUTPUT_DIRECTORY` | `std::string` | compiled `ASTROMETRY_CAT` value | same | `--astrocat-output` | Writable directory that does not equal, contain, or sit below the input directory | Destination for one-degree Type-2 Gaia tiles. | Set independently for each publication. | CLI override; rebuild not required |
 | `ASTROCAT_ADD_HEADER` | `bool` | `true` | `true` | `--astrocat-add-header` | `true` starts at the first line; `false` skips exactly one line per input file | Controls raw-input header handling; output tiles always contain `RA    DEC`. | Change to match the raw files. | CLI override; rebuild not required |
 | `ASTROCAT_EXISTING_POLICY` | `const char*` | `"fail"` | same | `--astrocat-existing` | `fail`, `overwrite` | Existing generated-tile policy. | Select intentionally for reruns. | CLI override; rebuild not required |
 
 `--astrocat-output` is an independent `process_astrocat` destination. It is not
 compared with, propagated to, or otherwise coupled to
 `LensingConfig::ASTROMETRY_CAT`.
+
+The phase discovers only direct regular children of the input directory; it
+does not recurse. It reads each complete file through dynamic MPI scheduling,
+optionally skips exactly one first line, replaces commas with spaces, consumes
+the first two parseable doubles, and silently skips rows without two doubles.
+The input contract is finite sky coordinates with `0 <= RA <= 360` and
+`-90 <= Dec <= 90`; exactly `RA=360` is stored as zero and exactly `Dec=90`
+belongs to the last Dec tile. Exact and one-ULP duplicates in both coordinates
+are removed, including duplicates across tile boundaries. Output files use
+`des_y6_RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`, always begin with `RA    DEC`,
+and contain round-trip-precision doubles. `overwrite` removes only files that
+match this generated basename contract and preserves unrelated directory
+content.
 
 ## `config/ExtCatConfig.hpp`
 
@@ -93,6 +106,7 @@ compared with, propagated to, or otherwise coupled to
 | `npx` | `int` | `3000` | same | No | Positive pixels | Nominal CCD image width. | Change only for another detector contract. | Yes |
 | `npy` | `int` | `5000` | same | No | Positive pixels | Nominal CCD image height. | Change only for another detector contract. | Yes |
 | `ASTROMETRY_trivial` | `int` | `0` | `N/A — removed in Lite` | No | `0` Gaia, `1` identity | Selects Standard astrometry branch. | Debug or deliberately bypass Gaia only. | Yes |
+| `AstroCatType` | `int` | `1` | same | No | `1` = legacy large Gaia tiles; `2` = one-degree Type-2 tiles | Selects the Stage-1 Gaia filename/read layout without changing the two-column row schema. | Set to `2` when `ASTROMETRY_CAT` points to `process_astrocat` output. | Yes |
 | `PROCESS_stage` | `int` | `223092870` | same | No | Product of stage primes `2,3,5,7,11,13,17,19,23`; 23 requires 19 | Enables numerical stages by divisibility. | Change for staged/restart runs. | Yes |
 | `include_FLAT` | `int` | `0` | `N/A — removed in Lite` | No | `0` off, `1` on | Enables Standard super-flat correction. | Enable only with valid flat files. | Yes |
 | `include_Mask` | `int` | `2` | `N/A — removed in Lite` | No | `0` none, `1` legacy, `2` per-chip DQ, `3` both | Selects Standard mask branch; Lite is fixed to per-chip DQ. | Change when DQ masks are unavailable or mask mode changes. | Yes |
@@ -262,9 +276,10 @@ compared with, propagated to, or otherwise coupled to
 
 | Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
 |---|---|---|---|---|---|---|---|---|
-| `ichi2` | `std::size_t` | `25` | `25` | No | Derived from `LensingConfig::ichi2 + 1` | Number of pipeline fields appended after CCD number. | Derived parameter — do not edit directly. | Yes |
+| `ichi2` | `std::size_t` | `25` | `25` | No | Derived from `LensingConfig::ichi2 + 1` | Number of pipeline fields appended after the identity columns. | Derived parameter — do not edit directly. | Yes |
+| `EXPO_COLUMN_COUNT` | `std::size_t` | `1` | `1` | No | Fixed schema count | Number of original-exposure fields. | Derived schema — do not edit directly. | Yes |
 | `CCD_COLUMN_COUNT` | `std::size_t` | `1` | `1` | No | Fixed schema count | Number of CCD-number fields. | Derived schema — do not edit directly. | Yes |
-| `ALL_CAT_TOTAL_COLUMNS` | `std::size_t` | `44` | `44` | No | `18 + 1 + 25` | Default complete `_all.cat` row width. | Derived parameter — do not edit directly. | Yes |
+| `ALL_CAT_TOTAL_COLUMNS` | `std::size_t` | `45` | `45` | No | `18 + 1 + 1 + 25` | Default complete `_all.cat` row width. | Derived parameter — do not edit directly. | Yes |
 | `SKY_GRID_DEGREES` | `double` | `0.1` | same | No | Positive degrees | Full-sky RA/Dec grid width. | Change for another spatial partition resolution. | Yes |
 | `RA_BIN_COUNT` | `int` | `3600` | same | No | Positive full-sky bin count | RA grid dimension. | Keep consistent with grid width. | Yes |
 | `DEC_BIN_COUNT` | `int` | `1800` | same | No | Positive full-sky bin count | Dec grid dimension. | Keep consistent with grid width. | Yes |
@@ -280,7 +295,7 @@ compared with, propagated to, or otherwise coupled to
 | `SKIP_MISSING_CATALOGS` | `bool` | `true` | same | No | Boolean | Continues past missing `_all.cat` inputs. | Set false for strict completeness checks. | Yes |
 | `SKIP_MALFORMED_ROWS` | `bool` | `true` | same | No | Boolean | Continues past malformed rows. | Set false for strict schema checks. | Yes |
 | `externalCatalogColumns(options)` | function result | `18` without projection | same | `--extcat-columns` changes result | Projection length or `EXTCAT_TOTAL_COLUMNS` | Runtime-effective external prefix width. | Derived parameter — do not edit directly. | No |
-| `allCatalogColumns(options)` | function result | `44` without projection | same | `--extcat-columns` changes result | External width + `1` + `25` | Runtime-effective complete row width. | Derived parameter — do not edit directly. | No |
+| `allCatalogColumns(options)` | function result | `45` without projection | same | `--extcat-columns` changes result | External width + `2` + `25` | Runtime-effective complete row width. | Derived parameter — do not edit directly. | No |
 
 ## `config/FDConfig.hpp`
 
@@ -349,35 +364,37 @@ compared with, propagated to, or otherwise coupled to
 | `col_mag_z` | `int` | `12` | same | No | Derived zero-based index | External z-band magnitude column. | Derived schema — do not edit directly. | Yes |
 | `col_mag_y` | `int` | `14` | same | No | Derived zero-based index | External y-band magnitude column. | Derived schema — do not edit directly. | Yes |
 | `col_zp` | `int` | `16` | same | No | Derived zero-based index | External `zp` column. | Derived schema — do not edit directly. | Yes |
-| `col_ccd` | `int` | `18` | same | No | Derived from `EXTCAT_TOTAL_COLUMNS` | CCD-number column. | Derived schema — do not edit directly. | Yes |
-| `ccd_num_cols` | `int` | `19` | same | No | External width + one CCD field | Prefix width before pipeline fields. | Derived parameter — do not edit directly. | Yes |
-| `col_polychi2` | `int` | `19` | same | No | Derived absolute index | PSF fit `chi2` column. | Derived schema — do not edit directly. | Yes |
-| `col_pixx` | `int` | `20` | same | No | Derived absolute index | Source x column. | Derived schema — do not edit directly. | Yes |
-| `col_pixy` | `int` | `21` | same | No | Derived absolute index | Source y column. | Derived schema — do not edit directly. | Yes |
-| `col_sig` | `int` | `22` | same | No | Derived absolute index | Noise sigma column. | Derived schema — do not edit directly. | Yes |
-| `col_star` | `int` | `23` | same | No | Derived absolute index | PSF-star count column. | Derived schema — do not edit directly. | Yes |
-| `col_peak` | `int` | `23` | same | No | Derived legacy alias | Historical peak column alias. | Derived schema — do not edit directly. | Yes |
-| `col_imax` | `int` | `24` | same | No | Derived absolute index | Peak x column. | Derived schema — do not edit directly. | Yes |
-| `col_jmax` | `int` | `25` | same | No | Derived absolute index | Peak y column. | Derived schema — do not edit directly. | Yes |
-| `col_h_flux` | `int` | `26` | same | No | Derived absolute index | Half-light flux column. | Derived schema — do not edit directly. | Yes |
-| `col_h_area` | `int` | `27` | same | No | Derived absolute index | Source area column. | Derived schema — do not edit directly. | Yes |
-| `col_flag` | `int` | `28` | same | No | Derived absolute index | Quality flag column. | Derived schema — do not edit directly. | Yes |
-| `col_PSF` | `int` | `29` | same | No | Derived absolute index | Local PSF size column. | Derived schema — do not edit directly. | Yes |
-| `col_SNR_F` | `int` | `30` | same | No | Derived absolute index | Fourier S/N column. | Derived schema — do not edit directly. | Yes |
-| `col_ra` | `int` | `31` | same | No | Derived absolute index | Source RA column. | Derived schema — do not edit directly. | Yes |
-| `col_dec` | `int` | `32` | same | No | Derived absolute index | Source Dec column. | Derived schema — do not edit directly. | Yes |
-| `col_gf1` | `int` | `33` | same | No | Derived absolute index | Field-distortion `g1` column. | Derived schema — do not edit directly. | Yes |
-| `col_gf2` | `int` | `34` | same | No | Derived absolute index | Field-distortion `g2` column. | Derived schema — do not edit directly. | Yes |
-| `col_g1` | `int` | `35` | same | No | Derived absolute index | Fourier_Quad `g1` column. | Derived schema — do not edit directly. | Yes |
-| `col_g2` | `int` | `36` | same | No | Derived absolute index | Fourier_Quad `g2` column. | Derived schema — do not edit directly. | Yes |
-| `col_de` | `int` | `37` | same | No | Derived absolute index | Shear response column. | Derived schema — do not edit directly. | Yes |
-| `col_h1` | `int` | `38` | same | No | Derived absolute index | Higher-order `h1` column. | Derived schema — do not edit directly. | Yes |
-| `col_h2` | `int` | `39` | same | No | Derived absolute index | Higher-order `h2` column. | Derived schema — do not edit directly. | Yes |
-| `col_cos2` | `int` | `40` | same | No | Derived absolute index | Spin-2 cosine column. | Derived schema — do not edit directly. | Yes |
-| `col_sin2` | `int` | `41` | same | No | Derived absolute index | Spin-2 sine column. | Derived schema — do not edit directly. | Yes |
-| `col_parity` | `int` | `42` | same | No | Derived absolute index | WCS parity column. | Derived schema — do not edit directly. | Yes |
-| `col_chi2` | `int` | `43` | same | No | Derived absolute index | Exposure `chi2` column. | Derived schema — do not edit directly. | Yes |
-| `ICHI2` | `int` | `44` | same | No | Derived complete row width | Total default catalog columns. | Derived parameter — do not edit directly. | Yes |
+| `external_num_cols` | `int` | `18` | `18` | No | Optional in Standard, fixed in Lite | Effective external prefix width. | Derived schema — do not edit directly. | Yes |
+| `col_expo` | `int` | `18` | same | No | Derived absolute index | Original 1-based exposure number. | Derived schema — do not edit directly. | Yes |
+| `col_ccd` | `int` | `19` | same | No | Immediately follows `col_expo` | CCD-number column. | Derived schema — do not edit directly. | Yes |
+| `source_col_offset` | `int` | `20` | same | No | External width + exposure + CCD | Prefix width before pipeline fields. | Derived parameter — do not edit directly. | Yes |
+| `col_polychi2` | `int` | `20` | same | No | Derived absolute index | PSF fit `chi2` column. | Derived schema — do not edit directly. | Yes |
+| `col_pixx` | `int` | `21` | same | No | Derived absolute index | Source x column. | Derived schema — do not edit directly. | Yes |
+| `col_pixy` | `int` | `22` | same | No | Derived absolute index | Source y column. | Derived schema — do not edit directly. | Yes |
+| `col_sig` | `int` | `23` | same | No | Derived absolute index | Noise sigma column. | Derived schema — do not edit directly. | Yes |
+| `col_star` | `int` | `24` | same | No | Derived absolute index | PSF-star count column. | Derived schema — do not edit directly. | Yes |
+| `col_peak` | `int` | `24` | same | No | Derived legacy alias | Historical peak column alias. | Derived schema — do not edit directly. | Yes |
+| `col_imax` | `int` | `25` | same | No | Derived absolute index | Peak x column. | Derived schema — do not edit directly. | Yes |
+| `col_jmax` | `int` | `26` | same | No | Derived absolute index | Peak y column. | Derived schema — do not edit directly. | Yes |
+| `col_h_flux` | `int` | `27` | same | No | Derived absolute index | Half-light flux column. | Derived schema — do not edit directly. | Yes |
+| `col_h_area` | `int` | `28` | same | No | Derived absolute index | Source area column. | Derived schema — do not edit directly. | Yes |
+| `col_flag` | `int` | `29` | same | No | Derived absolute index | Quality flag column. | Derived schema — do not edit directly. | Yes |
+| `col_PSF` | `int` | `30` | same | No | Derived absolute index | Local PSF size column. | Derived schema — do not edit directly. | Yes |
+| `col_SNR_F` | `int` | `31` | same | No | Derived absolute index | Fourier S/N column. | Derived schema — do not edit directly. | Yes |
+| `col_ra` | `int` | `32` | same | No | Derived absolute index | Source RA column. | Derived schema — do not edit directly. | Yes |
+| `col_dec` | `int` | `33` | same | No | Derived absolute index | Source Dec column. | Derived schema — do not edit directly. | Yes |
+| `col_gf1` | `int` | `34` | same | No | Derived absolute index | Field-distortion `g1` column. | Derived schema — do not edit directly. | Yes |
+| `col_gf2` | `int` | `35` | same | No | Derived absolute index | Field-distortion `g2` column. | Derived schema — do not edit directly. | Yes |
+| `col_g1` | `int` | `36` | same | No | Derived absolute index | Fourier_Quad `g1` column. | Derived schema — do not edit directly. | Yes |
+| `col_g2` | `int` | `37` | same | No | Derived absolute index | Fourier_Quad `g2` column. | Derived schema — do not edit directly. | Yes |
+| `col_de` | `int` | `38` | same | No | Derived absolute index | Shear response column. | Derived schema — do not edit directly. | Yes |
+| `col_h1` | `int` | `39` | same | No | Derived absolute index | Higher-order `h1` column. | Derived schema — do not edit directly. | Yes |
+| `col_h2` | `int` | `40` | same | No | Derived absolute index | Higher-order `h2` column. | Derived schema — do not edit directly. | Yes |
+| `col_cos2` | `int` | `41` | same | No | Derived absolute index | Spin-2 cosine column. | Derived schema — do not edit directly. | Yes |
+| `col_sin2` | `int` | `42` | same | No | Derived absolute index | Spin-2 sine column. | Derived schema — do not edit directly. | Yes |
+| `col_parity` | `int` | `43` | same | No | Derived absolute index | WCS parity column. | Derived schema — do not edit directly. | Yes |
+| `col_chi2` | `int` | `44` | same | No | Derived absolute index | Exposure `chi2` column. | Derived schema — do not edit directly. | Yes |
+| `ICHI2` | `int` | `45` | same | No | Derived complete row width | Total default catalog columns. | Derived parameter — do not edit directly. | Yes |
 | `bad_ccds` | `int[]` | `{2, 31, 53, 61}` | same | No | Detector-specific CCD IDs | DES CCDs excluded from FD analysis. | Change for another detector/quality list. | Yes |
 | `n_bad_ccds` | `int` | `4` | same | No | Derived array length | Number of excluded CCDs. | Derived parameter — keep synchronized with `bad_ccds`. | Yes |
 | `chip_xmin` | `int` | `50` | same | No | Pixel lower bound | Minimum accepted chip x. | Change for detector/edge-mask policy. | Yes |
@@ -385,8 +402,9 @@ compared with, propagated to, or otherwise coupled to
 | `chip_ymin` | `int` | `100` | same | No | Pixel lower bound | Minimum accepted chip y. | Change for detector/edge-mask policy. | Yes |
 | `chip_ymax` | `int` | `3990` | same | No | Pixel upper bound | Maximum accepted chip y. | Change for detector/edge-mask policy. | Yes |
 
-The default complete row is 18 External source catalog fields, one CCD number,
-and 25 pipeline fields: 44 columns total. Explicit projection changes the
+The default complete row is 18 External source catalog fields, one original
+exposure number, one CCD number, and 25 pipeline fields: 45 columns total.
+Explicit projection changes the
 external prefix width used by `process_rearr`; the current FD column constants
 remain tied to the default 18-field schema, so schema changes require coordinated
 review of `ExtCatConfig`, `ExternalCatalogReader`, `ProcessRearrConfig`, and the FD

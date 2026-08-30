@@ -71,3 +71,9 @@ sbatch cpppipeline.slurm \
 没有参数时，runner 将 `CPP_EXPO_LIST_CONTAINER` 作为兼容曝光表位置参数。源码 bind
 可写以保存编译产物；不要并发编译同一副本。按站点修改 Slurm 资源，但不要改变
 `srun --mpi=pmi2` 启动边界。
+
+运行 `process_astrocat` 时，在 `HPC_EXTRA_BINDS` 中把原始 Gaia 目录设为只读 bind，
+并把生成分片写到可写的 `PROCESS_DATA_CONTAINER` 下（或另一个明确的可写 bind）。
+用 `--astrocat-input` 和 `--astrocat-output` 传入对应容器路径。输出参数与编译期
+`LensingConfig::ASTROMETRY_CAT` 相互独立；消费作业须另行把生成目录 bind 到该路径、
+设置 `LensingConfig::AstroCatType = 2` 并重新编译。

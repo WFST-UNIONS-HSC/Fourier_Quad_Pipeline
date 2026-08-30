@@ -112,41 +112,49 @@ inline constexpr int col_mag_i = 10;  // i-band magnitude column index.
 inline constexpr int col_mag_z = 12;  // z-band magnitude column index.
 inline constexpr int col_mag_y = 14;  // y-band magnitude column index.
 inline constexpr int col_zp = 16;  // Photometric-redshift column index.
-inline constexpr int col_ccd = ExtCatConfig::EXTCAT_TOTAL_COLUMNS;  // CCD number column index.
-
-// Number of pre-source columns (external catalog columns + CCD_NUM)
-inline constexpr int ccd_num_cols = ExtCatConfig::EXTCAT_TOTAL_COLUMNS + 1;  // External-plus-CCD prefix width.
+inline constexpr int external_num_cols =
+    ExtCatConfig::EXTCAT_TOTAL_COLUMNS * LensingConfig::ext_cat;  // Optional external prefix width.
+inline constexpr int col_expo = external_num_cols;  // Original 1-based exposure number.
+inline constexpr int col_ccd = external_num_cols + 1;  // CCD number column index.
+inline constexpr int source_col_offset = external_num_cols + 2;  // Fixed EXPO_NUM/CCD_NUM prefix end.
 
 // Per-source columns (0-based absolute, derived from LensingConfig indices)
-inline constexpr int col_polychi2 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::iid;  // PSF fit chi-square column.
-inline constexpr int col_pixx = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ipixx;  // Source x column.
-inline constexpr int col_pixy = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ipixy;  // Source y column.
-inline constexpr int col_sig = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::isig;  // Noise sigma column.
-inline constexpr int col_star = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::istar;  // PSF-star count column.
-inline constexpr int col_peak = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ipeak;  // Historical peak column.
-inline constexpr int col_imax = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::i_imax;  // Peak x column.
-inline constexpr int col_jmax = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::i_jmax;  // Peak y column.
-inline constexpr int col_h_flux = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ih_flux;  // Half-light flux column.
-inline constexpr int col_h_area = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ih_area;  // Source area column.
-inline constexpr int col_flag = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::iflag;  // Quality flag column.
-inline constexpr int col_PSF = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::iPSF;  // Local PSF size column.
-inline constexpr int col_SNR_F = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::iSNR_F;  // Fourier SNR column.
-inline constexpr int col_ra = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ira;  // Source RA column.
-inline constexpr int col_dec = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::idec;  // Source Dec column.
-inline constexpr int col_gf1 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::igf1;  // Field distortion g1 column.
-inline constexpr int col_gf2 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::igf2;  // Field distortion g2 column.
-inline constexpr int col_g1 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ig1;  // Fourier_Quad g1 column.
-inline constexpr int col_g2 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ig2;  // Fourier_Quad g2 column.
-inline constexpr int col_de = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ide;  // Shear response column.
-inline constexpr int col_h1 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ih1;  // Higher-order h1 column.
-inline constexpr int col_h2 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ih2;  // Higher-order h2 column.
-inline constexpr int col_cos2 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::icos2;  // Spin-2 cosine column.
-inline constexpr int col_sin2 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::isin2;  // Spin-2 sine column.
-inline constexpr int col_parity = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::iparity;  // WCS parity column.
-inline constexpr int col_chi2 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::ichi2;  // Exposure chi-square column.
+inline constexpr int col_polychi2 = source_col_offset + LensingConfig::iid;  // PSF fit chi-square column.
+inline constexpr int col_pixx = source_col_offset + LensingConfig::ipixx;  // Source x column.
+inline constexpr int col_pixy = source_col_offset + LensingConfig::ipixy;  // Source y column.
+inline constexpr int col_sig = source_col_offset + LensingConfig::isig;  // Noise sigma column.
+inline constexpr int col_star = source_col_offset + LensingConfig::istar;  // PSF-star count column.
+inline constexpr int col_peak = source_col_offset + LensingConfig::ipeak;  // Historical peak column.
+inline constexpr int col_imax = source_col_offset + LensingConfig::i_imax;  // Peak x column.
+inline constexpr int col_jmax = source_col_offset + LensingConfig::i_jmax;  // Peak y column.
+inline constexpr int col_h_flux = source_col_offset + LensingConfig::ih_flux;  // Half-light flux column.
+inline constexpr int col_h_area = source_col_offset + LensingConfig::ih_area;  // Source area column.
+inline constexpr int col_flag = source_col_offset + LensingConfig::iflag;  // Quality flag column.
+inline constexpr int col_PSF = source_col_offset + LensingConfig::iPSF;  // Local PSF size column.
+inline constexpr int col_SNR_F = source_col_offset + LensingConfig::iSNR_F;  // Fourier SNR column.
+inline constexpr int col_ra = source_col_offset + LensingConfig::ira;  // Source RA column.
+inline constexpr int col_dec = source_col_offset + LensingConfig::idec;  // Source Dec column.
+inline constexpr int col_gf1 = source_col_offset + LensingConfig::igf1;  // Field distortion g1 column.
+inline constexpr int col_gf2 = source_col_offset + LensingConfig::igf2;  // Field distortion g2 column.
+inline constexpr int col_g1 = source_col_offset + LensingConfig::ig1;  // Fourier_Quad g1 column.
+inline constexpr int col_g2 = source_col_offset + LensingConfig::ig2;  // Fourier_Quad g2 column.
+inline constexpr int col_de = source_col_offset + LensingConfig::ide;  // Shear response column.
+inline constexpr int col_h1 = source_col_offset + LensingConfig::ih1;  // Higher-order h1 column.
+inline constexpr int col_h2 = source_col_offset + LensingConfig::ih2;  // Higher-order h2 column.
+inline constexpr int col_cos2 = source_col_offset + LensingConfig::icos2;  // Spin-2 cosine column.
+inline constexpr int col_sin2 = source_col_offset + LensingConfig::isin2;  // Spin-2 sine column.
+inline constexpr int col_parity = source_col_offset + LensingConfig::iparity;  // WCS parity column.
+inline constexpr int col_chi2 = source_col_offset + LensingConfig::ichi2;  // Exposure chi-square column.
 
 // Total number of columns in the catalog
-inline constexpr int ICHI2 = ccd_num_cols * LensingConfig::ext_cat + LensingConfig::npara;  // Total catalog row width.
+inline constexpr int ICHI2 = source_col_offset + LensingConfig::npara;  // Total catalog row width.
+
+static_assert(col_expo + 1 == col_ccd,
+              "EXPO_NUM must immediately precede CCD_NUM");
+static_assert(col_ccd + 1 == col_polychi2,
+              "Stage-7 fields must immediately follow CCD_NUM");
+static_assert(col_chi2 + 1 == ICHI2,
+              "Chi2 must be the final catalog column");
 
 // ==================== Bad CCD list (DES) ====================
 inline constexpr int bad_ccds[] = {2, 31, 53, 61};  // DES CCD numbers excluded from analysis.
