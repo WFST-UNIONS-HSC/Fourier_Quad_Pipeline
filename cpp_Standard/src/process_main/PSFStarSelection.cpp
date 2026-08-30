@@ -145,8 +145,8 @@ PSFChiWindow getPSFChiWindow(int n) {
 // ==========================================
 // Function: Estimate an exposure-wide stellar FWHM locus
 // Method: Smooth a fixed-bin robust histogram, optionally choose the peak
-//         nearest the Gaia median, then apply median/MAD clipping with a
-//         discretization floor.
+//         nearest the Gaia median, publish same-pass diagnostics on request,
+//         then apply median/MAD clipping with a discretization floor.
 // ==========================================
 bool estimateFWHMLocus(
     const std::vector<FWHMSample>& samples,
@@ -154,8 +154,12 @@ bool estimateFWHMLocus(
     double sigma_cut,
     int minimum_samples,
     int minimum_gaia_matches,
-    FWHMLocus& locus) {
+    FWHMLocus& locus,
+    FWHMLocusDiagnostics* diagnostics) {
     locus = {};
+    if (diagnostics != nullptr) {
+        *diagnostics = {};
+    }
     if (histogram_bins < 3 || sigma_cut <= 0.0 || minimum_samples <= 0) {
         return false;
     }
@@ -168,6 +172,10 @@ bool estimateFWHMLocus(
         if (!std::isfinite(sample.fwhm) || sample.fwhm <= 0.0) continue;
         values.push_back(sample.fwhm);
         if (sample.gaia_matched) gaia_values.push_back(sample.fwhm);
+    }
+    if (diagnostics != nullptr) {
+        diagnostics->sample_count = static_cast<int>(values.size());
+        diagnostics->gaia_match_count = static_cast<int>(gaia_values.size());
     }
     if (static_cast<int>(values.size()) < minimum_samples) return false;
 
@@ -188,6 +196,14 @@ bool estimateFWHMLocus(
         locus.lower = center - sigma_cut * floor;
         locus.upper = center + sigma_cut * floor;
         locus.histogram_bin_width = floor;
+        if (diagnostics != nullptr) {
+            diagnostics->range_low = center - 0.5 * floor;
+            diagnostics->range_high = center + 0.5 * floor;
+            diagnostics->peak_bin = 0;
+            diagnostics->histogram = {
+                static_cast<double>(values.size())};
+            diagnostics->smoothed_histogram = diagnostics->histogram;
+        }
         return true;
     }
 
@@ -231,6 +247,10 @@ bool estimateFWHMLocus(
     int peak_bin = peaks.front();
     if (static_cast<int>(gaia_values.size()) >= minimum_gaia_matches) {
         const double gaia_median = sortedMedian(gaia_values);
+        if (diagnostics != nullptr) {
+            diagnostics->has_gaia_median = true;
+            diagnostics->gaia_median = gaia_median;
+        }
         double best_distance = std::numeric_limits<double>::infinity();
         for (int candidate_peak : peaks) {
             const double peak_center = range_low
@@ -247,6 +267,13 @@ bool estimateFWHMLocus(
                 peak_bin = candidate_peak;
             }
         }
+    }
+    if (diagnostics != nullptr) {
+        diagnostics->range_low = range_low;
+        diagnostics->range_high = range_high;
+        diagnostics->peak_bin = peak_bin;
+        diagnostics->histogram = histogram;
+        diagnostics->smoothed_histogram = smoothed;
     }
 
     int basin_first = peak_bin;

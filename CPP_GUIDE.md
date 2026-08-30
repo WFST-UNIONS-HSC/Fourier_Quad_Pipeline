@@ -55,6 +55,13 @@ run per dataset; datasets are sequential and the first failure stops the run.
 
 The default `223092870` enables all stages. Stage 9 requires Stage 8.
 
+When Stage 5 successfully estimates an exposure-wide FWHM locus, both Standard
+and Lite write `stamps/svg_StarLocus/<exposure>_locus.svg`. The self-contained
+SVG shows the raw and smoothed histograms, selected peak, optional Gaia median,
+and the exact strict lower/upper cut used by star selection. `process_init`
+creates the output directory; a legacy dataset that skips initialization must
+provide it before running Stage 5.
+
 ## Build
 
 Use an MPI C++ wrapper with C++17, CFITSIO, FFTW3, Eigen3, LAPACK, and BLAS:

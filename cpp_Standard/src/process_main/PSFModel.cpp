@@ -2,6 +2,7 @@
 #include "process_main/PSFModel.hpp"
 #include "process_main/PSFModelState.hpp"
 #include "process_main/PSFCandidateQuality.hpp"
+#include "process_main/PSFStarSelection.hpp"
 #include "process_main/OutputFile.hpp"
 #include "process_main/MPIFailure.hpp"
 #include "general/OutputLayout.hpp"
@@ -89,6 +90,235 @@ namespace PSFModel {
             }
         }
         return true;
+    }
+
+    // ==========================================
+    // Function: Escape arbitrary text for an SVG XML text node
+    // Method: Replace all five XML-sensitive characters with entity references.
+    // ==========================================
+    static std::string escapeSVGText(const std::string& text) {
+        std::string escaped;
+        escaped.reserve(text.size());
+        for (const char character : text) {
+            switch (character) {
+                case '&': escaped += "&amp;"; break;
+                case '<': escaped += "&lt;"; break;
+                case '>': escaped += "&gt;"; break;
+                case '"': escaped += "&quot;"; break;
+                case '\'': escaped += "&apos;"; break;
+                default: escaped += character; break;
+            }
+        }
+        return escaped;
+    }
+
+    // ==========================================
+    // Function: Write one exposure-level FWHM-locus SVG diagnostic
+    // Method: Render the same-pass raw/smoothed histograms, selected peak,
+    //         optional Gaia median, and final strict locus cuts with checked I/O.
+    // ==========================================
+    static void writeFWHMLocusSVG(
+        const std::string& dirOutput,
+        const std::string& exposure,
+        const Internal::FWHMLocus& locus,
+        const Internal::FWHMLocusDiagnostics& diagnostics) {
+        if (!locus.valid || diagnostics.histogram.empty()
+            || diagnostics.histogram.size()
+                != diagnostics.smoothed_histogram.size()
+            || !(diagnostics.range_high > diagnostics.range_low)) {
+            return;
+        }
+
+        constexpr double canvas_width = 1200.0;
+        constexpr double canvas_height = 800.0;
+        constexpr double plot_left = 90.0;
+        constexpr double plot_right = 870.0;
+        constexpr double plot_top = 110.0;
+        constexpr double plot_bottom = 650.0;
+        const double plot_width = plot_right - plot_left;
+        const double plot_height = plot_bottom - plot_top;
+
+        double x_min = std::min(diagnostics.range_low, locus.lower);
+        double x_max = std::max(diagnostics.range_high, locus.upper);
+        const double x_padding = std::max((x_max - x_min) * 0.05, 1.0e-9);
+        x_min -= x_padding;
+        x_max += x_padding;
+
+        double y_max = 0.0;
+        for (const double count : diagnostics.histogram) {
+            y_max = std::max(y_max, count);
+        }
+        for (const double count : diagnostics.smoothed_histogram) {
+            y_max = std::max(y_max, count);
+        }
+        y_max = std::max(1.0, y_max * 1.08);
+
+        const auto mapX = [&](double value) {
+            return plot_left + (value - x_min) / (x_max - x_min) * plot_width;
+        };
+        const auto mapY = [&](double value) {
+            return plot_bottom - value / y_max * plot_height;
+        };
+
+        const std::string filename = dirOutput + "/stamps/svg_StarLocus/"
+            + exposure + "_locus.svg";
+        MainIO::OutputFile output(filename);
+        output << std::fixed << std::setprecision(6);
+        output << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+               << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\""
+               << canvas_width << "\" height=\"" << canvas_height
+               << "\" viewBox=\"0 0 " << canvas_width << ' ' << canvas_height
+               << "\">\n"
+               << "  <rect width=\"100%\" height=\"100%\" fill=\"white\"/>\n"
+               << "  <text x=\"600\" y=\"38\" text-anchor=\"middle\" "
+                  "font-family=\"sans-serif\" font-size=\"24\" font-weight=\"bold\">"
+                  "PSF Star FWHM Locus</text>\n"
+               << "  <text x=\"600\" y=\"68\" text-anchor=\"middle\" "
+                  "font-family=\"sans-serif\" font-size=\"16\">Exposure: "
+               << escapeSVGText(exposure) << "</text>\n";
+
+        for (int tick = 0; tick <= 5; ++tick) {
+            const double fraction = static_cast<double>(tick) / 5.0;
+            const double x_value = x_min + fraction * (x_max - x_min);
+            const double x = mapX(x_value);
+            const double y_value = fraction * y_max;
+            const double y = mapY(y_value);
+            output << "  <line x1=\"" << x << "\" y1=\"" << plot_top
+                   << "\" x2=\"" << x << "\" y2=\"" << plot_bottom
+                   << "\" stroke=\"#eeeeee\"/>\n"
+                   << "  <text x=\"" << x << "\" y=\"" << plot_bottom + 25.0
+                   << "\" text-anchor=\"middle\" font-family=\"sans-serif\" "
+                      "font-size=\"12\">" << x_value << "</text>\n"
+                   << "  <line x1=\"" << plot_left << "\" y1=\"" << y
+                   << "\" x2=\"" << plot_right << "\" y2=\"" << y
+                   << "\" stroke=\"#eeeeee\"/>\n"
+                   << "  <text x=\"" << plot_left - 12.0 << "\" y=\"" << y + 4.0
+                   << "\" text-anchor=\"end\" font-family=\"sans-serif\" "
+                      "font-size=\"12\">" << y_value << "</text>\n";
+        }
+
+        output << "  <g id=\"raw-histogram\" fill=\"#b8bec7\">\n";
+        const double histogram_span =
+            diagnostics.range_high - diagnostics.range_low;
+        const std::size_t bin_count = diagnostics.histogram.size();
+        for (std::size_t bin = 0; bin < bin_count; ++bin) {
+            const double left_value = diagnostics.range_low
+                + histogram_span * static_cast<double>(bin)
+                    / static_cast<double>(bin_count);
+            const double right_value = diagnostics.range_low
+                + histogram_span * static_cast<double>(bin + 1)
+                    / static_cast<double>(bin_count);
+            const double left = mapX(left_value);
+            const double right = mapX(right_value);
+            const double top = mapY(diagnostics.histogram[bin]);
+            output << "    <rect x=\"" << left << "\" y=\"" << top
+                   << "\" width=\"" << std::max(0.0, right - left - 0.5)
+                   << "\" height=\"" << plot_bottom - top << "\"/>\n";
+        }
+        output << "  </g>\n"
+               << "  <polyline id=\"smoothed-histogram\" fill=\"none\" "
+                  "stroke=\"#2468b4\" stroke-width=\"3\" points=\"";
+        for (std::size_t bin = 0; bin < bin_count; ++bin) {
+            const double center = diagnostics.range_low
+                + histogram_span * (static_cast<double>(bin) + 0.5)
+                    / static_cast<double>(bin_count);
+            output << mapX(center) << ','
+                   << mapY(diagnostics.smoothed_histogram[bin]) << ' ';
+        }
+        output << "\"/>\n";
+
+        const int peak_bin = std::clamp(
+            diagnostics.peak_bin, 0, static_cast<int>(bin_count) - 1);
+        const double peak_value = diagnostics.range_low
+            + histogram_span * (static_cast<double>(peak_bin) + 0.5)
+                / static_cast<double>(bin_count);
+        output << "  <line id=\"selected-peak\" x1=\"" << mapX(peak_value)
+               << "\" y1=\"" << plot_top << "\" x2=\"" << mapX(peak_value)
+               << "\" y2=\"" << plot_bottom
+               << "\" stroke=\"#f28e2b\" stroke-width=\"2\" "
+                  "stroke-dasharray=\"3,3\"/>\n";
+        if (diagnostics.has_gaia_median) {
+            output << "  <line id=\"gaia-median\" x1=\""
+                   << mapX(diagnostics.gaia_median) << "\" y1=\"" << plot_top
+                   << "\" x2=\"" << mapX(diagnostics.gaia_median)
+                   << "\" y2=\"" << plot_bottom
+                   << "\" stroke=\"#2ca02c\" stroke-width=\"2\" "
+                      "stroke-dasharray=\"8,4,2,4\"/>\n";
+        }
+        output << "  <line id=\"locus-lower\" x1=\"" << mapX(locus.lower)
+               << "\" y1=\"" << plot_top << "\" x2=\"" << mapX(locus.lower)
+               << "\" y2=\"" << plot_bottom
+               << "\" stroke=\"#d62728\" stroke-width=\"3\" "
+                  "stroke-dasharray=\"8,5\"/>\n"
+               << "  <line id=\"locus-upper\" x1=\"" << mapX(locus.upper)
+               << "\" y1=\"" << plot_top << "\" x2=\"" << mapX(locus.upper)
+               << "\" y2=\"" << plot_bottom
+               << "\" stroke=\"#d62728\" stroke-width=\"3\" "
+                  "stroke-dasharray=\"8,5\"/>\n"
+               << "  <line id=\"locus-center\" x1=\"" << mapX(locus.center)
+               << "\" y1=\"" << plot_top << "\" x2=\"" << mapX(locus.center)
+               << "\" y2=\"" << plot_bottom
+               << "\" stroke=\"#111111\" stroke-width=\"3\"/>\n"
+               << "  <line x1=\"" << plot_left << "\" y1=\"" << plot_bottom
+               << "\" x2=\"" << plot_right << "\" y2=\"" << plot_bottom
+               << "\" stroke=\"black\" stroke-width=\"2\"/>\n"
+               << "  <line x1=\"" << plot_left << "\" y1=\"" << plot_top
+               << "\" x2=\"" << plot_left << "\" y2=\"" << plot_bottom
+               << "\" stroke=\"black\" stroke-width=\"2\"/>\n"
+               << "  <text x=\"" << (plot_left + plot_right) / 2.0
+               << "\" y=\"715\" text-anchor=\"middle\" font-family=\"sans-serif\" "
+                  "font-size=\"16\">FWHM</text>\n"
+               << "  <text x=\"25\" y=\"380\" text-anchor=\"middle\" "
+                  "transform=\"rotate(-90 25 380)\" font-family=\"sans-serif\" "
+                  "font-size=\"16\">Candidate count</text>\n";
+
+        output << "  <g font-family=\"sans-serif\" font-size=\"15\" fill=\"#222222\">\n"
+               << "    <text x=\"920\" y=\"140\">Samples = "
+               << diagnostics.sample_count << "</text>\n"
+               << "    <text x=\"920\" y=\"170\">center = "
+               << locus.center << "</text>\n"
+               << "    <text x=\"920\" y=\"195\">width = "
+               << locus.width << "</text>\n"
+               << "    <text x=\"920\" y=\"220\">sigma = "
+               << LensingConfig::psf_fwhm_locus_sigma << "</text>\n"
+               << "    <text x=\"920\" y=\"245\">lower = "
+               << locus.lower << "</text>\n"
+               << "    <text x=\"920\" y=\"270\">upper = "
+               << locus.upper << "</text>\n"
+               << "    <text x=\"920\" y=\"305\">FWHM cut:</text>\n"
+               << "    <text x=\"920\" y=\"330\">" << locus.lower
+               << " &lt; FWHM &lt; " << locus.upper << "</text>\n";
+        if (diagnostics.has_gaia_median) {
+            output << "    <text x=\"920\" y=\"365\">Gaia median = "
+                   << diagnostics.gaia_median << "</text>\n"
+                   << "    <text x=\"920\" y=\"390\">Gaia matches = "
+                   << diagnostics.gaia_match_count << "</text>\n";
+        }
+        output << "    <text x=\"950\" y=\"455\">raw histogram</text>\n"
+               << "    <text x=\"950\" y=\"485\">smoothed histogram</text>\n"
+               << "    <text x=\"950\" y=\"515\">selected peak</text>\n"
+               << "    <text x=\"950\" y=\"545\">locus center</text>\n"
+               << "    <text x=\"950\" y=\"575\">lower / upper cut</text>\n";
+        if (diagnostics.has_gaia_median) {
+            output << "    <text x=\"950\" y=\"605\">Gaia median</text>\n";
+        }
+        output << "  </g>\n"
+               << "  <rect x=\"920\" y=\"442\" width=\"20\" height=\"14\" "
+                  "fill=\"#b8bec7\"/>\n"
+               << "  <line x1=\"920\" y1=\"480\" x2=\"940\" y2=\"480\" "
+                  "stroke=\"#2468b4\" stroke-width=\"3\"/>\n"
+               << "  <line x1=\"920\" y1=\"510\" x2=\"940\" y2=\"510\" "
+                  "stroke=\"#f28e2b\" stroke-width=\"2\" stroke-dasharray=\"3,3\"/>\n"
+               << "  <line x1=\"920\" y1=\"540\" x2=\"940\" y2=\"540\" "
+                  "stroke=\"#111111\" stroke-width=\"3\"/>\n"
+               << "  <line x1=\"920\" y1=\"570\" x2=\"940\" y2=\"570\" "
+                  "stroke=\"#d62728\" stroke-width=\"3\" stroke-dasharray=\"8,5\"/>\n";
+        if (diagnostics.has_gaia_median) {
+            output << "  <line x1=\"920\" y1=\"600\" x2=\"940\" y2=\"600\" "
+                      "stroke=\"#2ca02c\" stroke-width=\"2\" "
+                      "stroke-dasharray=\"8,4,2,4\"/>\n";
+        }
+        output << "</svg>\n";
     }
 
     // ==========================================
@@ -819,8 +1049,8 @@ namespace PSFModel {
 
     // ==========================================
     // Function: Select PSF stars from quality-valid candidates
-    // Method: Apply common Gaia/FWHM/minChi selection, dispatch isolated legacy
-    //         or survivor-only KNN grouping, then apply one shared group policy.
+    // Method: Apply common Gaia/FWHM/minChi selection, publish the exact FWHM
+    //         locus diagnostic, then dispatch grouping and shared policy.
     // ==========================================
     void starSelection(
         int nchip,
@@ -861,16 +1091,23 @@ namespace PSFModel {
         }
 
         Internal::FWHMLocus locus;
+        Internal::FWHMLocusDiagnostics locus_diagnostics;
         if (!Internal::estimateFWHMLocus(
                 fwhm_samples,
                 LensingConfig::psf_fwhm_hist_bins,
                 LensingConfig::psf_fwhm_locus_sigma,
                 LensingConfig::psf_fwhm_locus_min_samples,
                 LensingConfig::psf_gaia_locus_min_matches,
-                locus)) {
+                locus,
+                &locus_diagnostics)) {
             rejectExposureCandidates(state);
             return;
         }
+
+        const std::string prefix_e =
+            UniversalUtils::getPrefixExpo(imageFiles[0]);
+        writeFWHMLocusSVG(
+            dirOutput, prefix_e, locus, locus_diagnostics);
 
         for (int chip_index = 0; chip_index < nchip; ++chip_index) {
             ChipPSFState& chip = state.chips[chip_index];

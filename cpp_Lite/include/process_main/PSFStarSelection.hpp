@@ -59,10 +59,27 @@ struct FWHMLocus {
 };
 
 // ==========================================
+// Structure: Publish the exact inputs used by FWHM-locus peak selection
+// Method: Retain filtered counts, histogram products, selected peak, and the
+//         Gaia median only when it participates in peak selection.
+// ==========================================
+struct FWHMLocusDiagnostics {
+    int sample_count = 0;
+    int gaia_match_count = 0;
+    double range_low = 0.0;
+    double range_high = 0.0;
+    bool has_gaia_median = false;
+    double gaia_median = 0.0;
+    int peak_bin = -1;
+    std::vector<double> histogram;
+    std::vector<double> smoothed_histogram;
+};
+
+// ==========================================
 // Function: Estimate an exposure-wide stellar FWHM locus
 // Method: Smooth a fixed-bin robust histogram, optionally choose the peak
-//         nearest the Gaia median, then apply median/MAD clipping with a
-//         discretization floor.
+//         nearest the Gaia median, publish same-pass diagnostics on request,
+//         then apply median/MAD clipping with a discretization floor.
 // ==========================================
 bool estimateFWHMLocus(
     const std::vector<FWHMSample>& samples,
@@ -70,7 +87,8 @@ bool estimateFWHMLocus(
     double sigma_cut,
     int minimum_samples,
     int minimum_gaia_matches,
-    FWHMLocus& locus);
+    FWHMLocus& locus,
+    FWHMLocusDiagnostics* diagnostics = nullptr);
 
 enum class AstrometryGaiaReadStatus {
     Accepted,

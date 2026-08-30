@@ -57,10 +57,28 @@ void testFWHMLocus() {
         density_samples.push_back({1.70 + 0.02 * (index % 25), false});
     }
     FWHMLocus locus;
-    require(estimateFWHMLocus(density_samples, 128, 4.0, 30, 10, locus),
+    FWHMLocusDiagnostics diagnostics;
+    require(estimateFWHMLocus(
+                density_samples, 128, 4.0, 30, 10, locus, &diagnostics),
             "two-population FWHM fixture must produce a locus");
     require(std::abs(locus.center - 1.02) < 0.08,
             "highest-density narrow stellar peak must be selected without Gaia");
+    require(diagnostics.sample_count == 200
+                && diagnostics.histogram.size() == 128
+                && diagnostics.smoothed_histogram.size() == 128
+                && diagnostics.peak_bin >= 0 && diagnostics.peak_bin < 128
+                && diagnostics.range_high > diagnostics.range_low,
+            "density fixture must publish its exact histogram diagnostics");
+    require(!diagnostics.has_gaia_median,
+            "density-only peak selection must not publish a Gaia median");
+    FWHMLocus baseline_locus;
+    require(estimateFWHMLocus(
+                density_samples, 128, 4.0, 30, 10, baseline_locus)
+                && baseline_locus.center == locus.center
+                && baseline_locus.width == locus.width
+                && baseline_locus.lower == locus.lower
+                && baseline_locus.upper == locus.upper,
+            "requesting diagnostics must not alter the scientific locus");
 
     std::vector<FWHMSample> gaia_samples;
     for (int index = 0; index < 45; ++index) {
@@ -69,18 +87,32 @@ void testFWHMLocus() {
     for (int index = 0; index < 100; ++index) {
         gaia_samples.push_back({1.80 + 0.005 * (index % 5), false});
     }
-    require(estimateFWHMLocus(gaia_samples, 128, 4.0, 30, 10, locus),
+    require(estimateFWHMLocus(
+                gaia_samples, 128, 4.0, 30, 10, locus, &diagnostics),
             "Gaia-supported two-peak fixture must produce a locus");
     require(std::abs(locus.center - 0.92) < 0.08,
             "Gaia median must select the supported smaller peak");
+    require(diagnostics.has_gaia_median
+                && diagnostics.gaia_match_count == 12
+                && std::isfinite(diagnostics.gaia_median),
+            "Gaia-supported selection must publish its finite guiding median");
 
     std::vector<FWHMSample> repeated(40, {1.25, false});
-    require(estimateFWHMLocus(repeated, 128, 4.0, 30, 10, locus)
+    require(estimateFWHMLocus(
+                repeated, 128, 4.0, 30, 10, locus, &diagnostics)
                 && locus.width > 0.0 && locus.lower < 1.25 && locus.upper > 1.25,
             "repeated FWHM values must receive a finite positive width floor");
+    require(diagnostics.histogram.size() == 1
+                && diagnostics.smoothed_histogram.size() == 1
+                && diagnostics.peak_bin == 0
+                && diagnostics.range_high > diagnostics.range_low,
+            "repeated FWHM values must publish a drawable one-bin fallback");
     repeated.resize(29);
-    require(!estimateFWHMLocus(repeated, 128, 4.0, 30, 10, locus),
+    require(!estimateFWHMLocus(
+                repeated, 128, 4.0, 30, 10, locus, &diagnostics),
             "FWHM locus must reject fewer than the configured samples");
+    require(diagnostics.sample_count == 29 && diagnostics.histogram.empty(),
+            "failed estimation must reset diagnostics before reporting counts");
 }
 
 // ==========================================

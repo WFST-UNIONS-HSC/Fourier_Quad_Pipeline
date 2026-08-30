@@ -50,6 +50,11 @@ C++ Standard 可以选择不读取 DQ 的配置。
 
 默认 `223092870` 启用全部阶段；阶段 9 必须与阶段 8 同时启用。
 
+Stage 5 成功估计曝光级 FWHM locus 后，Standard 与 Lite 都会写出
+`stamps/svg_StarLocus/<exposure>_locus.svg`。该自包含 SVG 显示原始与平滑
+histogram、选中峰、可选 Gaia median，以及星选实际使用的严格 lower/upper cut。
+输出目录由 `process_init` 创建；旧数据树若跳过初始化，必须在运行 Stage 5 前补齐该目录。
+
 ## 编译
 
 需要支持 C++17 的 MPI C++ 编译器，以及 CFITSIO、FFTW3、Eigen3、LAPACK、BLAS。
