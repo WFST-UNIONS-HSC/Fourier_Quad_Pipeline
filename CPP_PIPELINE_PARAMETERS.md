@@ -6,11 +6,28 @@ driver seeds `ProcessConfig::RuntimeOptions` from these compiled defaults and
 only the options named in the **CLI override** column can change a value without
 rebuilding.
 
-All fixed input/output path definitions are physically centralized in
-`config/pathconfig.hpp`. The tables below keep them grouped with their consuming
-configuration namespaces; the namespace-qualified symbol names and runtime
-override behavior are unchanged. `OutputLayout::NON_CHIP_BASE_DIRECTORIES` and
-`OutputLayout::CHIP_PRODUCT_DIRECTORIES` are defined in the same path header.
+## Centralized path configuration
+
+Each variant has its own `config/pathconfig.hpp`. It is the sole physical source
+for fixed input/output paths, workflow list/output names, rearrangement filenames,
+and fixed relative output-directory layouts. The established namespaces remain
+unchanged, so existing call sites still use names such as
+`LensingConfig::ASTROMETRY_CAT` and
+`ProcessConfig::REARR_OUTPUT_DIRECTORY`.
+
+| Namespace | Definitions physically owned by `pathconfig.hpp` | Coupling and runtime rule |
+|---|---|---|
+| `LensingConfig` | `ASTROMETRY_CAT`, `SOURCE_CAT_DEFAULT`; Standard only: `FLAT_PATH`, `PSF_PATH` | `ASTROMETRY_CAT`, `FLAT_PATH`, and `PSF_PATH` are compile-time only. `SOURCE_CAT_DEFAULT` seeds the runtime external-catalog directory, which `--extcat-output` may replace. |
+| `AstroCatConfig` | `ASTROCAT_INPUT_DIRECTORY`, `ASTROCAT_OUTPUT_DIRECTORY` | The compiled output default is deliberately initialized as `LensingConfig::ASTROMETRY_CAT`. `--astrocat-output` changes only the runtime producer destination and does not update the Stage-1 consumer path. |
+| `ExtCatConfig` | `EXTCAT_INPUT_DIRECTORY`, `EXTCAT_OUTPUT_DIRECTORY` | The compiled output default remains `LensingConfig::SOURCE_CAT_DEFAULT`. The runtime catalog directory is shared by `process_extcat` output and `process_main` input. |
+| `InitConfig` | `SCIENCE_ROOT`, `DQ_ROOT`, `OUTPUT_ROOT` | These seed `RuntimeOptions` and have CLI overrides. |
+| `ProcessConfig` | `EXPO_LIST`, `REARR_OUTPUT_DIRECTORY`, `REARR_OUTPUT_BASE_DIRECTORY`, `REARRANGED_EXPO_LIST_FILENAME`, `REARRANGED_EXPO_LIST_DIRECTORY`, `FD_EXPO_LIST`, `FD_OUTPUT_DIRECTORY`, `FD_OUTPUT_BASE_DIRECTORY` | These seed `RuntimeOptions` and have CLI overrides. |
+| `ProcessRearrConfig` | `SKIP_DIRECTORY_NAME`, `SUBCAT_PREFIX`, `SUBCAT_EXTENSION`, `SUMMARY_FILENAME` | No runtime override; edit the selected variant and rebuild. |
+| `OutputLayout` | `NON_CHIP_BASE_DIRECTORIES`, `CHIP_PRODUCT_DIRECTORIES` | No runtime override; these are fixed relative directory contracts used by initialization and processing. |
+
+Editing `pathconfig.hpp` changes compiled defaults and therefore requires a clean
+rebuild. A CLI override changes only the corresponding `RuntimeOptions` copy; it
+does not mutate the header constants or rewrite their compiled relationships.
 
 `N/A — removed in Lite` means the Lite source physically removed the alternate
 branch. Adding the constant back does not restore that behavior. A **derived
@@ -61,13 +78,15 @@ and `external_exposure_list_supplied` are internal parser flags.
 | Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
 |---|---|---|---|---|---|---|---|---|
 | `ASTROCAT_INPUT_DIRECTORY` | `const char*` | empty | empty | `--astrocat-input` | Readable flat directory | Raw Gaia files; each data row begins with RA and Dec. | Set when running `process_astrocat`. | CLI override; rebuild not required |
-| `ASTROCAT_OUTPUT_DIRECTORY` | `std::string` | compiled `ASTROMETRY_CAT` value | same | `--astrocat-output` | Writable directory that does not equal, contain, or sit below the input directory | Destination for one-degree Type-2 Gaia tiles. | Set independently for each publication. | CLI override; rebuild not required |
+| `ASTROCAT_OUTPUT_DIRECTORY` | `std::string` | `LensingConfig::ASTROMETRY_CAT` | same | `--astrocat-output` | Writable directory that does not equal, contain, or sit below the input directory | Compiled default destination for one-degree Type-2 Gaia tiles. | Override independently for each publication. | No via CLI; yes after editing the header |
 | `ASTROCAT_ADD_HEADER` | `bool` | `true` | `true` | `--astrocat-add-header` | `true` starts at the first line; `false` skips exactly one line per input file | Controls raw-input header handling; output tiles always contain `RA    DEC`. | Change to match the raw files. | CLI override; rebuild not required |
 | `ASTROCAT_EXISTING_POLICY` | `const char*` | `"fail"` | same | `--astrocat-existing` | `fail`, `overwrite` | Existing generated-tile policy. | Select intentionally for reruns. | CLI override; rebuild not required |
 
-`--astrocat-output` is an independent `process_astrocat` destination. It is not
-compared with, propagated to, or otherwise coupled to
-`LensingConfig::ASTROMETRY_CAT`.
+In `pathconfig.hpp`, `ASTROCAT_OUTPUT_DIRECTORY` intentionally derives from
+`LensingConfig::ASTROMETRY_CAT`; keep both symbols and that expression rather
+than merging them. After `RuntimeOptions` is constructed, `--astrocat-output`
+changes only the `process_astrocat` destination. It is not compared with or
+propagated back to the compile-time Stage-1 consumer path.
 
 The phase discovers only direct regular children of the input directory; it
 does not recurse. It reads each complete file through dynamic MPI scheduling,
@@ -87,7 +106,7 @@ content.
 | Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
 |---|---|---|---|---|---|---|---|---|
 | `EXTCAT_INPUT_DIRECTORY` | `const char*` | empty | empty | `--extcat-input` | Readable directory path | Raw External source catalog root. | Set when running `process_extcat`. | CLI override; rebuild not required |
-| `EXTCAT_OUTPUT_DIRECTORY` | `const char*` | `SOURCE_CAT_DEFAULT` | same | `--extcat-output` | Writable tile directory | Tile output and effective `process_main` External source catalog path. | Change for each catalog deployment. | CLI override; rebuild not required |
+| `EXTCAT_OUTPUT_DIRECTORY` | `const char*` | `LensingConfig::SOURCE_CAT_DEFAULT` | same | `--extcat-output` | Writable tile directory | Tile output and effective `process_main` External source catalog path. | Change for each catalog deployment. | No via CLI; yes after editing the header |
 | `EXTCAT_FILENAME_TOKENS` | `std::vector<std::string>` | empty | empty | Repeatable `--extcat-contains` | Non-empty basename tokens; OR matching | Filters raw catalog files. | Change when filenames need filtering. | CLI override; rebuild not required |
 | `EXTCAT_RECURSIVE` | `bool` | `true` | `true` | `--extcat-recursive` | Boolean | Recurse below the raw catalog root. | Disable for a flat directory only. | CLI override; rebuild not required |
 | `EXTCAT_DELIMITER` | `const char*` | `"auto"` | same | `--extcat-delimiter` | `auto`, `whitespace`, `comma`, `tab` | Raw table delimiter mode. | Change when auto-detection is unsuitable. | CLI override; rebuild not required |
@@ -302,6 +321,20 @@ content.
 | `SKIP_MALFORMED_ROWS` | `bool` | `true` | same | No | Boolean | Continues past malformed rows. | Set false for strict schema checks. | Yes |
 | `externalCatalogColumns(options)` | function result | `18` without projection | same | `--extcat-columns` changes result | Projection length or `EXTCAT_TOTAL_COLUMNS` | Runtime-effective external prefix width. | Derived parameter — do not edit directly. | No |
 | `allCatalogColumns(options)` | function result | `45` without projection | same | `--extcat-columns` changes result | External width + `2` + `25` | Runtime-effective complete row width. | Derived parameter — do not edit directly. | No |
+
+## `OutputLayout` (`config/pathconfig.hpp`)
+
+These arrays are identical in Standard and Lite and have no CLI override. They
+contain relative directory names, not deployment roots; the runtime dataset root
+is prepended by the existing path helpers.
+
+| Parameter | Type | Standard / Lite compiled value | Function | Rebuild after change |
+|---|---|---|---|---|
+| `NON_CHIP_BASE_DIRECTORIES` | `std::array<const char*, 14>` | `science`, `dqmask`, `stamps`, `result`, `stamps/dat_StarInfo`, `stamps/fits_StarP`, `stamps/fits_PsfSrc`, `stamps/dat_ExpoInfo`, `stamps/dat_StarComp`, `stamps/dat_Rescale`, `stamps/dat_Pcs`, `stamps/dat_StarCompV2`, `astrometry/Head`, `astrometry/dat_Chk` | Complete fixed base-directory contract created without a chip suffix. | Yes |
+| `CHIP_PRODUCT_DIRECTORIES` | `std::array<const char*, 16>` | `stamps/Norm`, `stamps/cat_Orig`, `stamps/dat_StarCanInfo`, `stamps/fits_StarCan`, `stamps/fits_StarCanN`, `stamps/fits_StarCanP`, `stamps/dat_SrcInfo`, `stamps/fits_Src`, `stamps/fits_Noise`, `stamps/fits_SrcP`, `stamps/dat_PsfFit`, `stamps/fits_PsfLocal`, `stamps/dat_Shear`, `stamps/dat_StarXY`, `stamps/fits_PsfResi`, `astrometry/dat_Astro` | Complete fixed per-chip product-directory contract. | Yes |
+
+`include/general/OutputLayout.hpp` now contains only the functions that derive
+exposure and chip paths from these centralized arrays.
 
 ## `config/FDConfig.hpp`
 

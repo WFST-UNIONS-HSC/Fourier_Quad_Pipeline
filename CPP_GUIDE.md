@@ -83,10 +83,27 @@ All compiled defaults and fixed scientific parameters are stored in the selected
 variant's `config/` directory. Review them before a run; editing a configuration
 header requires rebuilding the executable.
 
+### Centralized path configuration
+
 Fixed input/output paths, workflow output/list names, rearrangement filenames,
-and the initializer output-directory contract are centralized in
-`config/pathconfig.hpp`. Scientific and parsing settings remain in their domain
-headers.
+and initializer/product relative directories have one physical definition point:
+the selected variant's `config/pathconfig.hpp`. Scientific and parsing settings
+remain in their domain headers, and existing namespace-qualified names do not
+change.
+
+- Keep `AstroCatConfig::ASTROCAT_OUTPUT_DIRECTORY` initialized from
+  `LensingConfig::ASTROMETRY_CAT` as two coupled symbols. The CLI
+  `--astrocat-output` overrides only the runtime producer destination; it does
+  not update the Stage-1 `ASTROMETRY_CAT` consumer.
+- Keep `ExtCatConfig::EXTCAT_OUTPUT_DIRECTORY` initialized from
+  `LensingConfig::SOURCE_CAT_DEFAULT`. Its runtime copy is the shared external
+  tile directory used for `process_extcat` output and `process_main` input, and
+  `--extcat-output` overrides that copy.
+- `FLAT_PATH` and `PSF_PATH` exist only in Standard because Lite physically
+  removed those optional branches.
+- `ProcessRearrConfig`'s fixed filenames and the two `OutputLayout` directory
+  arrays have no CLI override. Editing them—or any other value directly in
+  `pathconfig.hpp`—requires `make clean && make`.
 
 The CLI provides per-run overrides for phase control, I/O directories, catalog
 schema fields, and the other values represented by
@@ -110,6 +127,7 @@ run `make` again. Do not edit derived dimensions or column indices independently
 | Top-level phases | `RUN_PROCESS_ASTROCAT`, `RUN_PROCESS_EXTCAT`, `RUN_PROCESS_INIT`, `RUN_PROCESS_MAIN`, `RUN_PROCESS_REARR`, `RUN_PROCESS_FD` | `config/ProcessConfig.hpp`; runtime `--run-astrocat`, `--run-extcat`, `--run-init`, `--run-main`, `--run-rearr`, `--run-fd` | Select work for this invocation. Standard defaults to `false/false/true/true/true/true`; Lite to `false/false/true/true/false/false`. |
 | Science/DQ archives and datasets | `SCIENCE_ROOT`, `DQ_ROOT`, `OUTPUT_ROOT`, `DATASETS`, `CONTAINS` | paths in `config/pathconfig.hpp`; datasets/tokens in `config/InitConfig.hpp`; runtime `--science-root`, `--dq-root`, `--output-root`, `--dataset`, `--contains` | Change for another observation archive, basename prefix, discovery token, or output root. Lite requires per-chip DQ masks. |
 | Exposure lists and phase outputs | `EXPO_LIST`, `REARR_OUTPUT_DIRECTORY`, `REARR_OUTPUT_BASE_DIRECTORY`, `REARRANGED_EXPO_LIST_FILENAME`, `REARRANGED_EXPO_LIST_DIRECTORY`, `FD_EXPO_LIST`, `FD_OUTPUT_DIRECTORY`, `FD_OUTPUT_BASE_DIRECTORY` | `config/pathconfig.hpp`; runtime `--expo-list`, `--rearr-output-dir`, `--rearr-output-base`, `--rearr-list-name`, `--rearr-list-dir`, `--fd-expo-list`, `--fd-output-dir`, `--fd-output-base` | Change for downstream-only runs or different rearrangement/FD list and output locations. |
+| Fixed generated layout | `SKIP_DIRECTORY_NAME`, `SUBCAT_PREFIX`, `SUBCAT_EXTENSION`, `SUMMARY_FILENAME`, `NON_CHIP_BASE_DIRECTORIES`, `CHIP_PRODUCT_DIRECTORIES` | `config/pathconfig.hpp`, compile-time | Change only when the published catalog naming or relative output-directory contract changes; rebuild and regenerate affected products. |
 | Gaia-catalog tiling | `ASTROCAT_INPUT_DIRECTORY`, `ASTROCAT_OUTPUT_DIRECTORY`, `ASTROCAT_ADD_HEADER=true`, `ASTROCAT_EXISTING_POLICY=fail` | paths in `config/pathconfig.hpp`; behavior in `config/AstroCatConfig.hpp`; runtime `--astrocat-input`, `--astrocat-output`, `--astrocat-add-header`, `--astrocat-existing` | Change for a new raw Gaia catalog or rerun policy. The output option controls only `process_astrocat`; it is not checked against or propagated to `ASTROMETRY_CAT`. |
 | Gaia catalog layout | `AstroCatType=1` | `config/LensingConfig.hpp`, compile-time | `1` reads legacy large `gaia_*.cat` tiles; `2` accumulates the one-degree `des_y6_*.dat` tiles produced by `process_astrocat`. Set `ASTROMETRY_CAT` separately to the directory consumed by Stage 1 and rebuild after changing the type. |
 | External-catalog discovery and parsing | `EXTCAT_INPUT_DIRECTORY`, `EXTCAT_OUTPUT_DIRECTORY` | paths in `config/pathconfig.hpp`; parsing settings in `config/ExtCatConfig.hpp`; runtime `--extcat-input`, `--extcat-output` | Change the external-catalog file organization. The output directory cannot equal or sit below the input directory. |
