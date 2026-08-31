@@ -91,11 +91,15 @@ struct FWHMLocusDiagnostics {
     int histogram_sample_count = 0;
     int histogram_below_count = 0;
     int histogram_above_count = 0;
+    int gaia_histogram_sample_count = 0;
+    int gaia_histogram_below_count = 0;
+    int gaia_histogram_above_count = 0;
     bool has_gaia_median = false;
     double gaia_median = 0.0;
     int peak_bin = -1;
     std::vector<double> histogram;
     std::vector<double> smoothed_histogram;
+    std::vector<double> gaia_histogram;
 };
 
 // ==========================================

@@ -81,6 +81,9 @@ bool estimateClippedMedianMad(
     double& center,
     double& width,
     int& retained_count) {
+
+    double width_floor = 1.0e-6;
+
     retained_count = 0;
     if (sorted_input.empty() || !std::isfinite(clip_sigma)
         || clip_sigma <= 0.0 || max_iterations <= 0) {
@@ -90,7 +93,7 @@ bool estimateClippedMedianMad(
     std::vector<double> population = sorted_input;
     for (int iteration = 0; iteration < max_iterations; ++iteration) {
         if (!medianAndMad(population, center, width)) return false;
-        width = std::max(width, sampleWidthFloor(population, center));
+        width = std::max(width, width_floor);
         std::vector<double> clipped;
         clipped.reserve(population.size());
         for (double value : population) {
@@ -104,7 +107,7 @@ bool estimateClippedMedianMad(
     }
 
     if (!medianAndMad(population, center, width)) return false;
-    width = std::max(width, sampleWidthFloor(population, center));
+    width = std::max(width, width_floor);
     retained_count = static_cast<int>(population.size());
     return std::isfinite(center) && std::isfinite(width) && width > 0.0;
 }
@@ -296,6 +299,10 @@ bool estimateFWHMLocus(
             diagnostics->histogram = {
                 static_cast<double>(values.size())};
             diagnostics->smoothed_histogram = diagnostics->histogram;
+            diagnostics->gaia_histogram = {
+                static_cast<double>(gaia_values.size())};
+            diagnostics->gaia_histogram_sample_count =
+                static_cast<int>(gaia_values.size());
         }
         return true;
     }
@@ -322,6 +329,26 @@ bool estimateFWHMLocus(
         bin = std::clamp(bin, 0, config.histogram_bins - 1);
         histogram[bin] += 1.0;
         histogram_sample_count++;
+    }
+
+    std::vector<double> gaia_histogram(
+        static_cast<std::size_t>(config.histogram_bins), 0.0);
+    int gaia_histogram_sample_count = 0;
+    int gaia_histogram_below_count = 0;
+    int gaia_histogram_above_count = 0;
+    for (double value : gaia_values) {
+        if (value < range_low) {
+            gaia_histogram_below_count++;
+            continue;
+        }
+        if (value > range_high) {
+            gaia_histogram_above_count++;
+            continue;
+        }
+        int bin = static_cast<int>((value - range_low) / bin_width);
+        bin = std::clamp(bin, 0, config.histogram_bins - 1);
+        gaia_histogram[bin] += 1.0;
+        gaia_histogram_sample_count++;
     }
 
     const int offsets[] = {-2, -1, 0, 1, 2};
@@ -377,9 +404,16 @@ bool estimateFWHMLocus(
         diagnostics->histogram_sample_count = histogram_sample_count;
         diagnostics->histogram_below_count = histogram_below_count;
         diagnostics->histogram_above_count = histogram_above_count;
+        diagnostics->gaia_histogram_sample_count =
+            gaia_histogram_sample_count;
+        diagnostics->gaia_histogram_below_count =
+            gaia_histogram_below_count;
+        diagnostics->gaia_histogram_above_count =
+            gaia_histogram_above_count;
         diagnostics->peak_bin = peak_bin;
         diagnostics->histogram = histogram;
         diagnostics->smoothed_histogram = smoothed;
+        diagnostics->gaia_histogram = gaia_histogram;
     }
 
     int basin_first = peak_bin;
