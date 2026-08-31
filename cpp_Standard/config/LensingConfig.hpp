@@ -59,7 +59,10 @@ namespace LensingConfig {
     //         thresholds explicit and independently rebuild-configurable.
     // ==========================================
     constexpr int psf_exposure_min_candidates = 60;  // Minimum exposure-wide PSF candidates.
-    constexpr int psf_fwhm_hist_bins = 128;  // FWHM histogram bin count.
+    constexpr int psf_fwhm_hist_bins = 20;  // FWHM histogram bin count.
+    constexpr double psf_fwhm_pilot_clip_sigma = 3.0;  // Robust pilot clipping multiplier.
+    constexpr int psf_fwhm_pilot_clip_iterations = 3;  // Robust pilot clipping passes.
+    constexpr double psf_fwhm_hist_range_sigma = 5.0;  // Local histogram half-range in pilot widths.
     constexpr double psf_fwhm_locus_sigma = 4.0;  // Exposure FWHM-locus sigma window.
     constexpr int psf_fwhm_locus_min_samples = 30;  // Minimum FWHM-locus samples.
     constexpr int PsfGroupingType = 2;  // One selects threshold graph; two selects mutual KNN.
@@ -68,9 +71,9 @@ namespace LensingConfig {
     constexpr double psf_minchi_sigma_cut = 4.0;  // Minimum-chi rejection sigma.
     constexpr int psf_knn_k = 8;  // Neighbors retained by the PSF KNN graph.
     constexpr double psf_group_merge_ratio = 0.30;  // Secondary-group relative-size threshold.
-    constexpr int psf_group_merge_min_gaia = 2;  // Minimum Gaia matches in a merged group.
-    constexpr double psf_gaia_match_radius_pix = 2.5;  // Gaia match radius in pixels.
-    constexpr int psf_gaia_locus_min_matches = 10;  // Minimum Gaia matches for locus support.
+    constexpr int psf_group_merge_min_gaia = 1;  // Minimum Gaia matches in a merged group.
+    constexpr double psf_gaia_match_radius_pix = 2.0;  // Gaia match radius in pixels.
+    constexpr int psf_gaia_locus_min_matches = 5;  // Minimum Gaia matches for locus support.
     constexpr bool psf_press_rejection_enabled = true;  // Enable optional post-fit PRESS cleanup.
     constexpr double psf_press_sigma_cut = 4.0;  // Standardized PRESS rejection sigma.
     constexpr int psf_press_max_removals = 5;  // Maximum PRESS removals permitted per chip.
@@ -86,6 +89,12 @@ namespace LensingConfig {
                   "PSF minChi reference cap must be positive");
     static_assert(psf_fwhm_hist_bins >= 3,
                   "PSF FWHM histogram requires at least three bins");
+    static_assert(psf_fwhm_pilot_clip_sigma > 0.0,
+                  "PSF FWHM pilot clipping sigma must be positive");
+    static_assert(psf_fwhm_pilot_clip_iterations > 0,
+                  "PSF FWHM pilot clipping iterations must be positive");
+    static_assert(psf_fwhm_hist_range_sigma > 0.0,
+                  "PSF FWHM histogram range sigma must be positive");
     static_assert(psf_knn_k > 0, "PSF KNN count must be positive");
     static_assert(psf_press_max_removals >= 0,
                   "PSF PRESS removal cap must be non-negative");
@@ -116,7 +125,7 @@ namespace LensingConfig {
     constexpr int len_s = 15;  // Star metadata row capacity.
     // Maximum number of flux-ranked image detections passed to astrometric pattern matching.
     // This is a scientific selection limit, not a catalog-storage capacity limit.
-    constexpr int n_user_max = 200;  // Bright detections used for astrometric matching.
+    constexpr int n_user_max = 500;  // Bright detections used for astrometric matching.
     static_assert(n_user_max > 0, "n_user_max must be positive");
     constexpr int ngal_max = 4000;  // Initial galaxy-vector reservation hint.
     constexpr int nstar_max = 2000;  // Initial star-vector reservation hint.
@@ -147,7 +156,7 @@ namespace LensingConfig {
     // Configuration: Stage-3 noise-product construction method
     // Method: Select a physical blank-noise stamp (1) or local covariance noise power (2).
     // ==========================================
-    constexpr int NstampType = 1;  // One uses blank stamps; two uses covariance power.
+    constexpr int NstampType = 2;  // One uses blank stamps; two uses covariance power.
     static_assert(NstampType == 1 || NstampType == 2,
                   "NstampType must be 1 or 2");
 

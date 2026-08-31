@@ -71,6 +71,9 @@ namespace LensingConfig {
     // ==========================================
     constexpr int psf_exposure_min_candidates = 60;  // Minimum exposure-wide PSF candidates.
     constexpr int psf_fwhm_hist_bins = 128;  // FWHM histogram bin count.
+    constexpr double psf_fwhm_pilot_clip_sigma = 3.0;  // Robust pilot clipping multiplier.
+    constexpr int psf_fwhm_pilot_clip_iterations = 3;  // Robust pilot clipping passes.
+    constexpr double psf_fwhm_hist_range_sigma = 5.0;  // Local histogram half-range in pilot widths.
     constexpr double psf_fwhm_locus_sigma = 4.0;  // Exposure FWHM-locus sigma window.
     constexpr int psf_fwhm_locus_min_samples = 30;  // Minimum FWHM-locus samples.
     constexpr int PsfGroupingType = 2;  // One selects threshold graph; two selects mutual KNN.
@@ -97,6 +100,12 @@ namespace LensingConfig {
                   "PSF minChi reference cap must be positive");
     static_assert(psf_fwhm_hist_bins >= 3,
                   "PSF FWHM histogram requires at least three bins");
+    static_assert(psf_fwhm_pilot_clip_sigma > 0.0,
+                  "PSF FWHM pilot clipping sigma must be positive");
+    static_assert(psf_fwhm_pilot_clip_iterations > 0,
+                  "PSF FWHM pilot clipping iterations must be positive");
+    static_assert(psf_fwhm_hist_range_sigma > 0.0,
+                  "PSF FWHM histogram range sigma must be positive");
     static_assert(psf_knn_k > 0, "PSF KNN count must be positive");
     static_assert(psf_press_max_removals >= 0,
                   "PSF PRESS removal cap must be non-negative");

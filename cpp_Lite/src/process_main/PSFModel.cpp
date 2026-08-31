@@ -97,8 +97,8 @@ namespace PSFModel {
 
     // ==========================================
     // Function: Write one exposure-level FWHM-locus SVG diagnostic
-    // Method: Render the same-pass raw/smoothed histograms, selected peak,
-    //         optional Gaia median, and final strict locus cuts with checked I/O.
+    // Method: Render the same-pass robust pilot, local raw/smoothed histograms,
+    //         selected peak, optional raw Gaia median, and final strict cuts.
     // ==========================================
     static void writeFWHMLocusSVG(
         const std::string& dirOutput,
@@ -123,6 +123,12 @@ namespace PSFModel {
 
         double x_min = std::min(diagnostics.range_low, locus.lower);
         double x_max = std::max(diagnostics.range_high, locus.upper);
+        x_min = std::min(x_min, diagnostics.pilot_center);
+        x_max = std::max(x_max, diagnostics.pilot_center);
+        if (diagnostics.has_gaia_median) {
+            x_min = std::min(x_min, diagnostics.gaia_median);
+            x_max = std::max(x_max, diagnostics.gaia_median);
+        }
         const double x_padding = std::max((x_max - x_min) * 0.05, 1.0e-9);
         x_min -= x_padding;
         x_max += x_padding;
@@ -220,6 +226,12 @@ namespace PSFModel {
                << "\" y2=\"" << plot_bottom
                << "\" stroke=\"#f28e2b\" stroke-width=\"2\" "
                   "stroke-dasharray=\"3,3\"/>\n";
+        output << "  <line id=\"pilot-center\" x1=\""
+               << mapX(diagnostics.pilot_center) << "\" y1=\"" << plot_top
+               << "\" x2=\"" << mapX(diagnostics.pilot_center)
+               << "\" y2=\"" << plot_bottom
+               << "\" stroke=\"#9467bd\" stroke-width=\"2\" "
+                  "stroke-dasharray=\"6,3\"/>\n";
         if (diagnostics.has_gaia_median) {
             output << "  <line id=\"gaia-median\" x1=\""
                    << mapX(diagnostics.gaia_median) << "\" y1=\"" << plot_top
@@ -255,49 +267,65 @@ namespace PSFModel {
                   "transform=\"rotate(-90 25 380)\" font-family=\"sans-serif\" "
                   "font-size=\"16\">Candidate count</text>\n";
 
-        output << "  <g font-family=\"sans-serif\" font-size=\"15\" fill=\"#222222\">\n"
-               << "    <text x=\"920\" y=\"140\">Samples = "
+        output << std::setprecision(10);
+        output << "  <g font-family=\"sans-serif\" font-size=\"14\" fill=\"#222222\">\n"
+               << "    <text x=\"900\" y=\"115\">Samples = "
                << diagnostics.sample_count << "</text>\n"
-               << "    <text x=\"920\" y=\"170\">center = "
+               << "    <text x=\"900\" y=\"138\">Pilot source = "
+               << (diagnostics.pilot_uses_gaia ? "Gaia" : "all")
+               << "</text>\n"
+               << "    <text x=\"900\" y=\"161\">Pilot samples = "
+               << diagnostics.pilot_retained_count << " / "
+               << diagnostics.pilot_input_count << "</text>\n"
+               << "    <text x=\"900\" y=\"184\">Pilot center = "
+               << diagnostics.pilot_center << "</text>\n"
+               << "    <text x=\"900\" y=\"207\">Pilot width = "
+               << diagnostics.pilot_width << "</text>\n"
+               << "    <text x=\"900\" y=\"230\">Histogram samples = "
+               << diagnostics.histogram_sample_count << "</text>\n"
+               << "    <text x=\"900\" y=\"253\">Below / above = "
+               << diagnostics.histogram_below_count << " / "
+               << diagnostics.histogram_above_count << "</text>\n"
+               << "    <text x=\"900\" y=\"284\">Final center = "
                << locus.center << "</text>\n"
-               << "    <text x=\"920\" y=\"195\">width = "
+               << "    <text x=\"900\" y=\"307\">Final width = "
                << locus.width << "</text>\n"
-               << "    <text x=\"920\" y=\"220\">sigma = "
+               << "    <text x=\"900\" y=\"330\">Final sigma = "
                << LensingConfig::psf_fwhm_locus_sigma << "</text>\n"
-               << "    <text x=\"920\" y=\"245\">lower = "
+               << "    <text x=\"900\" y=\"353\">Final lower = "
                << locus.lower << "</text>\n"
-               << "    <text x=\"920\" y=\"270\">upper = "
-               << locus.upper << "</text>\n"
-               << "    <text x=\"920\" y=\"305\">FWHM cut:</text>\n"
-               << "    <text x=\"920\" y=\"330\">" << locus.lower
-               << " &lt; FWHM &lt; " << locus.upper << "</text>\n";
+               << "    <text x=\"900\" y=\"376\">Final upper = "
+               << locus.upper << "</text>\n";
         if (diagnostics.has_gaia_median) {
-            output << "    <text x=\"920\" y=\"365\">Gaia median = "
+            output << "    <text x=\"900\" y=\"407\">Gaia raw median = "
                    << diagnostics.gaia_median << "</text>\n"
-                   << "    <text x=\"920\" y=\"390\">Gaia matches = "
+                   << "    <text x=\"900\" y=\"430\">Gaia matches = "
                    << diagnostics.gaia_match_count << "</text>\n";
         }
-        output << "    <text x=\"950\" y=\"455\">raw histogram</text>\n"
-               << "    <text x=\"950\" y=\"485\">smoothed histogram</text>\n"
-               << "    <text x=\"950\" y=\"515\">selected peak</text>\n"
-               << "    <text x=\"950\" y=\"545\">locus center</text>\n"
-               << "    <text x=\"950\" y=\"575\">lower / upper cut</text>\n";
+        output << "    <text x=\"930\" y=\"475\">raw histogram</text>\n"
+               << "    <text x=\"930\" y=\"503\">smoothed histogram</text>\n"
+               << "    <text x=\"930\" y=\"531\">selected peak</text>\n"
+               << "    <text x=\"930\" y=\"559\">pilot center</text>\n"
+               << "    <text x=\"930\" y=\"587\">locus center</text>\n"
+               << "    <text x=\"930\" y=\"615\">lower / upper cut</text>\n";
         if (diagnostics.has_gaia_median) {
-            output << "    <text x=\"950\" y=\"605\">Gaia median</text>\n";
+            output << "    <text x=\"930\" y=\"643\">Gaia raw median</text>\n";
         }
         output << "  </g>\n"
-               << "  <rect x=\"920\" y=\"442\" width=\"20\" height=\"14\" "
+               << "  <rect x=\"900\" y=\"462\" width=\"20\" height=\"14\" "
                   "fill=\"#b8bec7\"/>\n"
-               << "  <line x1=\"920\" y1=\"480\" x2=\"940\" y2=\"480\" "
+               << "  <line x1=\"900\" y1=\"498\" x2=\"920\" y2=\"498\" "
                   "stroke=\"#2468b4\" stroke-width=\"3\"/>\n"
-               << "  <line x1=\"920\" y1=\"510\" x2=\"940\" y2=\"510\" "
+               << "  <line x1=\"900\" y1=\"526\" x2=\"920\" y2=\"526\" "
                   "stroke=\"#f28e2b\" stroke-width=\"2\" stroke-dasharray=\"3,3\"/>\n"
-               << "  <line x1=\"920\" y1=\"540\" x2=\"940\" y2=\"540\" "
+               << "  <line x1=\"900\" y1=\"554\" x2=\"920\" y2=\"554\" "
+                  "stroke=\"#9467bd\" stroke-width=\"2\" stroke-dasharray=\"6,3\"/>\n"
+               << "  <line x1=\"900\" y1=\"582\" x2=\"920\" y2=\"582\" "
                   "stroke=\"#111111\" stroke-width=\"3\"/>\n"
-               << "  <line x1=\"920\" y1=\"570\" x2=\"940\" y2=\"570\" "
+               << "  <line x1=\"900\" y1=\"610\" x2=\"920\" y2=\"610\" "
                   "stroke=\"#d62728\" stroke-width=\"3\" stroke-dasharray=\"8,5\"/>\n";
         if (diagnostics.has_gaia_median) {
-            output << "  <line x1=\"920\" y1=\"600\" x2=\"940\" y2=\"600\" "
+            output << "  <line x1=\"900\" y1=\"638\" x2=\"920\" y2=\"638\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\" "
                       "stroke-dasharray=\"8,4,2,4\"/>\n";
         }
@@ -866,12 +894,17 @@ namespace PSFModel {
 
         Internal::FWHMLocus locus;
         Internal::FWHMLocusDiagnostics locus_diagnostics;
+        const Internal::FWHMLocusConfig locus_config = {
+            LensingConfig::psf_fwhm_hist_bins,
+            LensingConfig::psf_fwhm_pilot_clip_sigma,
+            LensingConfig::psf_fwhm_pilot_clip_iterations,
+            LensingConfig::psf_fwhm_hist_range_sigma,
+            LensingConfig::psf_fwhm_locus_sigma,
+            LensingConfig::psf_fwhm_locus_min_samples,
+            LensingConfig::psf_gaia_locus_min_matches};
         if (!Internal::estimateFWHMLocus(
                 fwhm_samples,
-                LensingConfig::psf_fwhm_hist_bins,
-                LensingConfig::psf_fwhm_locus_sigma,
-                LensingConfig::psf_fwhm_locus_min_samples,
-                LensingConfig::psf_gaia_locus_min_matches,
+                locus_config,
                 locus,
                 &locus_diagnostics)) {
             rejectExposureCandidates(state);

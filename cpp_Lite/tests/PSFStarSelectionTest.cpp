@@ -44,11 +44,57 @@ void testChiWindowAndDistance() {
 }
 
 // ==========================================
-// Function: Verify histogram FWHM peak selection and discretization guards
-// Method: Exercise density selection, Gaia-supported alternate peak, repeated
-//         values, and the configured minimum-sample failure.
+// Function: Build the production-shaped FWHM-locus test configuration
+// Method: Keep robust pilot and final-cut controls fixed while varying only bins.
+// ==========================================
+FWHMLocusConfig fwhmLocusConfig(int histogram_bins = 128) {
+    return {histogram_bins, 3.0, 3, 5.0, 4.0, 30, 10};
+}
+
+// ==========================================
+// Function: Generate a deterministic smooth single-core FWHM population
+// Method: Sample a dense symmetric Gaussian profile on a fine physical grid so
+//         histogram-resolution checks are not dominated by random count noise.
+// ==========================================
+std::vector<FWHMSample> smoothFWHMCore() {
+    std::vector<FWHMSample> samples;
+    for (int step = -160; step <= 160; ++step) {
+        const double offset = 0.00025 * static_cast<double>(step);
+        const double normal_density = std::exp(
+            -0.5 * (offset / 0.01) * (offset / 0.01));
+        const int copies = std::max(
+            1, static_cast<int>(std::lround(200.0 * normal_density)));
+        for (int copy = 0; copy < copies; ++copy) {
+            samples.push_back({1.30 + offset, false});
+        }
+    }
+    return samples;
+}
+
+// ==========================================
+// Function: Generate a deterministic bin-neutral FWHM population
+// Method: Fill one continuous physical interval uniformly so 64/128/256-bin
+//         basin boundaries retain the same underlying final population.
+// ==========================================
+std::vector<FWHMSample> uniformFWHMCore() {
+    std::vector<FWHMSample> samples;
+    constexpr int sample_count = 2560;
+    samples.reserve(sample_count);
+    for (int index = 0; index < sample_count; ++index) {
+        const double fraction = (static_cast<double>(index) + 0.5)
+            / static_cast<double>(sample_count);
+        samples.push_back({1.28 + 0.04 * fraction, false});
+    }
+    return samples;
+}
+
+// ==========================================
+// Function: Verify robust-pilot FWHM peak selection and width independence
+// Method: Exercise density/Gaia routes, long tails, Gaia fallback, repeated
+//         values, window accounting, bin invariance, and sample-count failure.
 // ==========================================
 void testFWHMLocus() {
+    const FWHMLocusConfig standard_config = fwhmLocusConfig();
     std::vector<FWHMSample> density_samples;
     for (int index = 0; index < 80; ++index) {
         density_samples.push_back({1.00 + 0.01 * (index % 5), false});
@@ -59,7 +105,7 @@ void testFWHMLocus() {
     FWHMLocus locus;
     FWHMLocusDiagnostics diagnostics;
     require(estimateFWHMLocus(
-                density_samples, 128, 4.0, 30, 10, locus, &diagnostics),
+                density_samples, standard_config, locus, &diagnostics),
             "two-population FWHM fixture must produce a locus");
     require(std::abs(locus.center - 1.02) < 0.08,
             "highest-density narrow stellar peak must be selected without Gaia");
@@ -67,13 +113,17 @@ void testFWHMLocus() {
                 && diagnostics.histogram.size() == 128
                 && diagnostics.smoothed_histogram.size() == 128
                 && diagnostics.peak_bin >= 0 && diagnostics.peak_bin < 128
-                && diagnostics.range_high > diagnostics.range_low,
+                && diagnostics.range_high > diagnostics.range_low
+                && diagnostics.histogram_sample_count
+                    + diagnostics.histogram_below_count
+                    + diagnostics.histogram_above_count
+                    == diagnostics.sample_count,
             "density fixture must publish its exact histogram diagnostics");
-    require(!diagnostics.has_gaia_median,
-            "density-only peak selection must not publish a Gaia median");
+    require(!diagnostics.pilot_uses_gaia && !diagnostics.has_gaia_median,
+            "density-only peak selection must use the all-candidate pilot");
     FWHMLocus baseline_locus;
     require(estimateFWHMLocus(
-                density_samples, 128, 4.0, 30, 10, baseline_locus)
+                density_samples, standard_config, baseline_locus)
                 && baseline_locus.center == locus.center
                 && baseline_locus.width == locus.width
                 && baseline_locus.lower == locus.lower
@@ -88,28 +138,137 @@ void testFWHMLocus() {
         gaia_samples.push_back({1.80 + 0.005 * (index % 5), false});
     }
     require(estimateFWHMLocus(
-                gaia_samples, 128, 4.0, 30, 10, locus, &diagnostics),
+                gaia_samples, standard_config, locus, &diagnostics),
             "Gaia-supported two-peak fixture must produce a locus");
     require(std::abs(locus.center - 0.92) < 0.08,
             "Gaia median must select the supported smaller peak");
-    require(diagnostics.has_gaia_median
+    require(diagnostics.pilot_uses_gaia
+                && diagnostics.pilot_input_count == 12
+                && diagnostics.pilot_retained_count == 12
+                && diagnostics.has_gaia_median
                 && diagnostics.gaia_match_count == 12
                 && std::isfinite(diagnostics.gaia_median),
-            "Gaia-supported selection must publish its finite guiding median");
+            "Gaia-supported selection must publish raw and clipped-pilot diagnostics");
+
+    std::vector<FWHMSample> gaia_tail_samples;
+    for (int index = 0; index < 100; ++index) {
+        gaia_tail_samples.push_back({
+            1.28 + 0.002 * static_cast<double>(index % 21), index < 20});
+    }
+    for (int index = 0; index < 20; ++index) {
+        gaia_tail_samples.push_back({2.0 + 0.15 * index, false});
+    }
+    require(estimateFWHMLocus(
+                gaia_tail_samples, standard_config, locus, &diagnostics),
+            "Gaia-supported long-tail fixture must produce a locus");
+    require(diagnostics.pilot_uses_gaia
+                && diagnostics.histogram_above_count > 0
+                && diagnostics.range_high - diagnostics.range_low < 0.5
+                && locus.upper < 1.5,
+            "Gaia pilot must keep the high-FWHM tail out of the local window");
+
+    std::vector<FWHMSample> all_tail_samples;
+    for (int index = 0; index < 140; ++index) {
+        all_tail_samples.push_back({
+            1.25 + 0.002 * static_cast<double>(index % 25), false});
+    }
+    for (int index = 0; index < 15; ++index) {
+        all_tail_samples.push_back({2.0 + 0.2 * index, false});
+    }
+    require(estimateFWHMLocus(
+                all_tail_samples, standard_config, locus, &diagnostics),
+            "all-candidate long-tail fixture must produce a locus");
+    require(!diagnostics.pilot_uses_gaia
+                && diagnostics.pilot_input_count == 155
+                && diagnostics.pilot_retained_count < 155
+                && diagnostics.histogram_above_count > 0
+                && diagnostics.range_high - diagnostics.range_low < 0.5,
+            "all-candidate pilot must iteratively clip and exclude its high tail");
+
+    std::vector<FWHMSample> gaia_clipped_samples;
+    for (int index = 0; index < 10; ++index) {
+        gaia_clipped_samples.push_back({1.30 + 0.002 * index, true});
+    }
+    gaia_clipped_samples.push_back({2.50, true});
+    for (int index = 0; index < 60; ++index) {
+        gaia_clipped_samples.push_back({
+            1.28 + 0.001 * static_cast<double>(index % 41), false});
+    }
+    require(estimateFWHMLocus(
+                gaia_clipped_samples, standard_config, locus, &diagnostics),
+            "retained-sufficient clipped Gaia fixture must produce a locus");
+    require(diagnostics.pilot_uses_gaia
+                && diagnostics.pilot_input_count == 11
+                && diagnostics.pilot_retained_count == 10,
+            "Gaia pilot must apply the same 3-MAD clipping while retaining support");
+
+    std::vector<FWHMSample> gaia_fallback_samples;
+    for (int index = 0; index < 9; ++index) {
+        gaia_fallback_samples.push_back({1.30 + 0.002 * index, true});
+    }
+    gaia_fallback_samples.push_back({2.50, true});
+    for (int index = 0; index < 90; ++index) {
+        gaia_fallback_samples.push_back({
+            1.28 + 0.001 * static_cast<double>(index % 41), false});
+    }
+    require(estimateFWHMLocus(
+                gaia_fallback_samples, standard_config, locus, &diagnostics),
+            "clipped-insufficient Gaia fixture must fall back and produce a locus");
+    require(diagnostics.has_gaia_median && !diagnostics.pilot_uses_gaia
+                && diagnostics.pilot_input_count == 100
+                && diagnostics.pilot_retained_count < 100,
+            "Gaia pilot below its retained minimum must rerun on all candidates");
 
     std::vector<FWHMSample> repeated(40, {1.25, false});
     require(estimateFWHMLocus(
-                repeated, 128, 4.0, 30, 10, locus, &diagnostics)
+                repeated, standard_config, locus, &diagnostics)
                 && locus.width > 0.0 && locus.lower < 1.25 && locus.upper > 1.25,
             "repeated FWHM values must receive a finite positive width floor");
     require(diagnostics.histogram.size() == 1
                 && diagnostics.smoothed_histogram.size() == 1
                 && diagnostics.peak_bin == 0
-                && diagnostics.range_high > diagnostics.range_low,
+                && diagnostics.range_high > diagnostics.range_low
+                && diagnostics.histogram_sample_count == 40
+                && diagnostics.histogram_below_count == 0
+                && diagnostics.histogram_above_count == 0,
             "repeated FWHM values must publish a drawable one-bin fallback");
+
+    const std::vector<FWHMSample> invariant_samples = uniformFWHMCore();
+    FWHMLocus locus_64;
+    FWHMLocus locus_128;
+    FWHMLocus locus_256;
+    require(estimateFWHMLocus(
+                invariant_samples, fwhmLocusConfig(64), locus_64)
+                && estimateFWHMLocus(
+                    invariant_samples, fwhmLocusConfig(128), locus_128)
+                && estimateFWHMLocus(
+                    invariant_samples, fwhmLocusConfig(256), locus_256),
+            "bin-neutral core must produce loci for 64, 128, and 256 bins");
+    require(std::abs(locus_64.center - locus_128.center) < 0.002
+                && std::abs(locus_256.center - locus_128.center) < 0.002
+                && std::abs(locus_64.width - locus_128.width) < 0.002
+                && std::abs(locus_256.width - locus_128.width) < 0.002
+                && std::abs(locus_64.lower - locus_128.lower) < 0.01
+                && std::abs(locus_256.lower - locus_128.lower) < 0.01
+                && std::abs(locus_64.upper - locus_128.upper) < 0.01
+                && std::abs(locus_256.upper - locus_128.upper) < 0.01,
+            "final locus must remain stable across histogram bin counts: "
+                + std::to_string(locus_64.center) + ","
+                + std::to_string(locus_64.width) + " / "
+                + std::to_string(locus_128.center) + ","
+                + std::to_string(locus_128.width) + " / "
+                + std::to_string(locus_256.center) + ","
+                + std::to_string(locus_256.width));
+    const std::vector<FWHMSample> smooth_samples = smoothFWHMCore();
+    FWHMLocus coarse_locus;
+    require(estimateFWHMLocus(
+                smooth_samples, fwhmLocusConfig(3), coarse_locus)
+                && coarse_locus.width < coarse_locus.histogram_bin_width,
+            "final physical width must be allowed below a coarse histogram bin");
+
     repeated.resize(29);
     require(!estimateFWHMLocus(
-                repeated, 128, 4.0, 30, 10, locus, &diagnostics),
+                repeated, standard_config, locus, &diagnostics),
             "FWHM locus must reject fewer than the configured samples");
     require(diagnostics.sample_count == 29 && diagnostics.histogram.empty(),
             "failed estimation must reset diagnostics before reporting counts");

@@ -46,6 +46,21 @@ struct FWHMSample {
 };
 
 // ==========================================
+// Structure: Configure exposure-wide stellar FWHM-locus estimation
+// Method: Group pilot, local-histogram, and final-cut controls to keep each
+//         robust-estimation stage explicit at production and test call sites.
+// ==========================================
+struct FWHMLocusConfig {
+    int histogram_bins = 0;
+    double pilot_clip_sigma = 0.0;
+    int pilot_clip_iterations = 0;
+    double histogram_range_sigma = 0.0;
+    double locus_sigma = 0.0;
+    int minimum_samples = 0;
+    int minimum_gaia_matches = 0;
+};
+
+// ==========================================
 // Structure: Publish a robust exposure-wide stellar FWHM locus
 // Method: Store the median center, robust width, cut bounds, and histogram scale.
 // ==========================================
@@ -60,14 +75,22 @@ struct FWHMLocus {
 
 // ==========================================
 // Structure: Publish the exact inputs used by FWHM-locus peak selection
-// Method: Retain filtered counts, histogram products, selected peak, and the
-//         Gaia median only when it participates in peak selection.
+// Method: Retain filtered/pilot/window counts, robust pilot estimates,
+//         histogram products, selected peak, and the raw Gaia median.
 // ==========================================
 struct FWHMLocusDiagnostics {
     int sample_count = 0;
     int gaia_match_count = 0;
+    bool pilot_uses_gaia = false;
+    int pilot_input_count = 0;
+    int pilot_retained_count = 0;
+    double pilot_center = 0.0;
+    double pilot_width = 0.0;
     double range_low = 0.0;
     double range_high = 0.0;
+    int histogram_sample_count = 0;
+    int histogram_below_count = 0;
+    int histogram_above_count = 0;
     bool has_gaia_median = false;
     double gaia_median = 0.0;
     int peak_bin = -1;
@@ -77,16 +100,13 @@ struct FWHMLocusDiagnostics {
 
 // ==========================================
 // Function: Estimate an exposure-wide stellar FWHM locus
-// Method: Smooth a fixed-bin robust histogram, optionally choose the peak
-//         nearest the Gaia median, publish same-pass diagnostics on request,
-//         then apply median/MAD clipping with a discretization floor.
+// Method: Estimate a clipped Gaia/all-candidate pilot, histogram its local
+//         window, choose a density or pilot-guided peak, and refine its basin
+//         without coupling the final width to histogram discretization.
 // ==========================================
 bool estimateFWHMLocus(
     const std::vector<FWHMSample>& samples,
-    int histogram_bins,
-    double sigma_cut,
-    int minimum_samples,
-    int minimum_gaia_matches,
+    const FWHMLocusConfig& config,
     FWHMLocus& locus,
     FWHMLocusDiagnostics* diagnostics = nullptr);
 

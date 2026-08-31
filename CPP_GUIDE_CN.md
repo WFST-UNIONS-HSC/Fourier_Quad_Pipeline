@@ -51,9 +51,13 @@ C++ Standard 可以选择不读取 DQ 的配置。
 默认 `223092870` 启用全部阶段；阶段 9 必须与阶段 8 同时启用。
 
 Stage 5 成功估计曝光级 FWHM locus 后，Standard 与 Lite 都会写出
-`stamps/svg_StarLocus/<exposure>_locus.svg`。该自包含 SVG 显示原始与平滑
-histogram、选中峰、可选 Gaia median，以及星选实际使用的严格 lower/upper cut。
-输出目录由 `process_init` 创建；旧数据树若跳过初始化，必须在运行 Stage 5 前补齐该目录。
+`stamps/svg_StarLocus/<exposure>_locus.svg`。该自包含 SVG 显示 robust pilot
+来源与保留数、局部窗口计数、原始与平滑 histogram、pilot center、选中峰、
+可选的原始 Gaia median，以及星选实际使用的严格 lower/upper cut。locus 流程为：
+Gaia（不足时退回全部候选）迭代 3-MAD pilot、局部 ±5 pilot-MAD histogram、
+峰/谷盆选择，以及最终 ±4-MAD science cut。最终 width 只由保留 population 的
+间距设下限，不再由 histogram bin width 撑大。输出目录由 `process_init` 创建；
+旧数据树若跳过初始化，必须在运行 Stage 5 前补齐该目录。
 
 ## 编译
 
