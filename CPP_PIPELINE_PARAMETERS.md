@@ -154,9 +154,10 @@ content.
 | `nstar_min_local` | `int` | `16` | same | No | Positive count | Minimum stars retained for a local fit. | Tune only with PSF fit validation. | Yes |
 | `psf_exposure_min_candidates` | `int` | `60` | same | No | Positive count | Minimum exposure-wide PSF candidates. | Tune Stage 5 selection. | Yes |
 | `psf_fwhm_hist_bins` | `int` | `128` | same | No | Integer ≥ 3 | Local histogram bin count after robust pilot range estimation. | Tune Stage 5 selection. | Yes |
-| `psf_fwhm_pilot_clip_sigma` | `double` | `3.0` | same | No | Positive sigma multiplier | Iterative pilot median/MAD clipping multiplier. | Tune only with locus-tail validation. | Yes |
+| `psf_fwhm_pilot_clip_sigma` | `double` | `3.0` | same | No | Positive sigma multiplier | Iterative pilot median/MAD clipping multiplier; a proposed clip that collapses the next MAD to zero is rejected. | Tune only with locus-tail and quantization validation. | Yes |
 | `psf_fwhm_pilot_clip_iterations` | `int` | `3` | same | No | Positive pass count | Maximum robust pilot clipping passes. | Tune only with locus-tail validation. | Yes |
-| `psf_fwhm_hist_range_sigma` | `double` | `5.0` | same | No | Positive width multiplier | Local histogram half-range around the clipped pilot center. | Tune Stage 5 locus search range. | Yes |
+| `psf_fwhm_zero_mad_quantile` | `double` | `0.05` | same | No | `0 <= q < 0.5` | Lower quantile for an initially zero-MAD pilot; the upper quantile is `1-q`. | Tune only with quantized-pilot coverage validation. | Yes |
+| `psf_fwhm_hist_range_sigma` | `double` | `5.0` | same | No | Positive width multiplier | Positive-MAD pilot histogram half-range; an initially zero-MAD pilot uses its configured symmetric quantiles instead. | Tune Stage 5 locus search range. | Yes |
 | `psf_fwhm_locus_sigma` | `double` | `4.0` | same | No | Positive sigma multiplier | Final basin-population clipping and FWHM-locus cut multiplier. | Tune Stage 5 selection. | Yes |
 | `psf_fwhm_locus_min_samples` | `int` | `30` | same | No | Positive count | Minimum samples for a valid FWHM locus. | Tune sparse-exposure handling. | Yes |
 | `PsfGroupingType` | `int` | `2` | same | No | `1` threshold graph, `2` mutual KNN | Selects PSF grouping topology. | Change for controlled algorithm comparison. | Yes |

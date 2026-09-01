@@ -47,13 +47,14 @@ struct FWHMSample {
 
 // ==========================================
 // Structure: Configure exposure-wide stellar FWHM-locus estimation
-// Method: Group pilot, local-histogram, and final-cut controls to keep each
-//         robust-estimation stage explicit at production and test call sites.
+// Method: Group pilot clipping, symmetric zero-MAD quantiles, local-histogram,
+//         and final-cut controls for production and test call sites.
 // ==========================================
 struct FWHMLocusConfig {
     int histogram_bins = 0;
     double pilot_clip_sigma = 0.0;
     int pilot_clip_iterations = 0;
+    double zero_mad_quantile = -1.0;
     double histogram_range_sigma = 0.0;
     double locus_sigma = 0.0;
     int minimum_samples = 0;
@@ -75,8 +76,8 @@ struct FWHMLocus {
 
 // ==========================================
 // Structure: Publish the exact inputs used by FWHM-locus peak selection
-// Method: Retain filtered/pilot/window counts, robust pilot estimates,
-//         histogram products, selected peak, and the raw Gaia median.
+// Method: Retain filtered/pilot/window counts, robust pilot bounds and branch
+//         flags, histogram products, selected peak, and the raw Gaia median.
 // ==========================================
 struct FWHMLocusDiagnostics {
     int sample_count = 0;
@@ -86,8 +87,10 @@ struct FWHMLocusDiagnostics {
     int pilot_retained_count = 0;
     double pilot_center = 0.0;
     double pilot_width = 0.0;
-    double range_low = 0.0;
-    double range_high = 0.0;
+    double pilot_lower = 0.0;
+    double pilot_upper = 0.0;
+    bool pilot_uses_quantile_range = false;
+    bool pilot_rejected_zero_mad_clip = false;
     int histogram_sample_count = 0;
     int histogram_below_count = 0;
     int histogram_above_count = 0;

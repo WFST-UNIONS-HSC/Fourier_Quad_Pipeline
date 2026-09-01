@@ -114,8 +114,8 @@ namespace PSFModel {
 
     // ==========================================
     // Function: Write one exposure-level FWHM-locus SVG diagnostic
-    // Method: Render the same-pass robust pilot, local raw/smoothed histograms,
-    //         selected peak, optional raw Gaia median, and final strict cuts.
+    // Method: Render the same-pass robust pilot bounds and zero-MAD decisions,
+    //         local histograms, selected peak, optional Gaia median, and cuts.
     // ==========================================
     static void writeFWHMLocusSVG(
         const std::string& dirOutput,
@@ -125,16 +125,22 @@ namespace PSFModel {
         if (!locus.valid || diagnostics.histogram.empty()
             || diagnostics.histogram.size()
                 != diagnostics.smoothed_histogram.size()
-            || !(diagnostics.range_high > diagnostics.range_low)) {
+            || !(diagnostics.pilot_upper > diagnostics.pilot_lower)) {
             return;
         }
         const bool has_gaia_histogram =
             !diagnostics.gaia_histogram.empty()
             && diagnostics.gaia_histogram.size()
                 == diagnostics.histogram.size();
+        std::ostringstream quantile_range_mode;
+        quantile_range_mode << "Q("
+                            << LensingConfig::psf_fwhm_zero_mad_quantile
+                            << ")-Q("
+                            << 1.0 - LensingConfig::psf_fwhm_zero_mad_quantile
+                            << ")";
 
         constexpr double canvas_width = 1200.0;
-        constexpr double canvas_height = 800.0;
+        constexpr double canvas_height = 860.0;
         constexpr double plot_left = 90.0;
         constexpr double plot_right = 870.0;
         constexpr double plot_top = 110.0;
@@ -142,8 +148,8 @@ namespace PSFModel {
         const double plot_width = plot_right - plot_left;
         const double plot_height = plot_bottom - plot_top;
 
-        double x_min = std::min(diagnostics.range_low, locus.lower);
-        double x_max = std::max(diagnostics.range_high, locus.upper);
+        double x_min = std::min(diagnostics.pilot_lower, locus.lower);
+        double x_max = std::max(diagnostics.pilot_upper, locus.upper);
         x_min = std::min(x_min, diagnostics.pilot_center);
         x_max = std::max(x_max, diagnostics.pilot_center);
         if (diagnostics.has_gaia_median) {
@@ -214,13 +220,13 @@ namespace PSFModel {
 
         output << "  <g id=\"raw-histogram\" fill=\"#b8bec7\">\n";
         const double histogram_span =
-            diagnostics.range_high - diagnostics.range_low;
+            diagnostics.pilot_upper - diagnostics.pilot_lower;
         const std::size_t bin_count = diagnostics.histogram.size();
         for (std::size_t bin = 0; bin < bin_count; ++bin) {
-            const double left_value = diagnostics.range_low
+            const double left_value = diagnostics.pilot_lower
                 + histogram_span * static_cast<double>(bin)
                     / static_cast<double>(bin_count);
-            const double right_value = diagnostics.range_low
+            const double right_value = diagnostics.pilot_lower
                 + histogram_span * static_cast<double>(bin + 1)
                     / static_cast<double>(bin_count);
             const double left = mapX(left_value);
@@ -234,7 +240,7 @@ namespace PSFModel {
                << "  <polyline id=\"smoothed-histogram\" fill=\"none\" "
                   "stroke=\"#2468b4\" stroke-width=\"3\" points=\"";
         for (std::size_t bin = 0; bin < bin_count; ++bin) {
-            const double center = diagnostics.range_low
+            const double center = diagnostics.pilot_lower
                 + histogram_span * (static_cast<double>(bin) + 0.5)
                     / static_cast<double>(bin_count);
             output << mapX(center) << ','
@@ -245,7 +251,7 @@ namespace PSFModel {
             output << "  <polyline id=\"gaia-histogram\" fill=\"none\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\" points=\"";
             for (std::size_t bin = 0; bin < bin_count; ++bin) {
-                const double center = diagnostics.range_low
+                const double center = diagnostics.pilot_lower
                     + histogram_span * (static_cast<double>(bin) + 0.5)
                         / static_cast<double>(bin_count);
                 output << mapX(center) << ','
@@ -256,7 +262,7 @@ namespace PSFModel {
 
         const int peak_bin = std::clamp(
             diagnostics.peak_bin, 0, static_cast<int>(bin_count) - 1);
-        const double peak_value = diagnostics.range_low
+        const double peak_value = diagnostics.pilot_lower
             + histogram_span * (static_cast<double>(peak_bin) + 0.5)
                 / static_cast<double>(bin_count);
         output << "  <line id=\"selected-peak\" x1=\"" << mapX(peak_value)
@@ -319,63 +325,74 @@ namespace PSFModel {
                << diagnostics.pilot_center << "</text>\n"
                << "    <text x=\"900\" y=\"207\">Pilot width = "
                << diagnostics.pilot_width << "</text>\n"
-               << "    <text x=\"900\" y=\"230\">Histogram samples = "
+               << "    <text x=\"900\" y=\"230\">Pilot lower = "
+               << diagnostics.pilot_lower << "</text>\n"
+               << "    <text x=\"900\" y=\"253\">Pilot upper = "
+               << diagnostics.pilot_upper << "</text>\n"
+               << "    <text x=\"900\" y=\"276\">Pilot range mode = "
+               << (diagnostics.pilot_uses_quantile_range
+                       ? quantile_range_mode.str() : "MAD")
+               << "</text>\n"
+               << "    <text x=\"900\" y=\"299\">Zero-MAD clip rejected = "
+               << (diagnostics.pilot_rejected_zero_mad_clip ? "yes" : "no")
+               << "</text>\n"
+               << "    <text x=\"900\" y=\"322\">Histogram samples = "
                << diagnostics.histogram_sample_count << "</text>\n"
-               << "    <text x=\"900\" y=\"253\">Below / above = "
+               << "    <text x=\"900\" y=\"345\">Below / above = "
                << diagnostics.histogram_below_count << " / "
                << diagnostics.histogram_above_count << "</text>\n"
-               << "    <text x=\"900\" y=\"284\">Final center = "
+               << "    <text x=\"900\" y=\"376\">Final center = "
                << locus.center << "</text>\n"
-               << "    <text x=\"900\" y=\"307\">Final width = "
+               << "    <text x=\"900\" y=\"399\">Final width = "
                << locus.width << "</text>\n"
-               << "    <text x=\"900\" y=\"330\">Final sigma = "
+               << "    <text x=\"900\" y=\"422\">Final sigma = "
                << LensingConfig::psf_fwhm_locus_sigma << "</text>\n"
-               << "    <text x=\"900\" y=\"353\">Final lower = "
+               << "    <text x=\"900\" y=\"445\">Final lower = "
                << locus.lower << "</text>\n"
-               << "    <text x=\"900\" y=\"376\">Final upper = "
+               << "    <text x=\"900\" y=\"468\">Final upper = "
                << locus.upper << "</text>\n"
-               << "    <text x=\"900\" y=\"399\">Gaia matches = "
+               << "    <text x=\"900\" y=\"491\">Gaia matches = "
                << diagnostics.gaia_match_count << "</text>\n"
-               << "    <text x=\"900\" y=\"422\">Gaia histogram = "
+               << "    <text x=\"900\" y=\"514\">Gaia histogram = "
                << diagnostics.gaia_histogram_sample_count << "</text>\n"
-               << "    <text x=\"900\" y=\"445\">Gaia below / above = "
+               << "    <text x=\"900\" y=\"537\">Gaia below / above = "
                << diagnostics.gaia_histogram_below_count << " / "
                << diagnostics.gaia_histogram_above_count << "</text>\n";
         if (diagnostics.has_gaia_median) {
-            output << "    <text x=\"900\" y=\"468\">Gaia raw median = "
+            output << "    <text x=\"900\" y=\"560\">Gaia raw median = "
                    << diagnostics.gaia_median << "</text>\n";
         }
-        output << "    <text x=\"930\" y=\"505\">raw histogram</text>\n"
-               << "    <text x=\"930\" y=\"531\">smoothed histogram</text>\n";
+        output << "    <text x=\"930\" y=\"621\">raw histogram</text>\n"
+               << "    <text x=\"930\" y=\"647\">smoothed histogram</text>\n";
         if (has_gaia_histogram) {
-            output << "    <text x=\"930\" y=\"557\">Gaia histogram</text>\n";
+            output << "    <text x=\"930\" y=\"673\">Gaia histogram</text>\n";
         }
-        output << "    <text x=\"930\" y=\"583\">selected peak</text>\n"
-               << "    <text x=\"930\" y=\"609\">pilot center</text>\n"
-               << "    <text x=\"930\" y=\"635\">locus center</text>\n"
-               << "    <text x=\"930\" y=\"661\">lower / upper cut</text>\n";
+        output << "    <text x=\"930\" y=\"699\">selected peak</text>\n"
+               << "    <text x=\"930\" y=\"725\">pilot center</text>\n"
+               << "    <text x=\"930\" y=\"751\">locus center</text>\n"
+               << "    <text x=\"930\" y=\"777\">lower / upper cut</text>\n";
         if (diagnostics.has_gaia_median) {
-            output << "    <text x=\"930\" y=\"687\">Gaia raw median</text>\n";
+            output << "    <text x=\"930\" y=\"803\">Gaia raw median</text>\n";
         }
         output << "  </g>\n"
-               << "  <rect x=\"900\" y=\"492\" width=\"20\" height=\"14\" "
+               << "  <rect x=\"900\" y=\"608\" width=\"20\" height=\"14\" "
                   "fill=\"#b8bec7\"/>\n"
-               << "  <line x1=\"900\" y1=\"526\" x2=\"920\" y2=\"526\" "
+               << "  <line x1=\"900\" y1=\"642\" x2=\"920\" y2=\"642\" "
                   "stroke=\"#2468b4\" stroke-width=\"3\"/>\n";
         if (has_gaia_histogram) {
-            output << "  <line x1=\"900\" y1=\"552\" x2=\"920\" y2=\"552\" "
+            output << "  <line x1=\"900\" y1=\"668\" x2=\"920\" y2=\"668\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\"/>\n";
         }
-        output << "  <line x1=\"900\" y1=\"578\" x2=\"920\" y2=\"578\" "
+        output << "  <line x1=\"900\" y1=\"694\" x2=\"920\" y2=\"694\" "
                   "stroke=\"#f28e2b\" stroke-width=\"2\" stroke-dasharray=\"3,3\"/>\n"
-               << "  <line x1=\"900\" y1=\"604\" x2=\"920\" y2=\"604\" "
+               << "  <line x1=\"900\" y1=\"720\" x2=\"920\" y2=\"720\" "
                   "stroke=\"#9467bd\" stroke-width=\"2\" stroke-dasharray=\"6,3\"/>\n"
-               << "  <line x1=\"900\" y1=\"630\" x2=\"920\" y2=\"630\" "
+               << "  <line x1=\"900\" y1=\"746\" x2=\"920\" y2=\"746\" "
                   "stroke=\"#111111\" stroke-width=\"3\"/>\n"
-               << "  <line x1=\"900\" y1=\"656\" x2=\"920\" y2=\"656\" "
+               << "  <line x1=\"900\" y1=\"772\" x2=\"920\" y2=\"772\" "
                   "stroke=\"#d62728\" stroke-width=\"3\" stroke-dasharray=\"8,5\"/>\n";
         if (diagnostics.has_gaia_median) {
-            output << "  <line x1=\"900\" y1=\"682\" x2=\"920\" y2=\"682\" "
+            output << "  <line x1=\"900\" y1=\"798\" x2=\"920\" y2=\"798\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\" "
                       "stroke-dasharray=\"8,4,2,4\"/>\n";
         }
@@ -1157,6 +1174,7 @@ namespace PSFModel {
             LensingConfig::psf_fwhm_hist_bins,
             LensingConfig::psf_fwhm_pilot_clip_sigma,
             LensingConfig::psf_fwhm_pilot_clip_iterations,
+            LensingConfig::psf_fwhm_zero_mad_quantile,
             LensingConfig::psf_fwhm_hist_range_sigma,
             LensingConfig::psf_fwhm_locus_sigma,
             LensingConfig::psf_fwhm_locus_min_samples,

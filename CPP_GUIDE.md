@@ -57,14 +57,19 @@ The default `223092870` enables all stages. Stage 9 requires Stage 8.
 
 When Stage 5 successfully estimates an exposure-wide FWHM locus, both Standard
 and Lite write `stamps/svg_StarLocus/<exposure>_locus.svg`. The self-contained
-SVG shows the robust-pilot source/retention, local-window counts, raw and
-smoothed all-candidate histograms, the raw Gaia-matched distribution on the
-same bins and count scale, pilot center, selected peak, optional raw Gaia
-median, and the exact strict lower/upper cut used by star selection. The Gaia
-overlay uses every original finite positive Gaia-matched candidate; it is not
-smoothed and does not affect the pilot, peak, or final cut. The locus path is a
-clipped Gaia (or all-candidate fallback) 3-MAD pilot, a local ±5-pilot-MAD
-histogram, peak/basin selection, and a final ±4-MAD science cut. The final width
+SVG shows the robust-pilot source/retention, published bounds, MAD/configured
+symmetric-quantile range mode, zero-MAD rollback status, local-window counts,
+all-candidate histograms, the raw Gaia-matched distribution on the same bins
+and count scale, selected peak, optional raw Gaia median, and the exact strict
+lower/upper cut used by star selection. The Gaia overlay uses every original
+finite positive Gaia-matched candidate; it is not smoothed and does not affect
+the pilot, peak, or final cut. A positive-MAD Gaia (or all-candidate fallback)
+pilot accepts up to three 3-MAD clips only while the proposed population keeps
+a positive MAD, then uses a local ±5-MAD range. An initially zero-MAD pilot is
+not clipped and instead uses interpolated `Q(q)--Q(1-q)` bounds, where
+`q = LensingConfig::psf_fwhm_zero_mad_quantile` defaults to `0.05`. Both
+range types receive only `1e-6` outward boundary padding before the shared histogram,
+peak/basin selection, and final ±4-MAD science cut. The final width
 uses only its retained population spacing and is not floored by histogram-bin
 width. `process_init` creates the output directory; a legacy dataset that skips
 initialization must provide it before running Stage 5.

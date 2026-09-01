@@ -73,6 +73,7 @@ namespace LensingConfig {
     constexpr int psf_fwhm_hist_bins = 128;  // FWHM histogram bin count.
     constexpr double psf_fwhm_pilot_clip_sigma = 3.0;  // Robust pilot clipping multiplier.
     constexpr int psf_fwhm_pilot_clip_iterations = 3;  // Robust pilot clipping passes.
+    constexpr double psf_fwhm_zero_mad_quantile = 0.05;  // Symmetric lower quantile; upper is one minus this value.
     constexpr double psf_fwhm_hist_range_sigma = 5.0;  // Local histogram half-range in pilot widths.
     constexpr double psf_fwhm_locus_sigma = 4.0;  // Exposure FWHM-locus sigma window.
     constexpr int psf_fwhm_locus_min_samples = 30;  // Minimum FWHM-locus samples.
@@ -104,6 +105,9 @@ namespace LensingConfig {
                   "PSF FWHM pilot clipping sigma must be positive");
     static_assert(psf_fwhm_pilot_clip_iterations > 0,
                   "PSF FWHM pilot clipping iterations must be positive");
+    static_assert(psf_fwhm_zero_mad_quantile >= 0.0
+                      && psf_fwhm_zero_mad_quantile < 0.5,
+                  "PSF FWHM zero-MAD quantile must lie in [0,0.5)");
     static_assert(psf_fwhm_hist_range_sigma > 0.0,
                   "PSF FWHM histogram range sigma must be positive");
     static_assert(psf_knn_k > 0, "PSF KNN count must be positive");
