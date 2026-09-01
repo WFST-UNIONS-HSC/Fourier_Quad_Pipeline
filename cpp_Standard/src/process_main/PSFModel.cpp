@@ -115,7 +115,7 @@ namespace PSFModel {
     // ==========================================
     // Function: Write one exposure-level FWHM-locus SVG diagnostic
     // Method: Render the same-pass robust pilot bounds and zero-MAD decisions,
-    //         local histograms, selected peak, optional Gaia median, and cuts.
+    //         all/Gaia/shared-group histograms, peak, side widths, and cuts.
     // ==========================================
     static void writeFWHMLocusSVG(
         const std::string& dirOutput,
@@ -132,6 +132,10 @@ namespace PSFModel {
             !diagnostics.gaia_histogram.empty()
             && diagnostics.gaia_histogram.size()
                 == diagnostics.histogram.size();
+        const bool has_selected_group_histogram =
+            !diagnostics.selected_group_histogram.empty()
+            && diagnostics.selected_group_histogram.size()
+                == diagnostics.histogram.size();
         std::ostringstream quantile_range_mode;
         quantile_range_mode << "Q("
                             << LensingConfig::psf_fwhm_zero_mad_quantile
@@ -140,7 +144,7 @@ namespace PSFModel {
                             << ")";
 
         constexpr double canvas_width = 1200.0;
-        constexpr double canvas_height = 860.0;
+        constexpr double canvas_height = 930.0;
         constexpr double plot_left = 90.0;
         constexpr double plot_right = 870.0;
         constexpr double plot_top = 110.0;
@@ -169,6 +173,11 @@ namespace PSFModel {
         }
         if (has_gaia_histogram) {
             for (const double count : diagnostics.gaia_histogram) {
+                y_max = std::max(y_max, count);
+            }
+        }
+        if (has_selected_group_histogram) {
+            for (const double count : diagnostics.selected_group_histogram) {
                 y_max = std::max(y_max, count);
             }
         }
@@ -259,6 +268,18 @@ namespace PSFModel {
             }
             output << "\"/>\n";
         }
+        if (has_selected_group_histogram) {
+            output << "  <polyline id=\"selected-group-histogram\" fill=\"none\" "
+                      "stroke=\"#17becf\" stroke-width=\"3\" points=\"";
+            for (std::size_t bin = 0; bin < bin_count; ++bin) {
+                const double center = diagnostics.pilot_lower
+                    + histogram_span * (static_cast<double>(bin) + 0.5)
+                        / static_cast<double>(bin_count);
+                output << mapX(center) << ','
+                       << mapY(diagnostics.selected_group_histogram[bin]) << ' ';
+            }
+            output << "\"/>\n";
+        }
 
         const int peak_bin = std::clamp(
             diagnostics.peak_bin, 0, static_cast<int>(bin_count) - 1);
@@ -343,56 +364,67 @@ namespace PSFModel {
                << diagnostics.histogram_above_count << "</text>\n"
                << "    <text x=\"900\" y=\"376\">Final center = "
                << locus.center << "</text>\n"
-               << "    <text x=\"900\" y=\"399\">Final width = "
-               << locus.width << "</text>\n"
-               << "    <text x=\"900\" y=\"422\">Final sigma = "
+               << "    <text x=\"900\" y=\"399\">Lower width = "
+               << locus.lower_width << "</text>\n"
+               << "    <text x=\"900\" y=\"422\">Upper width = "
+               << locus.upper_width << "</text>\n"
+               << "    <text x=\"900\" y=\"445\">Final sigma = "
                << LensingConfig::psf_fwhm_locus_sigma << "</text>\n"
-               << "    <text x=\"900\" y=\"445\">Final lower = "
+               << "    <text x=\"900\" y=\"468\">Final lower = "
                << locus.lower << "</text>\n"
-               << "    <text x=\"900\" y=\"468\">Final upper = "
+               << "    <text x=\"900\" y=\"491\">Final upper = "
                << locus.upper << "</text>\n"
-               << "    <text x=\"900\" y=\"491\">Gaia matches = "
+               << "    <text x=\"900\" y=\"514\">Gaia matches = "
                << diagnostics.gaia_match_count << "</text>\n"
-               << "    <text x=\"900\" y=\"514\">Gaia histogram = "
+               << "    <text x=\"900\" y=\"537\">Gaia histogram = "
                << diagnostics.gaia_histogram_sample_count << "</text>\n"
-               << "    <text x=\"900\" y=\"537\">Gaia below / above = "
+               << "    <text x=\"900\" y=\"560\">Gaia below / above = "
                << diagnostics.gaia_histogram_below_count << " / "
-               << diagnostics.gaia_histogram_above_count << "</text>\n";
+               << diagnostics.gaia_histogram_above_count << "</text>\n"
+               << "    <text x=\"900\" y=\"583\">Shared-group selected = "
+               << diagnostics.selected_group_count << "</text>\n";
         if (diagnostics.has_gaia_median) {
-            output << "    <text x=\"900\" y=\"560\">Gaia raw median = "
+            output << "    <text x=\"900\" y=\"606\">Gaia raw median = "
                    << diagnostics.gaia_median << "</text>\n";
         }
-        output << "    <text x=\"930\" y=\"621\">raw histogram</text>\n"
-               << "    <text x=\"930\" y=\"647\">smoothed histogram</text>\n";
+        output << "    <text x=\"930\" y=\"660\">raw histogram</text>\n"
+               << "    <text x=\"930\" y=\"686\">smoothed histogram</text>\n";
         if (has_gaia_histogram) {
-            output << "    <text x=\"930\" y=\"673\">Gaia histogram</text>\n";
+            output << "    <text x=\"930\" y=\"712\">Gaia histogram</text>\n";
         }
-        output << "    <text x=\"930\" y=\"699\">selected peak</text>\n"
-               << "    <text x=\"930\" y=\"725\">pilot center</text>\n"
-               << "    <text x=\"930\" y=\"751\">locus center</text>\n"
-               << "    <text x=\"930\" y=\"777\">lower / upper cut</text>\n";
+        if (has_selected_group_histogram) {
+            output << "    <text x=\"930\" y=\"738\">Shared-group selected</text>\n";
+        }
+        output << "    <text x=\"930\" y=\"764\">selected peak</text>\n"
+               << "    <text x=\"930\" y=\"790\">pilot center</text>\n"
+               << "    <text x=\"930\" y=\"816\">locus center</text>\n"
+               << "    <text x=\"930\" y=\"842\">lower / upper cut</text>\n";
         if (diagnostics.has_gaia_median) {
-            output << "    <text x=\"930\" y=\"803\">Gaia raw median</text>\n";
+            output << "    <text x=\"930\" y=\"868\">Gaia raw median</text>\n";
         }
         output << "  </g>\n"
-               << "  <rect x=\"900\" y=\"608\" width=\"20\" height=\"14\" "
+               << "  <rect x=\"900\" y=\"647\" width=\"20\" height=\"14\" "
                   "fill=\"#b8bec7\"/>\n"
-               << "  <line x1=\"900\" y1=\"642\" x2=\"920\" y2=\"642\" "
+               << "  <line x1=\"900\" y1=\"681\" x2=\"920\" y2=\"681\" "
                   "stroke=\"#2468b4\" stroke-width=\"3\"/>\n";
         if (has_gaia_histogram) {
-            output << "  <line x1=\"900\" y1=\"668\" x2=\"920\" y2=\"668\" "
+            output << "  <line x1=\"900\" y1=\"707\" x2=\"920\" y2=\"707\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\"/>\n";
         }
-        output << "  <line x1=\"900\" y1=\"694\" x2=\"920\" y2=\"694\" "
+        if (has_selected_group_histogram) {
+            output << "  <line x1=\"900\" y1=\"733\" x2=\"920\" y2=\"733\" "
+                      "stroke=\"#17becf\" stroke-width=\"3\"/>\n";
+        }
+        output << "  <line x1=\"900\" y1=\"759\" x2=\"920\" y2=\"759\" "
                   "stroke=\"#f28e2b\" stroke-width=\"2\" stroke-dasharray=\"3,3\"/>\n"
-               << "  <line x1=\"900\" y1=\"720\" x2=\"920\" y2=\"720\" "
+               << "  <line x1=\"900\" y1=\"785\" x2=\"920\" y2=\"785\" "
                   "stroke=\"#9467bd\" stroke-width=\"2\" stroke-dasharray=\"6,3\"/>\n"
-               << "  <line x1=\"900\" y1=\"746\" x2=\"920\" y2=\"746\" "
+               << "  <line x1=\"900\" y1=\"811\" x2=\"920\" y2=\"811\" "
                   "stroke=\"#111111\" stroke-width=\"3\"/>\n"
-               << "  <line x1=\"900\" y1=\"772\" x2=\"920\" y2=\"772\" "
+               << "  <line x1=\"900\" y1=\"837\" x2=\"920\" y2=\"837\" "
                   "stroke=\"#d62728\" stroke-width=\"3\" stroke-dasharray=\"8,5\"/>\n";
         if (diagnostics.has_gaia_median) {
-            output << "  <line x1=\"900\" y1=\"798\" x2=\"920\" y2=\"798\" "
+            output << "  <line x1=\"900\" y1=\"863\" x2=\"920\" y2=\"863\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\" "
                       "stroke-dasharray=\"8,4,2,4\"/>\n";
         }
@@ -1127,8 +1159,8 @@ namespace PSFModel {
 
     // ==========================================
     // Function: Select PSF stars from quality-valid candidates
-    // Method: Apply common Gaia/FWHM/minChi selection, publish the exact FWHM
-    //         locus diagnostic, then dispatch grouping and shared policy.
+    // Method: Apply common Gaia/FWHM/minChi selection, dispatch grouping and the
+    //         shared policy, then publish the pre-PRESS selected distribution.
     // ==========================================
     void starSelection(
         int nchip,
@@ -1190,9 +1222,6 @@ namespace PSFModel {
 
         const std::string prefix_e =
             UniversalUtils::getPrefixExpo(imageFiles[0]);
-        writeFWHMLocusSVG(
-            dirOutput, prefix_e, locus, locus_diagnostics);
-
         for (int chip_index = 0; chip_index < nchip; ++chip_index) {
             ChipPSFState& chip = state.chips[chip_index];
             for (int star_index = 0; star_index < state.getNStar(chip_index); ++star_index) {
@@ -1228,6 +1257,22 @@ namespace PSFModel {
             groups_by_chip = groupStarsKNN(nchip, state, active_indices);
         }
         applySharedGroupSelection(nchip, groups_by_chip, state);
+
+        std::vector<double> selected_group_fwhm;
+        for (int chip_index = 0; chip_index < nchip; ++chip_index) {
+            const ChipPSFState& chip = state.chips[chip_index];
+            for (int star_index = 0;
+                 star_index < state.getNStar(chip_index); ++star_index) {
+                if (chip.selection[star_index].selected_group) {
+                    selected_group_fwhm.push_back(
+                        state.getStarPara(chip_index, star_index, 10));
+                }
+            }
+        }
+        Internal::populateSelectedGroupFWHMHistogram(
+            selected_group_fwhm, locus_diagnostics);
+        writeFWHMLocusSVG(
+            dirOutput, prefix_e, locus, locus_diagnostics);
     }
 
     // ==========================================

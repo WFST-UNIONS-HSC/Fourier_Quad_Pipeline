@@ -63,12 +63,14 @@ struct FWHMLocusConfig {
 
 // ==========================================
 // Structure: Publish a robust exposure-wide stellar FWHM locus
-// Method: Store the median center, robust width, cut bounds, and histogram scale.
+// Method: Store the median center, side-specific robust widths, cut bounds, and
+//         histogram scale.
 // ==========================================
 struct FWHMLocus {
     bool valid = false;
     double center = 0.0;
-    double width = 0.0;
+    double lower_width = 0.0;
+    double upper_width = 0.0;
     double lower = 0.0;
     double upper = 0.0;
     double histogram_bin_width = 0.0;
@@ -97,13 +99,30 @@ struct FWHMLocusDiagnostics {
     int gaia_histogram_sample_count = 0;
     int gaia_histogram_below_count = 0;
     int gaia_histogram_above_count = 0;
+    int selected_group_count = 0;
     bool has_gaia_median = false;
     double gaia_median = 0.0;
     int peak_bin = -1;
     std::vector<double> histogram;
     std::vector<double> smoothed_histogram;
     std::vector<double> gaia_histogram;
+    std::vector<double> selected_group_histogram;
 };
+
+// ==========================================
+// Function: Select one local FWHM histogram peak deterministically
+// Method: Use smoothed density without Gaia; with a Gaia pilot, preserve clearly
+//         closer peaks and resolve one-bin distance ties by Gaia count, density,
+//         exact distance, and lower bin index.
+// ==========================================
+int selectFWHMPeak(
+    const std::vector<int>& peaks,
+    const std::vector<double>& smoothed_histogram,
+    const std::vector<double>& gaia_histogram,
+    double pilot_lower,
+    double histogram_bin_width,
+    double pilot_center,
+    bool pilot_uses_gaia);
 
 // ==========================================
 // Function: Estimate an exposure-wide stellar FWHM locus
@@ -116,6 +135,15 @@ bool estimateFWHMLocus(
     const FWHMLocusConfig& config,
     FWHMLocus& locus,
     FWHMLocusDiagnostics* diagnostics = nullptr);
+
+// ==========================================
+// Function: Populate the shared-group FWHM overlay on the estimator's bin grid
+// Method: Count every selected value and bin finite in-range values without
+//         changing any locus or upstream diagnostic field.
+// ==========================================
+void populateSelectedGroupFWHMHistogram(
+    const std::vector<double>& selected_fwhm,
+    FWHMLocusDiagnostics& diagnostics);
 
 enum class AstrometryGaiaReadStatus {
     Accepted,

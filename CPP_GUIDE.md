@@ -60,18 +60,22 @@ and Lite write `stamps/svg_StarLocus/<exposure>_locus.svg`. The self-contained
 SVG shows the robust-pilot source/retention, published bounds, MAD/configured
 symmetric-quantile range mode, zero-MAD rollback status, local-window counts,
 all-candidate histograms, the raw Gaia-matched distribution on the same bins
-and count scale, selected peak, optional raw Gaia median, and the exact strict
-lower/upper cut used by star selection. The Gaia overlay uses every original
-finite positive Gaia-matched candidate; it is not smoothed and does not affect
-the pilot, peak, or final cut. A positive-MAD Gaia (or all-candidate fallback)
+and count scale, selected peak, optional raw Gaia median, asymmetric final
+widths/cuts, and the post-grouping (pre-PRESS) shared-group distribution. The
+two overlays are unsmoothed diagnostics and do not feed any scientific decision.
+A positive-MAD Gaia (or all-candidate fallback)
 pilot accepts up to three 3-MAD clips only while the proposed population keeps
 a positive MAD, then uses a local ±5-MAD range. An initially zero-MAD pilot is
 not clipped and instead uses interpolated `Q(q)--Q(1-q)` bounds, where
 `q = LensingConfig::psf_fwhm_zero_mad_quantile` defaults to `0.05`. Both
-range types receive only `1e-6` outward boundary padding before the shared histogram,
-peak/basin selection, and final ±4-MAD science cut. The final width
-uses only its retained population spacing and is not floored by histogram-bin
-width. `process_init` creates the output directory; a legacy dataset that skips
+range types receive only `1e-6` outward boundary padding before the shared histogram
+and peak/basin selection. With a Gaia pilot, a clearly closer peak wins; peaks
+whose distance difference is at most one bin are resolved by raw Gaia count,
+then smoothed all-candidate density, exact distance, and lower bin index. The
+final two-pass refinement uses separate lower/upper scaled MADs, excludes exact
+center duplicates from both side deviations, and applies an independent retained-
+population spacing floor to each side before the strict 4-sigma cuts. `process_init`
+creates the output directory; a legacy dataset that skips
 initialization must provide it before running Stage 5.
 
 ## Build

@@ -54,15 +54,18 @@ Stage 5 成功估计曝光级 FWHM locus 后，Standard 与 Lite 都会写出
 `stamps/svg_StarLocus/<exposure>_locus.svg`。该自包含 SVG 显示 robust pilot
 来源与保留数、发布的 bounds、MAD/可配置对称分位数 range mode、zero-MAD rollback 状态、
 局部窗口计数、全部候选体的原始与平滑 histogram、以相同分箱和计数尺度绘制的
-原始 Gaia 匹配分布、选中峰、可选的原始 Gaia median，以及星选实际使用的严格
-lower/upper cut。Gaia 叠加层使用全部原始、有限且为正的 Gaia 匹配候选体，不做平滑，
-也不影响 pilot、峰选择或最终 cut。正 MAD 的 Gaia（不足时退回全部候选）pilot
+原始 Gaia 匹配分布、选中峰、可选的原始 Gaia median、不对称最终宽度/cut，以及
+grouping 后且 PRESS 前的 shared-group 分布。两条叠加曲线都不做平滑，只用于诊断，
+不会反向参与任何科学选择。正 MAD 的 Gaia（不足时退回全部候选）pilot
 最多执行三轮 3-MAD clipping，但只接受下一 population 仍为正 MAD 的 clip，然后使用局部
 ±5-MAD range。初始 MAD 为零时完全不 clipping，改用该初始 pilot population 的插值
 `Q(q)--Q(1-q)` bounds；`q = LensingConfig::psf_fwhm_zero_mad_quantile`，默认
-`0.05`。两类 bounds 都只向外增加 `1e-6` 数值 padding，再进入共享 histogram、
-峰/谷盆选择与最终 ±4-MAD science cut。最终 width 只由保留 population 的
-间距设下限，不再由 histogram bin width 撑大。输出目录由 `process_init` 创建；
+`0.05`。两类 bounds 都只向外增加 `1e-6` 数值 padding，再进入共享 histogram 与
+峰/谷盆选择。使用 Gaia pilot 时，明显更近的峰优先；距离差不超过一个 bin 的近同距峰
+依次按 raw Gaia count、平滑全候选密度、精确距离和较小 bin index 决胜。最终两轮
+refinement 以同一 median 为中心，分别计算 lower/upper scaled MAD；等于中心的重复值
+不进入任一侧 deviation，并分别用各侧保留 population 的最小正间距设宽度下限，再形成
+严格 4-sigma cuts。输出目录由 `process_init` 创建；
 旧数据树若跳过初始化，必须在运行 Stage 5 前补齐该目录。
 
 ## 编译

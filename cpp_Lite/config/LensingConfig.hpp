@@ -70,7 +70,7 @@ namespace LensingConfig {
     //         common selection topology and rejection thresholds explicit.
     // ==========================================
     constexpr int psf_exposure_min_candidates = 60;  // Minimum exposure-wide PSF candidates.
-    constexpr int psf_fwhm_hist_bins = 128;  // FWHM histogram bin count.
+    constexpr int psf_fwhm_hist_bins = 20;  // FWHM histogram bin count.
     constexpr double psf_fwhm_pilot_clip_sigma = 3.0;  // Robust pilot clipping multiplier.
     constexpr int psf_fwhm_pilot_clip_iterations = 3;  // Robust pilot clipping passes.
     constexpr double psf_fwhm_zero_mad_quantile = 0.05;  // Symmetric lower quantile; upper is one minus this value.
@@ -83,9 +83,9 @@ namespace LensingConfig {
     constexpr double psf_minchi_sigma_cut = 4.0;  // Minimum-chi rejection sigma.
     constexpr int psf_knn_k = 8;  // Neighbors retained by the PSF KNN graph.
     constexpr double psf_group_merge_ratio = 0.30;  // Secondary-group relative-size threshold.
-    constexpr int psf_group_merge_min_gaia = 2;  // Minimum Gaia matches in a merged group.
-    constexpr double psf_gaia_match_radius_pix = 2.5;  // Gaia match radius in pixels.
-    constexpr int psf_gaia_locus_min_matches = 10;  // Minimum Gaia matches for locus support.
+    constexpr int psf_group_merge_min_gaia = 1;  // Minimum Gaia matches in a merged group.
+    constexpr double psf_gaia_match_radius_pix = 2.0;  // Gaia match radius in pixels.
+    constexpr int psf_gaia_locus_min_matches = 5;  // Minimum Gaia matches for locus support.
     constexpr bool psf_press_rejection_enabled = true;  // Enable optional post-fit PRESS cleanup.
     constexpr double psf_press_sigma_cut = 4.0;  // Standardized PRESS rejection sigma.
     constexpr int psf_press_max_removals = 5;  // Maximum PRESS removals permitted per chip.

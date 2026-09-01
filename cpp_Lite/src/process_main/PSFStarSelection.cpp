@@ -58,6 +58,62 @@ bool medianAndMad(
     return std::isfinite(median) && std::isfinite(scaled_mad);
 }
 
+double sampleWidthFloor(
+    const std::vector<double>& sorted,
+    double center);
+
+// ==========================================
+// Function: Estimate median and side-specific scaled median deviations
+// Method: Exclude center duplicates from both side MADs and apply independent
+//         sample-spacing floors to the lower-plus-center and center-plus-upper
+//         populations.
+// ==========================================
+bool medianAndAsymmetricMad(
+    const std::vector<double>& values,
+    double& median,
+    double& lower_width,
+    double& upper_width) {
+    if (values.empty()) return false;
+    std::vector<double> sorted = values;
+    std::sort(sorted.begin(), sorted.end());
+    median = sortedMedian(sorted);
+
+    std::vector<double> lower_deviations;
+    std::vector<double> upper_deviations;
+    std::vector<double> lower_population;
+    std::vector<double> upper_population;
+    lower_deviations.reserve(sorted.size());
+    upper_deviations.reserve(sorted.size());
+    lower_population.reserve(sorted.size() + 1);
+    upper_population.reserve(sorted.size() + 1);
+    upper_population.push_back(median);
+    for (double value : sorted) {
+        if (value < median) {
+            lower_deviations.push_back(median - value);
+            lower_population.push_back(value);
+        } else if (value > median) {
+            upper_deviations.push_back(value - median);
+            upper_population.push_back(value);
+        }
+    }
+    lower_population.push_back(median);
+    std::sort(lower_deviations.begin(), lower_deviations.end());
+    std::sort(upper_deviations.begin(), upper_deviations.end());
+    lower_width = lower_deviations.empty()
+        ? 0.0
+        : 1.4826 * sortedMedian(lower_deviations);
+    upper_width = upper_deviations.empty()
+        ? 0.0
+        : 1.4826 * sortedMedian(upper_deviations);
+    lower_width = std::max(
+        lower_width, sampleWidthFloor(lower_population, median));
+    upper_width = std::max(
+        upper_width, sampleWidthFloor(upper_population, median));
+    return std::isfinite(median)
+        && std::isfinite(lower_width) && lower_width > 0.0
+        && std::isfinite(upper_width) && upper_width > 0.0;
+}
+
 // ==========================================
 // Function: Find the smallest positive sample spacing
 // Method: Scan adjacent sorted values and ignore exact duplicates.
@@ -263,6 +319,82 @@ PSFChiWindow getPSFChiWindow(int n) {
 }
 
 // ==========================================
+// Function: Select one local FWHM histogram peak deterministically
+// Method: Use smoothed density without Gaia; with a Gaia pilot, preserve clearly
+//         closer peaks and resolve one-bin distance ties by Gaia count, density,
+//         exact distance, and lower bin index.
+// ==========================================
+int selectFWHMPeak(
+    const std::vector<int>& peaks,
+    const std::vector<double>& smoothed_histogram,
+    const std::vector<double>& gaia_histogram,
+    double pilot_lower,
+    double histogram_bin_width,
+    double pilot_center,
+    bool pilot_uses_gaia) {
+    if (peaks.empty() || smoothed_histogram.empty()
+        || gaia_histogram.size() != smoothed_histogram.size()
+        || !std::isfinite(pilot_lower)
+        || !std::isfinite(histogram_bin_width)
+        || histogram_bin_width <= 0.0
+        || !std::isfinite(pilot_center)) {
+        return -1;
+    }
+    for (int peak : peaks) {
+        if (peak < 0
+            || peak >= static_cast<int>(smoothed_histogram.size())) {
+            return -1;
+        }
+    }
+
+    int selected = peaks.front();
+    if (!pilot_uses_gaia) {
+        for (int candidate : peaks) {
+            if (smoothed_histogram[candidate]
+                > smoothed_histogram[selected]) {
+                selected = candidate;
+            }
+        }
+        return selected;
+    }
+
+    double selected_distance = std::abs(
+        pilot_lower + (static_cast<double>(selected) + 0.5)
+            * histogram_bin_width
+        - pilot_center);
+    for (std::size_t peak_index = 1; peak_index < peaks.size(); ++peak_index) {
+        const int candidate = peaks[peak_index];
+        const double candidate_distance = std::abs(
+            pilot_lower + (static_cast<double>(candidate) + 0.5)
+                * histogram_bin_width
+            - pilot_center);
+        bool replace =
+            candidate_distance < selected_distance - histogram_bin_width;
+        if (!replace
+            && std::abs(candidate_distance - selected_distance)
+                <= histogram_bin_width) {
+            if (gaia_histogram[candidate] != gaia_histogram[selected]) {
+                replace = gaia_histogram[candidate]
+                    > gaia_histogram[selected];
+            } else if (smoothed_histogram[candidate]
+                       != smoothed_histogram[selected]) {
+                replace = smoothed_histogram[candidate]
+                    > smoothed_histogram[selected];
+            } else if (candidate_distance != selected_distance) {
+                replace = candidate_distance < selected_distance;
+            } else {
+                replace = candidate < selected;
+            }
+        }
+        if (replace) {
+            selected = candidate;
+            selected_distance = candidate_distance;
+        }
+    }
+    return selected;
+}
+
+// ==========================================
 // Function: Estimate an exposure-wide stellar FWHM locus
 // Method: Estimate a configurable quantization-safe Gaia/all-candidate pilot,
 //         histogram its bounds, choose a density or pilot-guided peak, and refine
@@ -430,25 +562,15 @@ bool estimateFWHMLocus(
     }
     if (peaks.empty()) return false;
 
-    int peak_bin = peaks.front();
-    if (pilot_uses_gaia) {
-        double best_distance = std::numeric_limits<double>::infinity();
-        for (int candidate_peak : peaks) {
-            const double peak_center = pilot.lower
-                + (static_cast<double>(candidate_peak) + 0.5) * bin_width;
-            const double distance = std::abs(peak_center - pilot.center);
-            if (distance < best_distance) {
-                best_distance = distance;
-                peak_bin = candidate_peak;
-            }
-        }
-    } else {
-        for (int candidate_peak : peaks) {
-            if (smoothed[candidate_peak] > smoothed[peak_bin]) {
-                peak_bin = candidate_peak;
-            }
-        }
-    }
+    const int peak_bin = selectFWHMPeak(
+        peaks,
+        smoothed,
+        gaia_histogram,
+        pilot.lower,
+        bin_width,
+        pilot.center,
+        pilot_uses_gaia);
+    if (peak_bin < 0) return false;
     if (diagnostics != nullptr) {
         diagnostics->histogram_sample_count = histogram_sample_count;
         diagnostics->histogram_below_count = histogram_below_count;
@@ -502,32 +624,75 @@ bool estimateFWHMLocus(
     if (population.empty()) return false;
 
     double center = 0.0;
-    double width = 0.0;
+    double lower_width = 0.0;
+    double upper_width = 0.0;
     for (int iteration = 0; iteration < 2; ++iteration) {
-        if (!medianAndMad(population, center, width)) return false;
-        std::sort(population.begin(), population.end());
-        width = std::max(width, sampleWidthFloor(population, center));
+        if (!medianAndAsymmetricMad(
+                population, center, lower_width, upper_width)) {
+            return false;
+        }
+        const double clip_lower =
+            center - config.locus_sigma * lower_width;
+        const double clip_upper =
+            center + config.locus_sigma * upper_width;
         std::vector<double> clipped;
         clipped.reserve(population.size());
         for (double value : population) {
-            if (std::abs(value - center) <= config.locus_sigma * width) {
+            if (value >= clip_lower && value <= clip_upper) {
                 clipped.push_back(value);
             }
         }
         if (clipped.empty() || clipped.size() == population.size()) break;
         population.swap(clipped);
     }
-    if (!medianAndMad(population, center, width)) return false;
-    std::sort(population.begin(), population.end());
-    width = std::max(width, sampleWidthFloor(population, center));
+    if (!medianAndAsymmetricMad(
+            population, center, lower_width, upper_width)) {
+        return false;
+    }
 
     locus.valid = true;
     locus.center = center;
-    locus.width = width;
-    locus.lower = center - config.locus_sigma * width;
-    locus.upper = center + config.locus_sigma * width;
+    locus.lower_width = lower_width;
+    locus.upper_width = upper_width;
+    locus.lower = center - config.locus_sigma * lower_width;
+    locus.upper = center + config.locus_sigma * upper_width;
     locus.histogram_bin_width = bin_width;
     return std::isfinite(locus.lower) && std::isfinite(locus.upper);
+}
+
+// ==========================================
+// Function: Populate the shared-group FWHM overlay on the estimator's bin grid
+// Method: Count every selected value and bin finite in-range values without
+//         changing any locus or upstream diagnostic field.
+// ==========================================
+void populateSelectedGroupFWHMHistogram(
+    const std::vector<double>& selected_fwhm,
+    FWHMLocusDiagnostics& diagnostics) {
+    diagnostics.selected_group_count =
+        static_cast<int>(selected_fwhm.size());
+    diagnostics.selected_group_histogram.assign(
+        diagnostics.histogram.size(), 0.0);
+    if (diagnostics.histogram.empty()
+        || !(diagnostics.pilot_upper > diagnostics.pilot_lower)) {
+        return;
+    }
+    const double bin_width =
+        (diagnostics.pilot_upper - diagnostics.pilot_lower)
+        / static_cast<double>(diagnostics.histogram.size());
+    if (!std::isfinite(bin_width) || bin_width <= 0.0) return;
+    for (double value : selected_fwhm) {
+        if (!std::isfinite(value)
+            || value < diagnostics.pilot_lower
+            || value > diagnostics.pilot_upper) {
+            continue;
+        }
+        int bin = static_cast<int>(
+            (value - diagnostics.pilot_lower) / bin_width);
+        bin = std::clamp(
+            bin, 0, static_cast<int>(diagnostics.histogram.size()) - 1);
+        diagnostics.selected_group_histogram[static_cast<std::size_t>(bin)]
+            += 1.0;
+    }
 }
 
 // ==========================================

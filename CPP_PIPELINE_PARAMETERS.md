@@ -153,12 +153,12 @@ content.
 | `nplx` | `int` | `2` | same | No | Non-negative x degree | Local PSF polynomial x degree. | Keep consistent with `npl`. | Yes |
 | `nstar_min_local` | `int` | `16` | same | No | Positive count | Minimum stars retained for a local fit. | Tune only with PSF fit validation. | Yes |
 | `psf_exposure_min_candidates` | `int` | `60` | same | No | Positive count | Minimum exposure-wide PSF candidates. | Tune Stage 5 selection. | Yes |
-| `psf_fwhm_hist_bins` | `int` | `128` | same | No | Integer ≥ 3 | Local histogram bin count after robust pilot range estimation. | Tune Stage 5 selection. | Yes |
+| `psf_fwhm_hist_bins` | `int` | `20` | same | No | Integer ≥ 3 | Local histogram bin count after robust pilot range estimation. | Tune Stage 5 selection. | Yes |
 | `psf_fwhm_pilot_clip_sigma` | `double` | `3.0` | same | No | Positive sigma multiplier | Iterative pilot median/MAD clipping multiplier; a proposed clip that collapses the next MAD to zero is rejected. | Tune only with locus-tail and quantization validation. | Yes |
 | `psf_fwhm_pilot_clip_iterations` | `int` | `3` | same | No | Positive pass count | Maximum robust pilot clipping passes. | Tune only with locus-tail validation. | Yes |
 | `psf_fwhm_zero_mad_quantile` | `double` | `0.05` | same | No | `0 <= q < 0.5` | Lower quantile for an initially zero-MAD pilot; the upper quantile is `1-q`. | Tune only with quantized-pilot coverage validation. | Yes |
 | `psf_fwhm_hist_range_sigma` | `double` | `5.0` | same | No | Positive width multiplier | Positive-MAD pilot histogram half-range; an initially zero-MAD pilot uses its configured symmetric quantiles instead. | Tune Stage 5 locus search range. | Yes |
-| `psf_fwhm_locus_sigma` | `double` | `4.0` | same | No | Positive sigma multiplier | Final basin-population clipping and FWHM-locus cut multiplier. | Tune Stage 5 selection. | Yes |
+| `psf_fwhm_locus_sigma` | `double` | `4.0` | same | No | Positive sigma multiplier | Multiplier applied independently to final lower/upper basin MAD widths for clipping and strict locus cuts. | Tune Stage 5 selection. | Yes |
 | `psf_fwhm_locus_min_samples` | `int` | `30` | same | No | Positive count | Minimum samples for a valid FWHM locus. | Tune sparse-exposure handling. | Yes |
 | `PsfGroupingType` | `int` | `2` | same | No | `1` threshold graph, `2` mutual KNN | Selects PSF grouping topology. | Change for controlled algorithm comparison. | Yes |
 | `psf_minchi_reference_fraction` | `double` | `1 / 3` | same | No | `(0, 1]` | Fraction of largest locus candidates eligible as references. | Tune Stage 5 threshold estimation. | Yes |
@@ -166,9 +166,9 @@ content.
 | `psf_minchi_sigma_cut` | `double` | `4.0` | same | No | Positive sigma multiplier | Minimum-chi upper-tail rejection cut. | Tune Stage 5 selection. | Yes |
 | `psf_knn_k` | `int` | `8` | same | No | Positive neighbor count | Neighbors in mutual-KNN grouping. | Change with grouping validation. | Yes |
 | `psf_group_merge_ratio` | `double` | `0.30` | same | No | Non-negative group-size ratio | Secondary/main group merge threshold. | Tune Stage 5 grouping. | Yes |
-| `psf_group_merge_min_gaia` | `int` | `2` | same | No | Non-negative match count | Gaia support required to merge a secondary group. | Tune Stage 5 grouping. | Yes |
-| `psf_gaia_match_radius_pix` | `double` | `2.5` | same | No | Positive pixels | Gaia matching radius for PSF candidates. | Change for astrometric precision/pixel scale. | Yes |
-| `psf_gaia_locus_min_matches` | `int` | `10` | same | No | Positive match count | Gaia matches required for locus support. | Tune sparse fields. | Yes |
+| `psf_group_merge_min_gaia` | `int` | `1` | same | No | Non-negative match count | Gaia support required to merge a secondary group. | Tune Stage 5 grouping. | Yes |
+| `psf_gaia_match_radius_pix` | `double` | `2.0` | same | No | Positive pixels | Gaia matching radius for PSF candidates. | Change for astrometric precision/pixel scale. | Yes |
+| `psf_gaia_locus_min_matches` | `int` | `5` | same | No | Positive match count | Gaia matches required for locus support. | Tune sparse fields. | Yes |
 | `psf_press_rejection_enabled` | `bool` | `true` | same | No | Boolean | Enables optional standardized-PRESS cleanup. | Disable for controlled fallback testing. | Yes |
 | `psf_press_sigma_cut` | `double` | `4.0` | same | No | Positive sigma multiplier | PRESS outlier rejection cut. | Tune only with PSF residual validation. | Yes |
 | `psf_press_max_removals` | `int` | `5` | same | No | Non-negative count | Maximum proposed PRESS removals per chip. | Tune only with PSF residual validation. | Yes |
