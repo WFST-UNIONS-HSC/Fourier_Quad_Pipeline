@@ -69,10 +69,11 @@ a positive MAD, then uses a local ±5-MAD range. An initially zero-MAD pilot is
 not clipped and instead uses interpolated `Q(q)--Q(1-q)` bounds, where
 `q = LensingConfig::psf_fwhm_zero_mad_quantile` defaults to `0.05`. Both
 range types receive only `1e-6` outward boundary padding before the shared histogram
-and peak/basin selection. With a Gaia pilot, a clearly closer peak wins; peaks
-whose distance difference is at most one bin are resolved by raw Gaia count,
-then smoothed all-candidate density, exact distance, and lower bin index. The
-final two-pass refinement uses separate lower/upper scaled MADs, excludes exact
+and peak/basin selection. With a Gaia pilot, peak eligibility is anchored to the
+global minimum distance: only peaks no more than one bin beyond that minimum are
+ranked by raw Gaia count, then smoothed all-candidate density, exact distance,
+and lower bin index. The final two-pass refinement uses separate lower/upper
+scaled MADs, excludes exact
 center duplicates from both side deviations, and applies an independent retained-
 population spacing floor to each side before the strict 4-sigma cuts. `process_init`
 creates the output directory; a legacy dataset that skips

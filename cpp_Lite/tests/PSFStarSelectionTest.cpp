@@ -151,7 +151,7 @@ void requireGaiaHistogramConsistent(
 // ==========================================
 // Function: Verify every Gaia-aware peak-selection priority tier
 // Method: Exercise exact/near distance ties, clearly farther candidates, raw
-//         Gaia and smoothed-density ties, deterministic index order, and no Gaia.
+//         Gaia and smoothed-density ties, anchored membership/order, and no Gaia.
 // ==========================================
 void testGaiaPeakTieBreaks() {
     std::vector<double> smoothed(8, 0.0);
@@ -186,6 +186,25 @@ void testGaiaPeakTieBreaks() {
     require(selectFWHMPeak(
                 {4, 2}, smoothed, gaia, 0.0, 1.0, 3.5, true) == 2,
             "a complete peak tie must resolve to the lower bin index");
+
+    std::vector<double> chain_smoothed(8, 0.0);
+    std::vector<double> chain_gaia(8, 0.0);
+    chain_smoothed[2] = 5.0;
+    chain_smoothed[4] = 6.0;
+    chain_smoothed[5] = 20.0;
+    chain_gaia[2] = 1.0;
+    chain_gaia[4] = 2.0;
+    chain_gaia[5] = 100.0;
+    require(selectFWHMPeak(
+                {2, 4, 5}, chain_smoothed, chain_gaia,
+                0.0, 1.0, 3.4, true) == 4,
+            "Gaia near-tie membership must be anchored to the global nearest "
+            "peak and must not chain through intermediate peaks");
+    require(selectFWHMPeak(
+                {5, 4, 2}, chain_smoothed, chain_gaia,
+                0.0, 1.0, 3.4, true) == 4,
+            "Gaia global near-tie selection must be independent of peak "
+            "iteration order");
 
     require(selectFWHMPeak(
                 {2, 6}, smoothed, gaia, 0.0, 1.0, 3.0, false) == 6,

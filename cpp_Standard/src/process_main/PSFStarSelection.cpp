@@ -320,9 +320,9 @@ PSFChiWindow getPSFChiWindow(int n) {
 
 // ==========================================
 // Function: Select one local FWHM histogram peak deterministically
-// Method: Use smoothed density without Gaia; with a Gaia pilot, preserve clearly
-//         closer peaks and resolve one-bin distance ties by Gaia count, density,
-//         exact distance, and lower bin index.
+// Method: Use smoothed density without Gaia; with a Gaia pilot, anchor one-bin
+//         eligibility to the global nearest distance and rank eligible peaks by
+//         Gaia count, density, exact distance, and lower bin index.
 // ==========================================
 int selectFWHMPeak(
     const std::vector<int>& peaks,
@@ -358,33 +358,44 @@ int selectFWHMPeak(
         return selected;
     }
 
-    double selected_distance = std::abs(
-        pilot_lower + (static_cast<double>(selected) + 0.5)
-            * histogram_bin_width
-        - pilot_center);
-    for (std::size_t peak_index = 1; peak_index < peaks.size(); ++peak_index) {
-        const int candidate = peaks[peak_index];
+    double minimum_distance = std::numeric_limits<double>::infinity();
+    for (int peak : peaks) {
+        const double distance = std::abs(
+            pilot_lower + (static_cast<double>(peak) + 0.5)
+                * histogram_bin_width
+            - pilot_center);
+        minimum_distance = std::min(minimum_distance, distance);
+    }
+
+    selected = -1;
+    double selected_distance = std::numeric_limits<double>::infinity();
+    for (int candidate : peaks) {
         const double candidate_distance = std::abs(
             pilot_lower + (static_cast<double>(candidate) + 0.5)
                 * histogram_bin_width
             - pilot_center);
-        bool replace =
-            candidate_distance < selected_distance - histogram_bin_width;
-        if (!replace
-            && std::abs(candidate_distance - selected_distance)
-                <= histogram_bin_width) {
-            if (gaia_histogram[candidate] != gaia_histogram[selected]) {
-                replace = gaia_histogram[candidate]
-                    > gaia_histogram[selected];
-            } else if (smoothed_histogram[candidate]
-                       != smoothed_histogram[selected]) {
-                replace = smoothed_histogram[candidate]
-                    > smoothed_histogram[selected];
-            } else if (candidate_distance != selected_distance) {
-                replace = candidate_distance < selected_distance;
-            } else {
-                replace = candidate < selected;
-            }
+        if (candidate_distance
+            > minimum_distance + histogram_bin_width) {
+            continue;
+        }
+        if (selected < 0) {
+            selected = candidate;
+            selected_distance = candidate_distance;
+            continue;
+        }
+
+        bool replace = false;
+        if (gaia_histogram[candidate] != gaia_histogram[selected]) {
+            replace = gaia_histogram[candidate]
+                > gaia_histogram[selected];
+        } else if (smoothed_histogram[candidate]
+                   != smoothed_histogram[selected]) {
+            replace = smoothed_histogram[candidate]
+                > smoothed_histogram[selected];
+        } else if (candidate_distance != selected_distance) {
+            replace = candidate_distance < selected_distance;
+        } else {
+            replace = candidate < selected;
         }
         if (replace) {
             selected = candidate;

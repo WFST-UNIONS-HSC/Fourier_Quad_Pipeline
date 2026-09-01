@@ -61,8 +61,9 @@ grouping 后且 PRESS 前的 shared-group 分布。两条叠加曲线都不做�
 ±5-MAD range。初始 MAD 为零时完全不 clipping，改用该初始 pilot population 的插值
 `Q(q)--Q(1-q)` bounds；`q = LensingConfig::psf_fwhm_zero_mad_quantile`，默认
 `0.05`。两类 bounds 都只向外增加 `1e-6` 数值 padding，再进入共享 histogram 与
-峰/谷盆选择。使用 Gaia pilot 时，明显更近的峰优先；距离差不超过一个 bin 的近同距峰
-依次按 raw Gaia count、平滑全候选密度、精确距离和较小 bin index 决胜。最终两轮
+峰/谷盆选择。使用 Gaia pilot 时，候选资格固定锚定到全局最小距离：只有距离不超过
+`d_min + 1 bin` 的峰才参与决胜，并依次比较 raw Gaia count、平滑全候选密度、精确距离
+和较小 bin index。最终两轮
 refinement 以同一 median 为中心，分别计算 lower/upper scaled MAD；等于中心的重复值
 不进入任一侧 deviation，并分别用各侧保留 population 的最小正间距设宽度下限，再形成
 严格 4-sigma cuts。输出目录由 `process_init` 创建；
