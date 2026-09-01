@@ -153,13 +153,12 @@ content.
 | `nplx` | `int` | `2` | same | No | Non-negative x degree | Local PSF polynomial x degree. | Keep consistent with `npl`. | Yes |
 | `nstar_min_local` | `int` | `16` | same | No | Positive count | Minimum stars retained for a local fit. | Tune only with PSF fit validation. | Yes |
 | `psf_exposure_min_candidates` | `int` | `60` | same | No | Positive count | Minimum exposure-wide PSF candidates. | Tune Stage 5 selection. | Yes |
-| `psf_fwhm_hist_bins` | `int` | `20` | same | No | Integer ≥ 3 | Local histogram bin count after robust pilot range estimation. | Tune Stage 5 selection. | Yes |
-| `psf_fwhm_pilot_clip_sigma` | `double` | `3.0` | same | No | Positive sigma multiplier | Iterative pilot median/MAD clipping multiplier; a proposed clip that collapses the next MAD to zero is rejected. | Tune only with locus-tail and quantization validation. | Yes |
-| `psf_fwhm_pilot_clip_iterations` | `int` | `3` | same | No | Positive pass count | Maximum robust pilot clipping passes. | Tune only with locus-tail validation. | Yes |
-| `psf_fwhm_zero_mad_quantile` | `double` | `0.05` | same | No | `0 <= q < 0.5` | Lower quantile for an initially zero-MAD pilot; the upper quantile is `1-q`. | Tune only with quantized-pilot coverage validation. | Yes |
-| `psf_fwhm_hist_range_sigma` | `double` | `5.0` | same | No | Positive width multiplier | Positive-MAD pilot histogram half-range; an initially zero-MAD pilot uses its configured symmetric quantiles instead. | Tune Stage 5 locus search range. | Yes |
-| `psf_fwhm_locus_sigma` | `double` | `4.0` | same | No | Positive sigma multiplier | Multiplier applied independently to final lower/upper basin MAD widths for clipping and strict locus cuts. | Tune Stage 5 selection. | Yes |
-| `psf_fwhm_locus_min_samples` | `int` | `30` | same | No | Positive count | Minimum samples for a valid FWHM locus. | Tune sparse-exposure handling. | Yes |
+| `psf_count_pilot_clip_sigma` | `double` | `3.0` | same | No | Positive sigma multiplier | Iterative integer-star-area pilot median/MAD clipping multiplier; a proposed clip that collapses the next MAD to zero is rejected. | Tune only with locus-tail and quantization validation. | Yes |
+| `psf_count_pilot_clip_iterations` | `int` | `3` | same | No | Positive pass count | Maximum robust star-area pilot clipping passes. | Tune only with locus-tail validation. | Yes |
+| `psf_count_zero_mad_quantile` | `double` | `0.05` | same | No | `0 <= q < 0.5` | Lower quantile for an initially zero-MAD star-area pilot; the upper quantile is `1-q`. | Tune only with integer-pilot coverage validation. | Yes |
+| `psf_count_hist_range_sigma` | `double` | `5.0` | same | No | Positive width multiplier | Positive-MAD pilot half-range in count units; an initially zero-MAD pilot uses its configured symmetric quantiles. The histogram itself is fixed at one integer count per bin. | Tune Stage 5 locus search range. | Yes |
+| `psf_count_locus_sigma` | `double` | `4.0` | same | No | Positive sigma multiplier | Multiplier applied independently to final lower/upper count-MAD widths for clipping and strict `star_area` cuts. | Tune Stage 5 selection. | Yes |
+| `psf_count_locus_min_samples` | `int` | `30` | same | No | Positive count | Minimum samples for a valid integer star-area locus. | Tune sparse-exposure handling. | Yes |
 | `PsfGroupingType` | `int` | `2` | same | No | `1` threshold graph, `2` mutual KNN | Selects PSF grouping topology. | Change for controlled algorithm comparison. | Yes |
 | `psf_minchi_reference_fraction` | `double` | `1 / 3` | same | No | `(0, 1]` | Fraction of largest locus candidates eligible as references. | Tune Stage 5 threshold estimation. | Yes |
 | `psf_minchi_reference_max_per_chip` | `int` | `5` | same | No | Positive count | Caps reference stars per chip. | Tune Stage 5 threshold estimation. | Yes |

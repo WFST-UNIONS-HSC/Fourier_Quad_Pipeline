@@ -55,29 +55,30 @@ run per dataset; datasets are sequential and the first failure stops the run.
 
 The default `223092870` enables all stages. Stage 9 requires Stage 8.
 
-When Stage 5 successfully estimates an exposure-wide FWHM locus, both Standard
-and Lite write `stamps/svg_StarLocus/<exposure>_locus.svg`. The self-contained
-SVG shows the robust-pilot source/retention, published bounds, MAD/configured
-symmetric-quantile range mode, zero-MAD rollback status, local-window counts,
-all-candidate histograms, the raw Gaia-matched distribution on the same bins
-and count scale, selected peak, optional raw Gaia median, asymmetric final
-widths/cuts, and the post-grouping (pre-PRESS) shared-group distribution. The
-two overlays are unsmoothed diagnostics and do not feed any scientific decision.
-A positive-MAD Gaia (or all-candidate fallback)
-pilot accepts up to three 3-MAD clips only while the proposed population keeps
-a positive MAD, then uses a local ±5-MAD range. An initially zero-MAD pilot is
-not clipped and instead uses interpolated `Q(q)--Q(1-q)` bounds, where
-`q = LensingConfig::psf_fwhm_zero_mad_quantile` defaults to `0.05`. Both
-range types receive only `1e-6` outward boundary padding before the shared histogram
-and peak/basin selection. With a Gaia pilot, peak eligibility is anchored to the
-global minimum distance: only peaks no more than one bin beyond that minimum are
-ranked by raw Gaia count, then smoothed all-candidate density, exact distance,
-and lower bin index. The final two-pass refinement uses separate lower/upper
-scaled MADs, excludes exact
-center duplicates from both side deviations, and applies an independent retained-
-population spacing floor to each side before the strict 4-sigma cuts. `process_init`
-creates the output directory; a legacy dataset that skips
-initialization must provide it before running Stage 5.
+Stage 5 stores the exact central-`exp(-1)` Fourier-pixel count as `star_area` at
+private candidate index 12 and uses that integer quantity for exposure-wide
+stellar-locus science. Index 7 remains the legacy 0.02-threshold area used for
+minChi reference ranking, while index 10 remains the historical FWHM. A
+positive-MAD Gaia pilot (or all-candidate fallback) accepts up to three 3-MAD
+clips while the proposed population keeps a positive MAD, then uses a local
+±5-MAD range. An initially zero-MAD pilot keeps its complete input and uses
+unpadded interpolated `Q(q)--Q(1-q)` bounds, where
+`q = LensingConfig::psf_count_zero_mad_quantile` defaults to `0.05`.
+
+The science histogram has exactly one integer count level per bin. Its raw
+counts remain immutable; only bounded internal holes of one or two levels are
+linearly interpolated in a working histogram before 1-2-3-2-1 smoothing. Gaia
+peak eligibility is anchored to the global nearest distance plus exactly one
+count. Final two-pass asymmetric MAD refinement excludes center duplicates,
+uses a fixed one-count floor on each side, and production applies strict
+`lower < star_area < upper` cuts.
+
+Both variants still write `stamps/svg_StarLocus/<exposure>_locus.svg` with the
+same FWHM axis, curves, layout, and pre-PRESS shared-group overlay. Its FWHM
+histograms are display-only; science pilot/peak/cuts are mapped through the
+historical `star_area - 1e-5` FWHM formula and plotting data never feeds
+selection. `process_init` creates the output directory; a legacy data tree that
+skips initialization must provide it before Stage 5.
 
 ## Build
 

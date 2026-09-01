@@ -71,7 +71,10 @@ namespace PSFModel {
     void getPowerArea(int nx, int ny, const std::vector<float>& power, int& area, float thresh_ratio);
     void getPowerE(int nx, int ny, const std::vector<float>& power, std::array<double, 2>& e, float thresh_ratio);
     void getPowerAll(int nx, int ny, const std::vector<float>& power, std::array<double, 2>& e, double& size, float thresh_ratio);
-    void getPSFFWHM(const std::vector<float>& power, double& FWHM);
+    void getPSFFWHM(
+        const std::vector<float>& power,
+        double& FWHM,
+        int& star_area);
 
     // ==========================================
     // Function: Validate one PSF fitting sample
@@ -120,12 +123,13 @@ namespace PSFModel {
     static void writeFWHMLocusSVG(
         const std::string& dirOutput,
         const std::string& exposure,
-        const Internal::FWHMLocus& locus,
-        const Internal::FWHMLocusDiagnostics& diagnostics) {
+        const Internal::FWHMDisplayLocus& locus,
+        const Internal::FWHMDisplayDiagnostics& diagnostics) {
         if (!locus.valid || diagnostics.histogram.empty()
             || diagnostics.histogram.size()
                 != diagnostics.smoothed_histogram.size()
-            || !(diagnostics.pilot_upper > diagnostics.pilot_lower)) {
+            || !(diagnostics.histogram_upper
+                > diagnostics.histogram_lower)) {
             return;
         }
         const bool has_gaia_histogram =
@@ -138,9 +142,9 @@ namespace PSFModel {
                 == diagnostics.histogram.size();
         std::ostringstream quantile_range_mode;
         quantile_range_mode << "Q("
-                            << LensingConfig::psf_fwhm_zero_mad_quantile
+                            << LensingConfig::psf_count_zero_mad_quantile
                             << ")-Q("
-                            << 1.0 - LensingConfig::psf_fwhm_zero_mad_quantile
+                            << 1.0 - LensingConfig::psf_count_zero_mad_quantile
                             << ")";
 
         constexpr double canvas_width = 1200.0;
@@ -154,6 +158,8 @@ namespace PSFModel {
 
         double x_min = std::min(diagnostics.pilot_lower, locus.lower);
         double x_max = std::max(diagnostics.pilot_upper, locus.upper);
+        x_min = std::min(x_min, diagnostics.histogram_lower);
+        x_max = std::max(x_max, diagnostics.histogram_upper);
         x_min = std::min(x_min, diagnostics.pilot_center);
         x_max = std::max(x_max, diagnostics.pilot_center);
         if (diagnostics.has_gaia_median) {
@@ -229,13 +235,13 @@ namespace PSFModel {
 
         output << "  <g id=\"raw-histogram\" fill=\"#b8bec7\">\n";
         const double histogram_span =
-            diagnostics.pilot_upper - diagnostics.pilot_lower;
+            diagnostics.histogram_upper - diagnostics.histogram_lower;
         const std::size_t bin_count = diagnostics.histogram.size();
         for (std::size_t bin = 0; bin < bin_count; ++bin) {
-            const double left_value = diagnostics.pilot_lower
+            const double left_value = diagnostics.histogram_lower
                 + histogram_span * static_cast<double>(bin)
                     / static_cast<double>(bin_count);
-            const double right_value = diagnostics.pilot_lower
+            const double right_value = diagnostics.histogram_lower
                 + histogram_span * static_cast<double>(bin + 1)
                     / static_cast<double>(bin_count);
             const double left = mapX(left_value);
@@ -249,7 +255,7 @@ namespace PSFModel {
                << "  <polyline id=\"smoothed-histogram\" fill=\"none\" "
                   "stroke=\"#2468b4\" stroke-width=\"3\" points=\"";
         for (std::size_t bin = 0; bin < bin_count; ++bin) {
-            const double center = diagnostics.pilot_lower
+            const double center = diagnostics.histogram_lower
                 + histogram_span * (static_cast<double>(bin) + 0.5)
                     / static_cast<double>(bin_count);
             output << mapX(center) << ','
@@ -260,7 +266,7 @@ namespace PSFModel {
             output << "  <polyline id=\"gaia-histogram\" fill=\"none\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\" points=\"";
             for (std::size_t bin = 0; bin < bin_count; ++bin) {
-                const double center = diagnostics.pilot_lower
+                const double center = diagnostics.histogram_lower
                     + histogram_span * (static_cast<double>(bin) + 0.5)
                         / static_cast<double>(bin_count);
                 output << mapX(center) << ','
@@ -272,7 +278,7 @@ namespace PSFModel {
             output << "  <polyline id=\"selected-group-histogram\" fill=\"none\" "
                       "stroke=\"#17becf\" stroke-width=\"3\" points=\"";
             for (std::size_t bin = 0; bin < bin_count; ++bin) {
-                const double center = diagnostics.pilot_lower
+                const double center = diagnostics.histogram_lower
                     + histogram_span * (static_cast<double>(bin) + 0.5)
                         / static_cast<double>(bin_count);
                 output << mapX(center) << ','
@@ -281,11 +287,7 @@ namespace PSFModel {
             output << "\"/>\n";
         }
 
-        const int peak_bin = std::clamp(
-            diagnostics.peak_bin, 0, static_cast<int>(bin_count) - 1);
-        const double peak_value = diagnostics.pilot_lower
-            + histogram_span * (static_cast<double>(peak_bin) + 0.5)
-                / static_cast<double>(bin_count);
+        const double peak_value = diagnostics.peak_value;
         output << "  <line id=\"selected-peak\" x1=\"" << mapX(peak_value)
                << "\" y1=\"" << plot_top << "\" x2=\"" << mapX(peak_value)
                << "\" y2=\"" << plot_bottom
@@ -369,7 +371,7 @@ namespace PSFModel {
                << "    <text x=\"900\" y=\"422\">Upper width = "
                << locus.upper_width << "</text>\n"
                << "    <text x=\"900\" y=\"445\">Final sigma = "
-               << LensingConfig::psf_fwhm_locus_sigma << "</text>\n"
+               << LensingConfig::psf_count_locus_sigma << "</text>\n"
                << "    <text x=\"900\" y=\"468\">Final lower = "
                << locus.lower << "</text>\n"
                << "    <text x=\"900\" y=\"491\">Final upper = "
@@ -815,14 +817,19 @@ namespace PSFModel {
                     state.getStarPara(k, i, 9) = ee[1];
 
                     double FWHM = 0.0;
-                    getPSFFWHM(source_p, FWHM);
+                    int star_area = 0;
+                    getPSFFWHM(source_p, FWHM, star_area);
                     if (!Internal::candidateDiagnosticsAreFinite(
-                            size, ee[0], ee[1], FWHM)) {
+                            size, ee[0], ee[1], FWHM)
+                        || star_area <= 0) {
                         state.getStarPara(k, i, 4) = -1.0;
                         continue;
                     }
                     state.getStarPara(k, i, 10) = FWHM;
                     state.getStarPara(k, i, 11) = 1.0 / sum_power;
+                    state.getStarPara(
+                        k, i, ChipPSFState::star_area_index) =
+                            static_cast<double>(star_area);
 
                     Internal::StarSelectionState& selection = chip.selection[i];
                     selection.full_power_sum = sum_power;
@@ -852,7 +859,7 @@ namespace PSFModel {
                 chip.stars[index][4] = -1.0;
                 if (index >= chip.selection.size()) continue;
                 Internal::StarSelectionState& selection = chip.selection[index];
-                selection.in_fwhm_locus = false;
+                selection.in_size_locus = false;
                 selection.selected_group = false;
                 selection.selected_press = false;
                 std::vector<float>().swap(selection.chi_window);
@@ -946,7 +953,7 @@ namespace PSFModel {
             const ChipPSFState& chip = state.chips[chip_index];
             for (int star_index = 0;
                  star_index < state.getNStar(chip_index); ++star_index) {
-                if (!chip.selection[star_index].in_fwhm_locus) continue;
+                if (!chip.selection[star_index].in_size_locus) continue;
                 locus_count++;
                 reference_candidates.push_back({
                     chip_index,
@@ -984,7 +991,7 @@ namespace PSFModel {
                  star_index < state.getNStar(chip_index); ++star_index) {
                 candidates.push_back({
                     &chip.selection[star_index].chi_window,
-                    chip.selection[star_index].in_fwhm_locus,
+                    chip.selection[star_index].in_size_locus,
                     is_reference[chip_index][star_index]});
             }
             Internal::MinChiPairResult pair_result =
@@ -1013,7 +1020,7 @@ namespace PSFModel {
                  star_index < state.getNStar(chip_index); ++star_index) {
                 const Internal::StarSelectionState& selection =
                     chip.selection[star_index];
-                if (selection.in_fwhm_locus && std::isfinite(selection.min_chi)
+                if (selection.in_size_locus && std::isfinite(selection.min_chi)
                     && selection.min_chi <= min_chi_threshold) {
                     active_indices[chip_index].push_back(star_index);
                 }
@@ -1035,10 +1042,10 @@ namespace PSFModel {
         for (int chip_index = 0; chip_index < nchip; ++chip_index) {
             const ChipPSFState& chip = state.chips[chip_index];
             for (int first = 0; first < state.getNStar(chip_index) - 1; ++first) {
-                if (!chip.selection[first].in_fwhm_locus) continue;
+                if (!chip.selection[first].in_size_locus) continue;
                 for (int second = first + 1;
                      second < state.getNStar(chip_index); ++second) {
-                    if (!chip.selection[second].in_fwhm_locus) continue;
+                    if (!chip.selection[second].in_size_locus) continue;
                     const float chi = Internal::normalizedChiDistance(
                         chip.selection[first].chi_window,
                         chip.selection[second].chi_window);
@@ -1159,7 +1166,7 @@ namespace PSFModel {
 
     // ==========================================
     // Function: Select PSF stars from quality-valid candidates
-    // Method: Apply common Gaia/FWHM/minChi selection, dispatch grouping and the
+    // Method: Apply common Gaia/star-area/minChi selection, dispatch grouping and the
     //         shared policy, then publish the pre-PRESS selected distribution.
     // ==========================================
     void starSelection(
@@ -1180,8 +1187,11 @@ namespace PSFModel {
             return;
         }
 
-        std::vector<Internal::FWHMSample> fwhm_samples;
-        fwhm_samples.reserve(static_cast<std::size_t>(quality_valid_count));
+        std::vector<Internal::PSFCountSample> count_samples;
+        std::vector<Internal::FWHMDisplaySample> fwhm_display_samples;
+        count_samples.reserve(static_cast<std::size_t>(quality_valid_count));
+        fwhm_display_samples.reserve(
+            static_cast<std::size_t>(quality_valid_count));
         for (int chip_index = 0; chip_index < nchip; ++chip_index) {
             ChipPSFState& chip = state.chips[chip_index];
             const std::vector<std::array<double, 2>> gaia_xy =
@@ -1194,25 +1204,32 @@ namespace PSFModel {
                     state.getStarPara(chip_index, star_index, 2),
                     gaia_xy,
                     LensingConfig::psf_gaia_match_radius_pix);
-                fwhm_samples.push_back({
+                const int star_area = static_cast<int>(std::llround(
+                    state.getStarPara(
+                        chip_index,
+                        star_index,
+                        ChipPSFState::star_area_index)));
+                count_samples.push_back({
+                    star_area,
+                    selection.gaia_matched});
+                fwhm_display_samples.push_back({
                     state.getStarPara(chip_index, star_index, 10),
                     selection.gaia_matched});
             }
         }
 
-        Internal::FWHMLocus locus;
-        Internal::FWHMLocusDiagnostics locus_diagnostics;
-        const Internal::FWHMLocusConfig locus_config = {
-            LensingConfig::psf_fwhm_hist_bins,
-            LensingConfig::psf_fwhm_pilot_clip_sigma,
-            LensingConfig::psf_fwhm_pilot_clip_iterations,
-            LensingConfig::psf_fwhm_zero_mad_quantile,
-            LensingConfig::psf_fwhm_hist_range_sigma,
-            LensingConfig::psf_fwhm_locus_sigma,
-            LensingConfig::psf_fwhm_locus_min_samples,
+        Internal::PSFCountLocus locus;
+        Internal::PSFCountLocusDiagnostics locus_diagnostics;
+        const Internal::PSFCountLocusConfig locus_config = {
+            LensingConfig::psf_count_pilot_clip_sigma,
+            LensingConfig::psf_count_pilot_clip_iterations,
+            LensingConfig::psf_count_zero_mad_quantile,
+            LensingConfig::psf_count_hist_range_sigma,
+            LensingConfig::psf_count_locus_sigma,
+            LensingConfig::psf_count_locus_min_samples,
             LensingConfig::psf_gaia_locus_min_matches};
-        if (!Internal::estimateFWHMLocus(
-                fwhm_samples,
+        if (!Internal::estimatePSFCountLocus(
+                count_samples,
                 locus_config,
                 locus,
                 &locus_diagnostics)) {
@@ -1232,9 +1249,13 @@ namespace PSFModel {
                 selection.min_chi = std::numeric_limits<float>::infinity();
                 if (state.getStarPara(chip_index, star_index, 4) <= 0.0) continue;
 
-                const double fwhm = state.getStarPara(chip_index, star_index, 10);
-                selection.in_fwhm_locus = fwhm > locus.lower && fwhm < locus.upper;
-                if (!selection.in_fwhm_locus
+                const double star_area = state.getStarPara(
+                    chip_index,
+                    star_index,
+                    ChipPSFState::star_area_index);
+                selection.in_size_locus =
+                    star_area > locus.lower && star_area < locus.upper;
+                if (!selection.in_size_locus
                     || selection.full_power_sum <= 0.0
                     || selection.chi_window.empty()) {
                     state.getStarPara(chip_index, star_index, 4) = -1.0;
@@ -1269,10 +1290,23 @@ namespace PSFModel {
                 }
             }
         }
+        Internal::FWHMDisplayLocus display_locus;
+        Internal::FWHMDisplayDiagnostics display_diagnostics;
+        if (!Internal::buildFWHMLocusDisplay(
+                fwhm_display_samples,
+                locus,
+                locus_diagnostics,
+                LensingConfig::psf_count_locus_sigma,
+                LensingConfig::ns,
+                LensingConfig::pixel_size,
+                display_locus,
+                display_diagnostics)) {
+            return;
+        }
         Internal::populateSelectedGroupFWHMHistogram(
-            selected_group_fwhm, locus_diagnostics);
+            selected_group_fwhm, display_diagnostics);
         writeFWHMLocusSVG(
-            dirOutput, prefix_e, locus, locus_diagnostics);
+            dirOutput, prefix_e, display_locus, display_diagnostics);
     }
 
     // ==========================================
@@ -2672,20 +2706,19 @@ namespace PSFModel {
         getPowerE(nx, ny, power, e, thresh_ratio);
     }
 
-    void getPSFFWHM(const std::vector<float>& power, double& FWHM) {
-        int ns = LensingConfig::ns;
-        float thresh = power[(ns / 2) * ns + (ns / 2)] * std::exp(-1.0f);
-        double area = -1e-5;
-        for (int idx = 0; idx < ns * ns; ++idx) {
-            if (power[idx] >= thresh) {
-                area += 1.0;
-            }
-        }
-        if (area <= 0.0) {
-            FWHM = 0.0;
-            return;
-        }
-        double beta = ns / (2.0 * LensingConfig::pi) / std::sqrt(area / LensingConfig::pi);
-        FWHM = beta * 2.0 * std::sqrt(2.0 * std::log(2.0)) * LensingConfig::pixel_size;
+    // ==========================================
+    // Function: Measure historical PSF FWHM and exact exp(-1) star area
+    // Method: Count integer threshold pixels once, then reuse the unchanged
+    //         area-minus-1e-5 conversion for the reported FWHM.
+    // ==========================================
+    void getPSFFWHM(
+        const std::vector<float>& power,
+        double& FWHM,
+        int& star_area) {
+        star_area = Internal::countPSFStarArea(power, LensingConfig::ns);
+        FWHM = Internal::fwhmFromStarArea(
+            static_cast<double>(star_area),
+            LensingConfig::ns,
+            LensingConfig::pixel_size);
     }
 }

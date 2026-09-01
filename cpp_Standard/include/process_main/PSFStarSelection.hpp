@@ -37,21 +37,19 @@ struct PSFChiWindow {
 PSFChiWindow getPSFChiWindow(int n);
 
 // ==========================================
-// Structure: Supply one quality-valid FWHM measurement to locus estimation
-// Method: Carry only the scalar FWHM and its optional Gaia supporting label.
+// Structure: Supply one quality-valid integer star area to locus estimation
+// Method: Carry the exact exp(-1) Fourier-pixel count and Gaia support label.
 // ==========================================
-struct FWHMSample {
-    double fwhm = 0.0;
+struct PSFCountSample {
+    int star_area = 0;
     bool gaia_matched = false;
 };
 
 // ==========================================
-// Structure: Configure exposure-wide stellar FWHM-locus estimation
-// Method: Group pilot clipping, symmetric zero-MAD quantiles, local-histogram,
-//         and final-cut controls for production and test call sites.
+// Structure: Configure exposure-wide integer star-area locus estimation
+// Method: Group pilot clipping, zero-MAD quantiles, and final-cut controls.
 // ==========================================
-struct FWHMLocusConfig {
-    int histogram_bins = 0;
+struct PSFCountLocusConfig {
     double pilot_clip_sigma = 0.0;
     int pilot_clip_iterations = 0;
     double zero_mad_quantile = -1.0;
@@ -62,26 +60,24 @@ struct FWHMLocusConfig {
 };
 
 // ==========================================
-// Structure: Publish a robust exposure-wide stellar FWHM locus
-// Method: Store the median center, side-specific robust widths, cut bounds, and
-//         histogram scale.
+// Structure: Publish a robust exposure-wide integer star-area locus
+// Method: Store the median center, side-specific widths, and strict-cut bounds.
 // ==========================================
-struct FWHMLocus {
+struct PSFCountLocus {
     bool valid = false;
     double center = 0.0;
     double lower_width = 0.0;
     double upper_width = 0.0;
     double lower = 0.0;
     double upper = 0.0;
-    double histogram_bin_width = 0.0;
 };
 
 // ==========================================
-// Structure: Publish the exact inputs used by FWHM-locus peak selection
-// Method: Retain filtered/pilot/window counts, robust pilot bounds and branch
-//         flags, histogram products, selected peak, and the raw Gaia median.
+// Structure: Publish exact integer star-area locus diagnostics
+// Method: Keep raw counts immutable, expose the hole-filled working histogram,
+//         and retain pilot, range, Gaia, and selected-peak accounting.
 // ==========================================
-struct FWHMLocusDiagnostics {
+struct PSFCountLocusDiagnostics {
     int sample_count = 0;
     int gaia_match_count = 0;
     bool pilot_uses_gaia = false;
@@ -102,7 +98,114 @@ struct FWHMLocusDiagnostics {
     int selected_group_count = 0;
     bool has_gaia_median = false;
     double gaia_median = 0.0;
+    int histogram_first_count = 0;
     int peak_bin = -1;
+    std::vector<double> histogram;
+    std::vector<double> working_histogram;
+    std::vector<double> smoothed_histogram;
+    std::vector<double> gaia_histogram;
+};
+
+// ==========================================
+// Function: Select one integer star-area histogram peak deterministically
+// Method: Anchor Gaia eligibility to the global nearest distance plus one count,
+//         then rank by Gaia count, density, exact distance, and lower count.
+// ==========================================
+int selectPSFCountPeak(
+    const std::vector<int>& peaks,
+    const std::vector<double>& smoothed_histogram,
+    const std::vector<double>& gaia_histogram,
+    int histogram_first_count,
+    double pilot_center,
+    bool pilot_uses_gaia);
+
+// ==========================================
+// Function: Fill bounded one- or two-level holes in a working histogram
+// Method: Detect zero runs only in the immutable raw histogram and linearly
+//         interpolate between positive endpoints without chaining.
+// ==========================================
+std::vector<double> interpolateShortInternalHoles(
+    const std::vector<double>& histogram);
+
+// ==========================================
+// Function: Estimate an exposure-wide integer star-area locus
+// Method: Build one-count bins, fill only short internal holes for smoothing,
+//         select a count peak, and refine its basin with asymmetric count MAD.
+// ==========================================
+bool estimatePSFCountLocus(
+    const std::vector<PSFCountSample>& samples,
+    const PSFCountLocusConfig& config,
+    PSFCountLocus& locus,
+    PSFCountLocusDiagnostics* diagnostics = nullptr);
+
+// ==========================================
+// Function: Count exp(-1)-threshold pixels in one square Fourier-power stamp
+// Method: Compare every finite stamp value with the central value times exp(-1).
+// ==========================================
+int countPSFStarArea(
+    const std::vector<float>& power,
+    int stamp_side);
+
+// ==========================================
+// Function: Convert an exp(-1) star area to the historical PSF FWHM
+// Method: Preserve the legacy area-minus-1e-5 formula and explicit pixel scale.
+// ==========================================
+double fwhmFromStarArea(
+    double star_area,
+    int stamp_side,
+    double pixel_size);
+
+// ==========================================
+// Structure: Supply one quality-valid FWHM value to SVG-only diagnostics
+// Method: Retain FWHM and Gaia labels without exposing them to locus science.
+// ==========================================
+struct FWHMDisplaySample {
+    double fwhm = 0.0;
+    bool gaia_matched = false;
+};
+
+// ==========================================
+// Structure: Publish count-locus coordinates mapped onto the FWHM SVG axis
+// Method: Reverse count bounds through the historical FWHM conversion.
+// ==========================================
+struct FWHMDisplayLocus {
+    bool valid = false;
+    double center = 0.0;
+    double lower_width = 0.0;
+    double upper_width = 0.0;
+    double lower = 0.0;
+    double upper = 0.0;
+};
+
+// ==========================================
+// Structure: Publish SVG-only FWHM histogram and annotation data
+// Method: Keep display bins and mapped science markers separate from count
+//         diagnostics so plotting cannot affect stellar selection.
+// ==========================================
+struct FWHMDisplayDiagnostics {
+    int sample_count = 0;
+    int gaia_match_count = 0;
+    bool pilot_uses_gaia = false;
+    int pilot_input_count = 0;
+    int pilot_retained_count = 0;
+    double pilot_center = 0.0;
+    double pilot_width = 0.0;
+    double pilot_lower = 0.0;
+    double pilot_upper = 0.0;
+    bool pilot_uses_quantile_range = false;
+    bool pilot_rejected_zero_mad_clip = false;
+    int histogram_sample_count = 0;
+    int histogram_below_count = 0;
+    int histogram_above_count = 0;
+    int gaia_histogram_sample_count = 0;
+    int gaia_histogram_below_count = 0;
+    int gaia_histogram_above_count = 0;
+    int selected_group_count = 0;
+    bool has_gaia_median = false;
+    double gaia_median = 0.0;
+    double histogram_lower = 0.0;
+    double histogram_upper = 0.0;
+    double peak_value = 0.0;
     std::vector<double> histogram;
     std::vector<double> smoothed_histogram;
     std::vector<double> gaia_histogram;
@@ -110,40 +213,27 @@ struct FWHMLocusDiagnostics {
 };
 
 // ==========================================
-// Function: Select one local FWHM histogram peak deterministically
-// Method: Use smoothed density without Gaia; with a Gaia pilot, preserve clearly
-//         closer peaks and resolve one-bin distance ties by Gaia count, density,
-//         exact distance, and lower bin index.
+// Function: Build the unchanged FWHM SVG view from isolated display samples
+// Method: Map count science markers to FWHM and independently histogram FWHM.
 // ==========================================
-int selectFWHMPeak(
-    const std::vector<int>& peaks,
-    const std::vector<double>& smoothed_histogram,
-    const std::vector<double>& gaia_histogram,
-    double pilot_lower,
-    double histogram_bin_width,
-    double pilot_center,
-    bool pilot_uses_gaia);
+bool buildFWHMLocusDisplay(
+    const std::vector<FWHMDisplaySample>& samples,
+    const PSFCountLocus& count_locus,
+    const PSFCountLocusDiagnostics& count_diagnostics,
+    double locus_sigma,
+    int stamp_side,
+    double pixel_size,
+    FWHMDisplayLocus& display_locus,
+    FWHMDisplayDiagnostics& display_diagnostics);
 
 // ==========================================
-// Function: Estimate an exposure-wide stellar FWHM locus
-// Method: Estimate a clipped Gaia/all-candidate pilot, histogram its local
-//         window, choose a density or pilot-guided peak, and refine its basin
-//         without coupling the final width to histogram discretization.
-// ==========================================
-bool estimateFWHMLocus(
-    const std::vector<FWHMSample>& samples,
-    const FWHMLocusConfig& config,
-    FWHMLocus& locus,
-    FWHMLocusDiagnostics* diagnostics = nullptr);
-
-// ==========================================
-// Function: Populate the shared-group FWHM overlay on the estimator's bin grid
+// Function: Populate the shared-group FWHM overlay on the display bin grid
 // Method: Count every selected value and bin finite in-range values without
-//         changing any locus or upstream diagnostic field.
+//         changing science or upstream display diagnostics.
 // ==========================================
 void populateSelectedGroupFWHMHistogram(
     const std::vector<double>& selected_fwhm,
-    FWHMLocusDiagnostics& diagnostics);
+    FWHMDisplayDiagnostics& diagnostics);
 
 enum class AstrometryGaiaReadStatus {
     Accepted,
@@ -183,7 +273,7 @@ struct NeighborEdge {
 
 // ==========================================
 // Structure: Identify one exposure-level minChi reference candidate
-// Method: Carry deterministic chip/star keys and the FWHM-locus size ranking.
+// Method: Carry deterministic chip/star keys and the legacy index-7 size rank.
 // ==========================================
 struct MinChiReferenceCandidate {
     int chip_index = -1;
@@ -207,7 +297,7 @@ std::vector<MinChiReferenceCandidate> selectMinChiReferenceStars(
 // ==========================================
 struct MinChiCandidateView {
     const std::vector<float>* chi_window = nullptr;
-    bool in_fwhm_locus = false;
+    bool in_size_locus = false;
     bool is_reference = false;
 };
 

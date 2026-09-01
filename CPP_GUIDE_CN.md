@@ -50,24 +50,25 @@ C++ Standard 可以选择不读取 DQ 的配置。
 
 默认 `223092870` 启用全部阶段；阶段 9 必须与阶段 8 同时启用。
 
-Stage 5 成功估计曝光级 FWHM locus 后，Standard 与 Lite 都会写出
-`stamps/svg_StarLocus/<exposure>_locus.svg`。该自包含 SVG 显示 robust pilot
-来源与保留数、发布的 bounds、MAD/可配置对称分位数 range mode、zero-MAD rollback 状态、
-局部窗口计数、全部候选体的原始与平滑 histogram、以相同分箱和计数尺度绘制的
-原始 Gaia 匹配分布、选中峰、可选的原始 Gaia median、不对称最终宽度/cut，以及
-grouping 后且 PRESS 前的 shared-group 分布。两条叠加曲线都不做平滑，只用于诊断，
-不会反向参与任何科学选择。正 MAD 的 Gaia（不足时退回全部候选）pilot
-最多执行三轮 3-MAD clipping，但只接受下一 population 仍为正 MAD 的 clip，然后使用局部
-±5-MAD range。初始 MAD 为零时完全不 clipping，改用该初始 pilot population 的插值
-`Q(q)--Q(1-q)` bounds；`q = LensingConfig::psf_fwhm_zero_mad_quantile`，默认
-`0.05`。两类 bounds 都只向外增加 `1e-6` 数值 padding，再进入共享 histogram 与
-峰/谷盆选择。使用 Gaia pilot 时，候选资格固定锚定到全局最小距离：只有距离不超过
-`d_min + 1 bin` 的峰才参与决胜，并依次比较 raw Gaia count、平滑全候选密度、精确距离
-和较小 bin index。最终两轮
-refinement 以同一 median 为中心，分别计算 lower/upper scaled MAD；等于中心的重复值
-不进入任一侧 deviation，并分别用各侧保留 population 的最小正间距设宽度下限，再形成
-严格 4-sigma cuts。输出目录由 `process_init` 创建；
-旧数据树若跳过初始化，必须在运行 Stage 5 前补齐该目录。
+Stage 5 将中心值 `exp(-1)` 阈值以上的 Fourier 像素精确整数个数保存为
+私有候选参数 index 12 `star_area`，并以它进行曝光级 stellar-locus 科学选择。
+index 7 仍是 minChi reference 排序使用的 0.02 阈值 legacy area，index 10 仍保存
+历史 FWHM。正 MAD 的 Gaia pilot（不足时退回全部候选）最多执行三轮 3-MAD
+clipping，且只接受下一 population 仍为正 MAD 的 clip，然后使用局部 ±5-MAD range。
+初始 MAD 为零时保留完整输入并使用无 padding 的插值 `Q(q)--Q(1-q)` bounds；
+`q = LensingConfig::psf_count_zero_mad_quantile`，默认 `0.05`。
+
+科学 histogram 每个整数 count level 固定对应一个 bin。raw count 始终不修改；只在
+working histogram 中对两侧由正值封闭的 1 或 2 层内部空洞做线性插值，再进行
+1-2-3-2-1 平滑。Gaia 峰资格固定为全局最近距离再加 1 count。最终两轮不对称 MAD
+refinement 排除等于中心的重复值，两侧均使用固定 1-count 宽度下限；生产选择继续采用
+严格的 `lower < star_area < upper`。
+
+Standard 与 Lite 仍写出 `stamps/svg_StarLocus/<exposure>_locus.svg`，保留原有 FWHM
+横轴、曲线、布局及 grouping 后/PRESS 前的 shared-group 叠加。FWHM histogram 仅用于
+显示；科学 pilot、峰和 cuts 通过历史 `star_area - 1e-5` 公式映射到 FWHM，绘图数据
+不会反向参与选择。输出目录由 `process_init` 创建；旧数据树若跳过初始化，必须在
+运行 Stage 5 前补齐该目录。
 
 ## 编译
 

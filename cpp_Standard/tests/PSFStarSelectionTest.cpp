@@ -1,4 +1,5 @@
 #include "process_main/PSFStarSelection.hpp"
+#include "process_main/PSFModelState.hpp"
 
 #include <algorithm>
 #include <array>
@@ -8,6 +9,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -23,21 +25,6 @@ void require(bool condition, const std::string& message) {
         std::cerr << "PSF star-selection test failed: " << message << '\n';
         std::exit(EXIT_FAILURE);
     }
-}
-
-// ==========================================
-// Function: Stop the test when two finite scalars differ beyond tolerance
-// Method: Compare their absolute difference and reuse the focused failure path.
-// ==========================================
-void requireNear(
-    double actual,
-    double expected,
-    double tolerance,
-    const std::string& message) {
-    require(std::isfinite(actual)
-                && std::abs(actual - expected) <= tolerance,
-            message + ": actual=" + std::to_string(actual)
-                + ", expected=" + std::to_string(expected));
 }
 
 // ==========================================
@@ -63,643 +50,263 @@ void testChiWindowAndDistance() {
 // Method: Keep the production quantile, pilot, and final-cut controls fixed while
 //         allowing histogram-resolution checks to vary only the bin count.
 // ==========================================
-FWHMLocusConfig fwhmLocusConfig(int histogram_bins = 128) {
-    return {histogram_bins, 3.0, 3, 0.05, 5.0, 4.0, 30, 10};
+
+// ==========================================
+// Function: Build the production-shaped integer star-area locus configuration
+// Method: Keep the current pilot, quantile, final-cut, and Gaia controls fixed.
+// ==========================================
+PSFCountLocusConfig countLocusConfig() {
+    return {3.0, 3, 0.05, 5.0, 4.0, 30, 5};
 }
 
 // ==========================================
-// Function: Generate a deterministic smooth single-core FWHM population
-// Method: Sample a dense symmetric Gaussian profile on a fine physical grid so
-//         histogram-resolution checks are not dominated by random count noise.
+// Function: Verify exact star-area measurement and historical FWHM conversion
+// Method: Use a controlled stamp, check index 12, and preserve prior row fields.
 // ==========================================
-std::vector<FWHMSample> smoothFWHMCore() {
-    std::vector<FWHMSample> samples;
-    for (int step = -160; step <= 160; ++step) {
-        const double offset = 0.00025 * static_cast<double>(step);
-        const double normal_density = std::exp(
-            -0.5 * (offset / 0.01) * (offset / 0.01));
-        const int copies = std::max(
-            1, static_cast<int>(std::lround(200.0 * normal_density)));
-        for (int copy = 0; copy < copies; ++copy) {
-            samples.push_back({1.30 + offset, false});
-        }
-    }
-    return samples;
+void testStarAreaMeasurementAndStorage() {
+    std::vector<float> power(25, 0.0f);
+    power[12] = 10.0f;
+    power[6] = 4.0f;
+    power[7] = 5.0f;
+    power[11] = 6.0f;
+    require(countPSFStarArea(power, 5) == 4,
+            "star_area must count exact central exp(-1) threshold pixels");
+    const double fwhm = fwhmFromStarArea(4.0, 5, 0.2628);
+    constexpr double pi = 3.14159265358979323846;
+    const double legacy_area = 4.0 - 1.0e-5;
+    const double expected_fwhm =
+        (5.0 / (2.0 * pi) / std::sqrt(legacy_area / pi))
+        * 2.0 * std::sqrt(2.0 * std::log(2.0)) * 0.2628;
+    require(std::abs(fwhm - expected_fwhm) < 1.0e-14
+                && fwhmFromStarArea(9.0, 5, 0.2628) < fwhm,
+            "star_area conversion must preserve the historical FWHM exactly");
+
+    using ChipState = PSFModel::Internal::ChipPSFState;
+    static_assert(ChipState::star_area_index == 12);
+    static_assert(ChipState::star_area_index
+        < static_cast<int>(std::tuple_size<ChipState::StarRow>::value));
+    ChipState::StarRow row{};
+    row[7] = 17.0;
+    row[10] = fwhm;
+    row[11] = 0.25;
+    row[ChipState::star_area_index] = 4.0;
+    require(row[7] == 17.0 && row[10] == fwhm && row[11] == 0.25
+                && row[ChipState::star_area_index] == 4.0,
+            "index-12 star_area storage must not alter existing PSF fields");
 }
 
 // ==========================================
-// Function: Generate a deterministic bin-neutral FWHM population
-// Method: Fill one continuous physical interval uniformly so 64/128/256-bin
-//         basin boundaries retain the same underlying final population.
+// Function: Verify bounded non-chaining interpolation of short count holes
+// Method: Exercise one/two-level fills, long/edge gaps, and raw-run detection.
 // ==========================================
-std::vector<FWHMSample> uniformFWHMCore() {
-    std::vector<FWHMSample> samples;
-    constexpr int sample_count = 2560;
-    samples.reserve(sample_count);
-    for (int index = 0; index < sample_count; ++index) {
-        const double fraction = (static_cast<double>(index) + 0.5)
-            / static_cast<double>(sample_count);
-        samples.push_back({1.28 + 0.04 * fraction, false});
-    }
-    return samples;
+void testCountHoleInterpolation() {
+    require(interpolateShortInternalHoles({100.0, 0.0, 80.0})
+                == std::vector<double>({100.0, 90.0, 80.0}),
+            "one-count internal hole must be linearly interpolated");
+    require(interpolateShortInternalHoles({100.0, 0.0, 0.0, 70.0})
+                == std::vector<double>({100.0, 90.0, 80.0, 70.0}),
+            "two-count internal hole must be linearly interpolated");
+    require(interpolateShortInternalHoles({100.0, 0.0, 0.0, 0.0, 70.0})
+                == std::vector<double>({100.0, 0.0, 0.0, 0.0, 70.0}),
+            "three-count gaps must remain raw zeros");
+    require(interpolateShortInternalHoles({0.0, 0.0, 50.0, 0.0})
+                == std::vector<double>({0.0, 0.0, 50.0, 0.0}),
+            "edge zeros must never be extrapolated");
+    require(interpolateShortInternalHoles(
+                {10.0, 0.0, 8.0, 0.0, 0.0, 0.0, 4.0})
+                == std::vector<double>(
+                    {10.0, 9.0, 8.0, 0.0, 0.0, 0.0, 4.0}),
+            "a filled short hole must not chain into a raw long gap");
 }
 
 // ==========================================
-// Function: Generate one monotonic asymmetric single-basin FWHM population
-// Method: Mirror declining side populations while stretching only the requested
-//         tail so lower/upper MAD behavior can be checked without another mode.
+// Function: Verify fixed one-count Gaia near-tie peak selection
+// Method: Cover every ranking tier, global anchoring, order invariance, and the
+//         unchanged no-Gaia maximum-density route.
 // ==========================================
-std::vector<FWHMSample> skewedFWHMCore(bool right_skew) {
-    std::vector<FWHMSample> samples;
-    constexpr double center = 1.30;
-    const double lower_step = right_skew ? 0.001 : 0.002;
-    const double upper_step = right_skew ? 0.002 : 0.001;
-    for (int step = 1; step <= 20; ++step) {
-        const int copies = 21 - step;
-        for (int copy = 0; copy < copies; ++copy) {
-            samples.push_back({center - lower_step * step, false});
-            samples.push_back({center + upper_step * step, false});
-        }
-    }
-    samples.push_back({center, false});
-    return samples;
-}
-
-// ==========================================
-// Function: Verify same-bin Gaia histogram diagnostics
-// Method: Check shape, total accounting, and the per-bin subset invariant.
-// ==========================================
-void requireGaiaHistogramConsistent(
-    const FWHMLocusDiagnostics& diagnostics,
-    std::size_t expected_bins,
-    const std::string& context) {
-    require(diagnostics.gaia_histogram.size() == expected_bins
-                && diagnostics.gaia_histogram.size()
-                    == diagnostics.histogram.size(),
-            context + ": Gaia histogram must use the all-candidate bins");
-    require(diagnostics.gaia_histogram_sample_count
-                + diagnostics.gaia_histogram_below_count
-                + diagnostics.gaia_histogram_above_count
-                == diagnostics.gaia_match_count,
-            context + ": Gaia histogram counts must cover every Gaia match");
-    for (std::size_t bin = 0; bin < diagnostics.histogram.size(); ++bin) {
-        require(diagnostics.gaia_histogram[bin] <= diagnostics.histogram[bin],
-                context + ": Gaia histogram must be an all-candidate subset");
-    }
-}
-
-// ==========================================
-// Function: Verify every Gaia-aware peak-selection priority tier
-// Method: Exercise exact/near distance ties, clearly farther candidates, raw
-//         Gaia and smoothed-density ties, anchored membership/order, and no Gaia.
-// ==========================================
-void testGaiaPeakTieBreaks() {
+void testCountGaiaPeakTieBreaks() {
     std::vector<double> smoothed(8, 0.0);
     std::vector<double> gaia(8, 0.0);
-
     smoothed[2] = 6.0;
     smoothed[4] = 5.0;
     gaia[2] = 2.0;
     gaia[4] = 4.0;
-    require(selectFWHMPeak(
-                {2, 4}, smoothed, gaia, 0.0, 1.0, 3.5, true) == 4,
-            "equal-distance Gaia near-tie must prefer the higher Gaia count");
-    require(selectFWHMPeak(
-                {2, 4}, smoothed, gaia, 0.0, 1.0, 3.3, true) == 4,
-            "sub-bin distance difference must still prefer the higher Gaia count");
-
-    smoothed[6] = 9.0;
-    gaia[6] = 20.0;
-    require(selectFWHMPeak(
-                {2, 6}, smoothed, gaia, 0.0, 1.0, 3.0, true) == 2,
-            "a clearly farther peak must not override the closer Gaia-guided peak");
-
+    require(selectPSFCountPeak(
+                {2, 4}, smoothed, gaia, 30, 33.0, true) == 4,
+            "equal-distance count peaks must prefer higher raw Gaia count");
+    smoothed[6] = 20.0;
+    gaia[6] = 100.0;
+    require(selectPSFCountPeak(
+                {2, 4, 6}, smoothed, gaia, 30, 33.4, true) == 4
+                && selectPSFCountPeak(
+                    {6, 4, 2}, smoothed, gaia, 30, 33.4, true) == 4,
+            "one-count eligibility must use a global anchor without chaining");
     gaia[4] = gaia[2];
     smoothed[4] = 7.0;
-    require(selectFWHMPeak(
-                {2, 4}, smoothed, gaia, 0.0, 1.0, 3.3, true) == 4,
-            "a Gaia-count tie must prefer higher smoothed all-candidate density");
+    require(selectPSFCountPeak(
+                {2, 4}, smoothed, gaia, 30, 33.3, true) == 4,
+            "Gaia ties must prefer higher smoothed density");
     smoothed[4] = smoothed[2];
-    require(selectFWHMPeak(
-                {2, 4}, smoothed, gaia, 0.0, 1.0, 3.3, true) == 2,
-            "equal Gaia and smoothed density must prefer the exact closer peak");
-    require(selectFWHMPeak(
-                {4, 2}, smoothed, gaia, 0.0, 1.0, 3.5, true) == 2,
-            "a complete peak tie must resolve to the lower bin index");
-
-    std::vector<double> chain_smoothed(8, 0.0);
-    std::vector<double> chain_gaia(8, 0.0);
-    chain_smoothed[2] = 5.0;
-    chain_smoothed[4] = 6.0;
-    chain_smoothed[5] = 20.0;
-    chain_gaia[2] = 1.0;
-    chain_gaia[4] = 2.0;
-    chain_gaia[5] = 100.0;
-    require(selectFWHMPeak(
-                {2, 4, 5}, chain_smoothed, chain_gaia,
-                0.0, 1.0, 3.4, true) == 4,
-            "Gaia near-tie membership must be anchored to the global nearest "
-            "peak and must not chain through intermediate peaks");
-    require(selectFWHMPeak(
-                {5, 4, 2}, chain_smoothed, chain_gaia,
-                0.0, 1.0, 3.4, true) == 4,
-            "Gaia global near-tie selection must be independent of peak "
-            "iteration order");
-
-    require(selectFWHMPeak(
-                {2, 6}, smoothed, gaia, 0.0, 1.0, 3.0, false) == 6,
-            "without a Gaia pilot the highest smoothed density must still win");
+    require(selectPSFCountPeak(
+                {2, 4}, smoothed, gaia, 30, 32.7, true) == 2,
+            "density ties must prefer exact pilot distance");
+    require(selectPSFCountPeak(
+                {4, 2}, smoothed, gaia, 30, 33.0, true) == 2,
+            "complete ties must prefer the lower count level");
+    require(selectPSFCountPeak(
+                {2, 6}, smoothed, gaia, 30, 33.0, false) == 6,
+            "no-Gaia selection must retain maximum smoothed density");
 }
 
 // ==========================================
-// Function: Verify quantization-safe first-layer FWHM pilot behavior
-// Method: Exercise initial Gaia/all zero MAD, rejected collapsing clips,
-//         configurable symmetric quantiles, padding, and Gaia fallback state.
+// Function: Verify integer pilot, histogram, locus, and width-floor behavior
+// Method: Exercise zero MAD, exact one-count bins, immutable raw diagnostics,
+//         single-level support, strict cuts, and insufficient-sample failure.
 // ==========================================
-void testFWHMZeroMadPilot() {
-    constexpr double padding = 1.0e-6;
-    constexpr double tolerance = 1.0e-12;
-    const FWHMLocusConfig config = fwhmLocusConfig();
-    FWHMLocus locus;
-    FWHMLocusDiagnostics diagnostics;
-
-    std::vector<FWHMSample> gaia_zero_mad;
-    gaia_zero_mad.insert(gaia_zero_mad.end(), 60, {2.44, true});
-    gaia_zero_mad.insert(gaia_zero_mad.end(), 30, {2.56, true});
-    gaia_zero_mad.insert(gaia_zero_mad.end(), 10, {2.70, true});
-    require(estimateFWHMLocus(
-                gaia_zero_mad, config, locus, &diagnostics),
-            "initial zero-MAD Gaia pilot must produce a locus");
+void testPSFCountLocus() {
+    const PSFCountLocusConfig config = countLocusConfig();
+    PSFCountLocus locus;
+    PSFCountLocusDiagnostics diagnostics;
+    std::vector<PSFCountSample> zero_mad;
+    zero_mad.insert(zero_mad.end(), 60, {37, true});
+    zero_mad.insert(zero_mad.end(), 30, {40, true});
+    zero_mad.insert(zero_mad.end(), 10, {44, true});
+    require(estimatePSFCountLocus(zero_mad, config, locus, &diagnostics),
+            "integer zero-MAD Gaia pilot must produce a count locus");
     require(diagnostics.pilot_uses_gaia
-                && diagnostics.pilot_input_count == 100
                 && diagnostics.pilot_retained_count == 100
                 && diagnostics.pilot_width == 0.0
                 && diagnostics.pilot_uses_quantile_range
-                && !diagnostics.pilot_rejected_zero_mad_clip,
-            "initial zero-MAD Gaia pilot must retain its complete population");
-    requireNear(diagnostics.pilot_center, 2.44, tolerance,
-                "zero-MAD Gaia center must remain the initial median");
-    requireNear(diagnostics.pilot_lower, 2.44 - padding, tolerance,
-                "zero-MAD Gaia lower bound must be padded Q05");
-    requireNear(diagnostics.pilot_upper, 2.70 + padding, tolerance,
-                "zero-MAD Gaia upper bound must be padded Q95");
-    requireGaiaHistogramConsistent(
-        diagnostics, 128, "zero-MAD Gaia fixture");
+                && diagnostics.pilot_lower == 37.0
+                && diagnostics.pilot_upper == 44.0,
+            "zero-MAD pilot must retain all samples and use unpadded Q05-Q95");
+    require(diagnostics.histogram_first_count == 37
+                && diagnostics.histogram.size() == 8
+                && diagnostics.histogram[0] == 60.0
+                && diagnostics.histogram[3] == 30.0
+                && diagnostics.histogram[7] == 10.0
+                && diagnostics.working_histogram != diagnostics.histogram,
+            "count histogram must map one exact integer level per bin");
 
-    std::vector<FWHMSample> all_zero_mad;
-    all_zero_mad.insert(all_zero_mad.end(), 70, {1.25, false});
-    all_zero_mad.insert(all_zero_mad.end(), 20, {1.35, false});
-    all_zero_mad.insert(all_zero_mad.end(), 10, {1.50, false});
-    require(estimateFWHMLocus(
-                all_zero_mad, config, locus, &diagnostics),
-            "initial zero-MAD all-candidate pilot must produce a locus");
-    require(!diagnostics.pilot_uses_gaia
-                && diagnostics.pilot_input_count == 100
-                && diagnostics.pilot_retained_count == 100
-                && diagnostics.pilot_width == 0.0
-                && diagnostics.pilot_uses_quantile_range
-                && !diagnostics.pilot_rejected_zero_mad_clip,
-            "initial zero-MAD all-candidate pilot must skip clipping");
-    requireNear(diagnostics.pilot_lower, 1.25 - padding, tolerance,
-                "zero-MAD all-candidate lower bound must be padded Q05");
-    requireNear(diagnostics.pilot_upper, 1.50 + padding, tolerance,
-                "zero-MAD all-candidate upper bound must be padded Q95");
-
-    FWHMLocusConfig custom_quantile_config = config;
+    PSFCountLocusConfig custom_quantile_config = config;
     custom_quantile_config.zero_mad_quantile = 0.20;
-    std::vector<FWHMSample> custom_quantile_samples;
-    for (int index = 0; index < 24; ++index) {
-        custom_quantile_samples.push_back({0.76 + 0.01 * index, false});
-    }
-    custom_quantile_samples.insert(
-        custom_quantile_samples.end(), 52, {1.00, false});
-    for (int index = 1; index <= 24; ++index) {
-        custom_quantile_samples.push_back({1.00 + 0.01 * index, false});
-    }
-    require(estimateFWHMLocus(
-                custom_quantile_samples,
+    std::vector<PSFCountSample> custom_quantile;
+    custom_quantile.insert(custom_quantile.end(), 60, {37, false});
+    custom_quantile.insert(custom_quantile.end(), 20, {40, false});
+    custom_quantile.insert(custom_quantile.end(), 20, {44, false});
+    require(estimatePSFCountLocus(
+                custom_quantile,
                 custom_quantile_config,
                 locus,
-                &diagnostics),
-            "a configurable Q20--Q80 zero-MAD pilot must produce a locus");
-    require(diagnostics.pilot_width == 0.0
-                && diagnostics.pilot_uses_quantile_range,
-            "the custom quantile fixture must exercise the initial zero-MAD branch");
-    requireNear(diagnostics.pilot_lower, 0.958 - padding, tolerance,
-                "custom zero-MAD lower bound must use interpolated Q20");
-    requireNear(diagnostics.pilot_upper, 1.042 + padding, tolerance,
-                "custom zero-MAD upper bound must use interpolated Q80");
-
-    FWHMLocusConfig invalid_quantile_config = config;
-    invalid_quantile_config.zero_mad_quantile = -0.01;
-    require(!estimateFWHMLocus(
-                custom_quantile_samples, invalid_quantile_config, locus),
-            "a negative zero-MAD quantile must be rejected");
-    invalid_quantile_config.zero_mad_quantile = 0.50;
-    require(!estimateFWHMLocus(
-                custom_quantile_samples, invalid_quantile_config, locus),
-            "a half-or-greater zero-MAD quantile must be rejected");
-
-    std::vector<FWHMSample> collapsing_clip;
-    collapsing_clip.insert(collapsing_clip.end(), 20, {0.90, false});
-    collapsing_clip.insert(collapsing_clip.end(), 45, {1.00, false});
-    collapsing_clip.insert(collapsing_clip.end(), 20, {1.10, false});
-    collapsing_clip.insert(collapsing_clip.end(), 15, {3.00, false});
-    require(estimateFWHMLocus(
-                collapsing_clip, config, locus, &diagnostics),
-            "a proposed zero-MAD clipping step must be recoverable");
-    const double expected_width = 1.4826 * 0.10;
-    require(!diagnostics.pilot_uses_gaia
-                && diagnostics.pilot_input_count == 100
-                && diagnostics.pilot_retained_count == 100
-                && diagnostics.pilot_width > 0.0
-                && !diagnostics.pilot_uses_quantile_range
-                && diagnostics.pilot_rejected_zero_mad_clip,
-            "a collapsing clip must be rejected before population swap");
-    requireNear(diagnostics.pilot_center, 1.00, tolerance,
-                "rejected clip must retain the previous pilot center");
-    requireNear(diagnostics.pilot_width, expected_width, tolerance,
-                "rejected clip must retain the previous positive MAD");
-    requireNear(
-        diagnostics.pilot_lower,
-        1.00 - config.histogram_range_sigma * expected_width - padding,
-        tolerance,
-        "normal pilot lower bound must include outward padding");
-    requireNear(
-        diagnostics.pilot_upper,
-        1.00 + config.histogram_range_sigma * expected_width + padding,
-        tolerance,
-        "normal pilot upper bound must include outward padding");
-
-    const FWHMLocus default_positive_locus = locus;
-    const FWHMLocusDiagnostics default_positive_diagnostics = diagnostics;
-    require(estimateFWHMLocus(
-                collapsing_clip,
-                custom_quantile_config,
-                locus,
-                &diagnostics),
-            "the custom quantile must leave a positive-MAD pilot valid");
-    require(!diagnostics.pilot_uses_quantile_range
-                && diagnostics.pilot_center
-                    == default_positive_diagnostics.pilot_center
-                && diagnostics.pilot_width
-                    == default_positive_diagnostics.pilot_width
-                && diagnostics.pilot_lower
-                    == default_positive_diagnostics.pilot_lower
-                && diagnostics.pilot_upper
-                    == default_positive_diagnostics.pilot_upper
-                && locus.center == default_positive_locus.center
-                && locus.lower_width == default_positive_locus.lower_width
-                && locus.upper_width == default_positive_locus.upper_width
-                && locus.lower == default_positive_locus.lower
-                && locus.upper == default_positive_locus.upper,
-            "the zero-MAD quantile must not affect positive-MAD behavior");
-
-    std::vector<FWHMSample> fallback_zero_mad;
-    for (int index = 0; index < 9; ++index) {
-        fallback_zero_mad.push_back({1.30 + 0.002 * index, true});
-    }
-    fallback_zero_mad.push_back({2.50, true});
-    fallback_zero_mad.insert(fallback_zero_mad.end(), 70, {1.25, false});
-    fallback_zero_mad.insert(fallback_zero_mad.end(), 20, {1.35, false});
-    require(estimateFWHMLocus(
-                fallback_zero_mad, config, locus, &diagnostics),
-            "Gaia retained-count fallback to a zero-MAD all pilot must succeed");
-    require(diagnostics.has_gaia_median
-                && !diagnostics.pilot_uses_gaia
-                && diagnostics.pilot_input_count == 100
-                && diagnostics.pilot_retained_count == 100
-                && diagnostics.pilot_center == 1.25
+                &diagnostics)
                 && diagnostics.pilot_width == 0.0
-                && diagnostics.pilot_uses_quantile_range
-                && !diagnostics.pilot_rejected_zero_mad_clip,
-            "Gaia fallback must replace every pilot field and branch flag");
-    requireNear(diagnostics.pilot_lower, 1.25 - padding, tolerance,
-                "fallback pilot lower bound must come from all-candidate Q05");
-    requireNear(diagnostics.pilot_upper, 1.35 + padding, tolerance,
-                "fallback pilot upper bound must come from all-candidate Q95");
-}
+                && diagnostics.pilot_lower == 37.0
+                && std::abs(diagnostics.pilot_upper - 40.8) < 1.0e-12,
+            "one zero-MAD quantile must control Q(q) and Q(1-q) bounds");
 
-// ==========================================
-// Function: Verify robust-pilot FWHM peak selection and width independence
-// Method: Exercise density/Gaia routes, long tails, Gaia fallback, repeated
-//         values, window accounting, bin invariance, and sample-count failure.
-// ==========================================
-void testFWHMLocus() {
-    constexpr double padding = 1.0e-6;
-    constexpr double tolerance = 1.0e-12;
-    const FWHMLocusConfig standard_config = fwhmLocusConfig();
-    std::vector<FWHMSample> density_samples;
-    for (int index = 0; index < 80; ++index) {
-        density_samples.push_back({1.00 + 0.01 * (index % 5), false});
-    }
-    for (int index = 0; index < 120; ++index) {
-        density_samples.push_back({1.70 + 0.02 * (index % 25), false});
-    }
-    FWHMLocus locus;
-    FWHMLocusDiagnostics diagnostics;
-    require(estimateFWHMLocus(
-                density_samples, standard_config, locus, &diagnostics),
-            "two-population FWHM fixture must produce a locus");
-    require(std::abs(locus.center - 1.02) < 0.08,
-            "highest-density narrow stellar peak must be selected without Gaia");
-    require(diagnostics.sample_count == 200
-                && diagnostics.histogram.size() == 128
-                && diagnostics.smoothed_histogram.size() == 128
-                && diagnostics.peak_bin >= 0 && diagnostics.peak_bin < 128
-                && diagnostics.pilot_upper > diagnostics.pilot_lower
-                && diagnostics.histogram_sample_count
-                    + diagnostics.histogram_below_count
-                    + diagnostics.histogram_above_count
-                    == diagnostics.sample_count,
-            "density fixture must publish its exact histogram diagnostics");
-    require(!diagnostics.pilot_uses_gaia && !diagnostics.has_gaia_median,
-            "density-only peak selection must use the all-candidate pilot");
-    requireGaiaHistogramConsistent(diagnostics, 128, "zero-Gaia fixture");
-    require(diagnostics.gaia_match_count == 0
-                && diagnostics.gaia_histogram_sample_count == 0
-                && std::all_of(
-                    diagnostics.gaia_histogram.begin(),
-                    diagnostics.gaia_histogram.end(),
-                    [](double count) { return count == 0.0; }),
-            "zero-Gaia fixture must publish a stable all-zero histogram");
-    FWHMLocus baseline_locus;
-    require(estimateFWHMLocus(
-                density_samples, standard_config, baseline_locus)
-                && baseline_locus.center == locus.center
-                && baseline_locus.lower_width == locus.lower_width
-                && baseline_locus.upper_width == locus.upper_width
-                && baseline_locus.lower == locus.lower
-                && baseline_locus.upper == locus.upper,
-            "requesting diagnostics must not alter the scientific locus");
+    std::vector<PSFCountSample> repeated(40, {37, false});
+    require(estimatePSFCountLocus(repeated, config, locus, &diagnostics)
+                && diagnostics.histogram_first_count == 37
+                && diagnostics.histogram.size() == 1
+                && diagnostics.histogram[0] == 40.0
+                && locus.center == 37.0
+                && locus.lower_width == 1.0
+                && locus.upper_width == 1.0
+                && locus.lower == 33.0
+                && locus.upper == 41.0,
+            "single count-level support must use deterministic one-count widths");
+    require(!(33.0 > locus.lower && 33.0 < locus.upper)
+                && (37.0 > locus.lower && 37.0 < locus.upper)
+                && !(41.0 > locus.lower && 41.0 < locus.upper),
+            "final production star-area selection must remain strict");
 
-    std::vector<FWHMSample> gaia_samples;
-    for (int index = 0; index < 45; ++index) {
-        gaia_samples.push_back({0.90 + 0.01 * (index % 5), index < 12});
+    std::vector<PSFCountSample> right_skew;
+    std::vector<PSFCountSample> left_skew;
+    for (int step = 1; step <= 8; ++step) {
+        const int copies = 9 - step;
+        for (int copy = 0; copy < copies; ++copy) {
+            right_skew.push_back({40 - step, false});
+            right_skew.push_back({40 + 2 * step, false});
+            left_skew.push_back({40 - 2 * step, false});
+            left_skew.push_back({40 + step, false});
+        }
     }
-    for (int index = 0; index < 100; ++index) {
-        gaia_samples.push_back({1.80 + 0.005 * (index % 5), false});
-    }
-    require(estimateFWHMLocus(
-                gaia_samples, standard_config, locus, &diagnostics),
-            "Gaia-supported two-peak fixture must produce a locus");
-    require(std::abs(locus.center - 0.92) < 0.08,
-            "Gaia median must select the supported smaller peak");
-    require(diagnostics.pilot_uses_gaia
-                && diagnostics.pilot_input_count == 12
-                && diagnostics.pilot_retained_count == 12
-                && diagnostics.has_gaia_median
-                && diagnostics.gaia_match_count == 12
-                && std::isfinite(diagnostics.gaia_median),
-            "Gaia-supported selection must publish raw and clipped-pilot diagnostics");
-    requireGaiaHistogramConsistent(diagnostics, 128, "Gaia-supported fixture");
-
-    std::vector<FWHMSample> gaia_tail_samples;
-    for (int index = 0; index < 100; ++index) {
-        gaia_tail_samples.push_back({
-            1.28 + 0.002 * static_cast<double>(index % 21), index < 20});
-    }
-    for (int index = 0; index < 20; ++index) {
-        gaia_tail_samples.push_back({2.0 + 0.15 * index, false});
-    }
-    require(estimateFWHMLocus(
-                gaia_tail_samples, standard_config, locus, &diagnostics),
-            "Gaia-supported long-tail fixture must produce a locus");
-    require(diagnostics.pilot_uses_gaia
-                && diagnostics.histogram_above_count > 0
-                && diagnostics.pilot_upper - diagnostics.pilot_lower < 0.5
-                && locus.upper < 1.5,
-            "Gaia pilot must keep the high-FWHM tail out of the local window");
-
-    std::vector<FWHMSample> all_tail_samples;
-    for (int index = 0; index < 140; ++index) {
-        all_tail_samples.push_back({
-            1.25 + 0.002 * static_cast<double>(index % 25), index < 5});
-    }
-    for (int index = 0; index < 15; ++index) {
-        all_tail_samples.push_back({2.0 + 0.2 * index, false});
-    }
-    require(estimateFWHMLocus(
-                all_tail_samples, standard_config, locus, &diagnostics),
-            "all-candidate long-tail fixture must produce a locus");
-    require(!diagnostics.pilot_uses_gaia
-                && diagnostics.gaia_match_count == 5
-                && diagnostics.pilot_input_count == 155
-                && diagnostics.pilot_retained_count < 155
-                && diagnostics.histogram_above_count > 0
-                && diagnostics.pilot_upper - diagnostics.pilot_lower < 0.5,
-            "all-candidate pilot must iteratively clip and exclude its high tail");
-    requireGaiaHistogramConsistent(diagnostics, 128, "insufficient-Gaia fixture");
-    require(diagnostics.gaia_histogram_sample_count > 0,
-            "insufficient Gaia must still publish its local-window distribution");
-
-    std::vector<FWHMSample> gaia_clipped_samples;
-    for (int index = 0; index < 10; ++index) {
-        gaia_clipped_samples.push_back({1.30 + 0.002 * index, true});
-    }
-    gaia_clipped_samples.push_back({2.50, true});
-    for (int index = 0; index < 60; ++index) {
-        gaia_clipped_samples.push_back({
-            1.28 + 0.001 * static_cast<double>(index % 41), false});
-    }
-    require(estimateFWHMLocus(
-                gaia_clipped_samples, standard_config, locus, &diagnostics),
-            "retained-sufficient clipped Gaia fixture must produce a locus");
-    require(diagnostics.pilot_uses_gaia
-                && diagnostics.pilot_input_count == 11
-                && diagnostics.pilot_retained_count == 10,
-            "Gaia pilot must apply the same 3-MAD clipping while retaining support");
-
-    std::vector<FWHMSample> gaia_fallback_samples;
-    for (int index = 0; index < 9; ++index) {
-        gaia_fallback_samples.push_back({1.30 + 0.002 * index, true});
-    }
-    gaia_fallback_samples.push_back({2.50, true});
-    for (int index = 0; index < 90; ++index) {
-        gaia_fallback_samples.push_back({
-            1.28 + 0.001 * static_cast<double>(index % 41), false});
-    }
-    require(estimateFWHMLocus(
-                gaia_fallback_samples, standard_config, locus, &diagnostics),
-            "clipped-insufficient Gaia fixture must fall back and produce a locus");
-    require(diagnostics.has_gaia_median && !diagnostics.pilot_uses_gaia
-                && diagnostics.pilot_input_count == 100
-                && diagnostics.pilot_retained_count < 100,
-            "Gaia pilot below its retained minimum must rerun on all candidates");
-
-    std::vector<FWHMSample> repeated(40, {1.25, false});
-    for (int index = 0; index < 6; ++index) {
-        repeated[static_cast<std::size_t>(index)].gaia_matched = true;
-    }
-    require(estimateFWHMLocus(
-                repeated, standard_config, locus, &diagnostics)
-                && locus.lower_width > 0.0 && locus.upper_width > 0.0
-                && locus.lower < 1.25 && locus.upper > 1.25,
-            "repeated FWHM values must receive finite positive side-width floors");
-    require(diagnostics.histogram.size() == 128
-                && diagnostics.smoothed_histogram.size() == 128
-                && diagnostics.peak_bin >= 0
-                && diagnostics.pilot_width == 0.0
-                && diagnostics.pilot_uses_quantile_range
-                && !diagnostics.pilot_rejected_zero_mad_clip
-                && diagnostics.pilot_upper > diagnostics.pilot_lower
-                && diagnostics.histogram_sample_count == 40
-                && diagnostics.histogram_below_count == 0
-                && diagnostics.histogram_above_count == 0,
-            "Q05==Q95 must use padded bounds without a special one-bin branch");
-    requireNear(diagnostics.pilot_lower, 1.25 - padding, tolerance,
-                "repeated-value lower bound must be padded Q05");
-    requireNear(diagnostics.pilot_upper, 1.25 + padding, tolerance,
-                "repeated-value upper bound must be padded Q95");
-    requireGaiaHistogramConsistent(diagnostics, 128, "repeated-value fixture");
-    require(diagnostics.gaia_histogram_sample_count == 6
-                && std::count(
-                    diagnostics.gaia_histogram.begin(),
-                    diagnostics.gaia_histogram.end(), 6.0) == 1,
-            "repeated values must retain all Gaia matches in one shared bin");
-
-    const std::vector<FWHMSample> invariant_samples = uniformFWHMCore();
-    FWHMLocus locus_64;
-    FWHMLocus locus_128;
-    FWHMLocus locus_256;
-    require(estimateFWHMLocus(
-                invariant_samples, fwhmLocusConfig(64), locus_64)
-                && estimateFWHMLocus(
-                    invariant_samples, fwhmLocusConfig(128), locus_128)
-                && estimateFWHMLocus(
-                    invariant_samples, fwhmLocusConfig(256), locus_256),
-            "bin-neutral core must produce loci for 64, 128, and 256 bins");
-    require(std::abs(locus_64.center - locus_128.center) < 0.002
-                && std::abs(locus_256.center - locus_128.center) < 0.002
-                && std::abs(locus_64.lower_width - locus_128.lower_width) < 0.002
-                && std::abs(locus_256.lower_width - locus_128.lower_width) < 0.002
-                && std::abs(locus_64.upper_width - locus_128.upper_width) < 0.002
-                && std::abs(locus_256.upper_width - locus_128.upper_width) < 0.002
-                && std::abs(locus_64.lower - locus_128.lower) < 0.01
-                && std::abs(locus_256.lower - locus_128.lower) < 0.01
-                && std::abs(locus_64.upper - locus_128.upper) < 0.01
-                && std::abs(locus_256.upper - locus_128.upper) < 0.01,
-            "final locus must remain stable across histogram bin counts: "
-                + std::to_string(locus_64.center) + ","
-                + std::to_string(locus_64.lower_width) + ","
-                + std::to_string(locus_64.upper_width) + " / "
-                + std::to_string(locus_128.center) + ","
-                + std::to_string(locus_128.lower_width) + ","
-                + std::to_string(locus_128.upper_width) + " / "
-                + std::to_string(locus_256.center) + ","
-                + std::to_string(locus_256.lower_width) + ","
-                + std::to_string(locus_256.upper_width));
-    require(std::abs(locus_128.lower_width - locus_128.upper_width) < 0.002
-                && std::abs(
-                    locus_128.center - locus_128.lower
-                    - (locus_128.upper - locus_128.center)) < 0.01,
-            "a symmetric population must produce symmetric side widths and cuts");
-
-    FWHMLocus right_skew_locus;
-    FWHMLocus left_skew_locus;
-    const FWHMLocusConfig asymmetric_config = fwhmLocusConfig(20);
-    require(estimateFWHMLocus(
-                skewedFWHMCore(true), asymmetric_config, right_skew_locus)
-                && estimateFWHMLocus(
-                    skewedFWHMCore(false), asymmetric_config, left_skew_locus),
-            "mirrored single-basin skew fixtures must both produce loci");
-    require(right_skew_locus.upper_width > right_skew_locus.lower_width
-                && right_skew_locus.upper - right_skew_locus.center
-                    > right_skew_locus.center - right_skew_locus.lower,
-            "a high-FWHM tail must broaden only the upper locus side: "
-                + std::to_string(right_skew_locus.lower_width) + ","
-                + std::to_string(right_skew_locus.upper_width));
-    require(left_skew_locus.lower_width > left_skew_locus.upper_width
-                && left_skew_locus.center - left_skew_locus.lower
-                    > left_skew_locus.upper - left_skew_locus.center,
-            "a low-FWHM tail must broaden only the lower locus side: "
-                + std::to_string(left_skew_locus.lower_width) + ","
-                + std::to_string(left_skew_locus.upper_width));
-    requireNear(
-        right_skew_locus.lower,
-        right_skew_locus.center
-            - asymmetric_config.locus_sigma * right_skew_locus.lower_width,
-        tolerance,
-        "right-skew lower cut must use only the lower side width");
-    requireNear(
-        right_skew_locus.upper,
-        right_skew_locus.center
-            + asymmetric_config.locus_sigma * right_skew_locus.upper_width,
-        tolerance,
-        "right-skew upper cut must use only the upper side width");
-    requireNear(
-        left_skew_locus.lower,
-        left_skew_locus.center
-            - asymmetric_config.locus_sigma * left_skew_locus.lower_width,
-        tolerance,
-        "left-skew lower cut must use only the lower side width");
-    requireNear(
-        left_skew_locus.upper,
-        left_skew_locus.center
-            + asymmetric_config.locus_sigma * left_skew_locus.upper_width,
-        tolerance,
-        "left-skew upper cut must use only the upper side width");
-
-    const std::vector<FWHMSample> smooth_samples = smoothFWHMCore();
-    FWHMLocus coarse_locus;
-    require(estimateFWHMLocus(
-                smooth_samples, fwhmLocusConfig(3), coarse_locus)
-                && std::max(
-                    coarse_locus.lower_width, coarse_locus.upper_width)
-                    < coarse_locus.histogram_bin_width,
-            "both final physical widths must be allowed below a coarse bin");
+    right_skew.insert(right_skew.end(), 30, {40, false});
+    left_skew.insert(left_skew.end(), 30, {40, false});
+    PSFCountLocus right_locus;
+    PSFCountLocus left_locus;
+    require(estimatePSFCountLocus(right_skew, config, right_locus)
+                && estimatePSFCountLocus(left_skew, config, left_locus)
+                && right_locus.upper_width > right_locus.lower_width
+                && left_locus.lower_width > left_locus.upper_width,
+            "integer asymmetric MAD must broaden only the populated tail side");
 
     repeated.resize(29);
-    require(!estimateFWHMLocus(
-                repeated, standard_config, locus, &diagnostics),
-            "FWHM locus must reject fewer than the configured samples");
-    require(diagnostics.sample_count == 29 && diagnostics.histogram.empty(),
-            "failed estimation must reset diagnostics before reporting counts");
+    require(!estimatePSFCountLocus(repeated, config, locus, &diagnostics)
+                && diagnostics.sample_count == 29
+                && diagnostics.histogram.empty(),
+            "count locus must reject fewer than its configured samples");
 }
 
 // ==========================================
-// Function: Verify the post-grouping FWHM overlay remains diagnostics-only
-// Method: Bin a controlled candidate subset on the pilot grid, compare counts
-//         with the all-candidate histogram, and require the locus to stay exact.
+// Function: Verify FWHM SVG diagnostics remain isolated from count science
+// Method: Build mapped display data, check reversed bounds and exact science
+//         peak mapping, then add an overlay without mutating count diagnostics.
 // ==========================================
-void testSelectedGroupHistogram() {
-    const std::vector<FWHMSample> samples = uniformFWHMCore();
-    const FWHMLocusConfig config = fwhmLocusConfig(64);
-    FWHMLocus locus;
-    FWHMLocusDiagnostics diagnostics;
-    require(estimateFWHMLocus(samples, config, locus, &diagnostics),
-            "selected-group overlay fixture must produce a baseline locus");
-    const FWHMLocus baseline_locus = locus;
-    const FWHMLocusDiagnostics baseline_diagnostics = diagnostics;
-
-    std::vector<double> selected_fwhm;
-    for (std::size_t index = 0; index < samples.size(); index += 37) {
-        selected_fwhm.push_back(samples[index].fwhm);
+void testFWHMDisplayIsolation() {
+    const PSFCountLocusConfig config = countLocusConfig();
+    std::vector<PSFCountSample> count_samples;
+    std::vector<FWHMDisplaySample> display_samples;
+    for (int area = 30; area <= 40; ++area) {
+        for (int copy = 0; copy < 12; ++copy) {
+            const bool gaia_match = area >= 34 && area <= 36 && copy < 2;
+            count_samples.push_back({area, gaia_match});
+            display_samples.push_back({
+                fwhmFromStarArea(area, 64, 0.2628), gaia_match});
+        }
     }
-    populateSelectedGroupFWHMHistogram(selected_fwhm, diagnostics);
-    require(diagnostics.selected_group_count
-                == static_cast<int>(selected_fwhm.size())
-                && diagnostics.selected_group_histogram.size()
-                    == diagnostics.histogram.size(),
-            "selected-group count and histogram grid must match selection state");
-    for (std::size_t bin = 0; bin < diagnostics.histogram.size(); ++bin) {
-        require(diagnostics.selected_group_histogram[bin]
-                    <= diagnostics.histogram[bin],
-                "selected-group histogram must remain an all-candidate subset");
-    }
-    require(locus.center == baseline_locus.center
-                && locus.lower_width == baseline_locus.lower_width
-                && locus.upper_width == baseline_locus.upper_width
-                && locus.lower == baseline_locus.lower
-                && locus.upper == baseline_locus.upper
-                && diagnostics.sample_count == baseline_diagnostics.sample_count
-                && diagnostics.peak_bin == baseline_diagnostics.peak_bin
-                && diagnostics.histogram == baseline_diagnostics.histogram
-                && diagnostics.smoothed_histogram
-                    == baseline_diagnostics.smoothed_histogram
-                && diagnostics.gaia_histogram
-                    == baseline_diagnostics.gaia_histogram,
-            "populating the selected-group overlay must not alter science state");
+    PSFCountLocus count_locus;
+    PSFCountLocusDiagnostics count_diagnostics;
+    require(estimatePSFCountLocus(
+                count_samples, config, count_locus, &count_diagnostics),
+            "display-isolation fixture must produce count science");
+    const PSFCountLocus baseline_locus = count_locus;
+    const PSFCountLocusDiagnostics baseline_diagnostics = count_diagnostics;
+    FWHMDisplayLocus display_locus;
+    FWHMDisplayDiagnostics display_diagnostics;
+    require(buildFWHMLocusDisplay(
+                display_samples,
+                count_locus,
+                count_diagnostics,
+                config.locus_sigma,
+                64,
+                0.2628,
+                display_locus,
+                display_diagnostics),
+            "count science must map to an independent FWHM SVG view");
+    require(display_locus.lower
+                == fwhmFromStarArea(count_locus.upper, 64, 0.2628)
+                && display_locus.upper
+                    == fwhmFromStarArea(count_locus.lower, 64, 0.2628)
+                && display_diagnostics.peak_value == fwhmFromStarArea(
+                    count_diagnostics.histogram_first_count
+                        + count_diagnostics.peak_bin,
+                    64,
+                    0.2628),
+            "count-to-FWHM mapping must reverse bounds and preserve exact peak");
+    populateSelectedGroupFWHMHistogram(
+        {display_samples[0].fwhm, display_samples[1].fwhm},
+        display_diagnostics);
+    require(display_diagnostics.selected_group_count == 2
+                && count_locus.center == baseline_locus.center
+                && count_locus.lower == baseline_locus.lower
+                && count_diagnostics.histogram
+                    == baseline_diagnostics.histogram
+                && count_diagnostics.working_histogram
+                    == baseline_diagnostics.working_histogram
+                && count_diagnostics.smoothed_histogram
+                    == baseline_diagnostics.smoothed_histogram,
+            "FWHM display and overlay construction must not mutate count science");
 }
 
 // ==========================================
@@ -1059,10 +666,11 @@ void testAnalyticLOO() {
 // ==========================================
 int main() {
     testChiWindowAndDistance();
-    testGaiaPeakTieBreaks();
-    testFWHMZeroMadPilot();
-    testFWHMLocus();
-    testSelectedGroupHistogram();
+    testStarAreaMeasurementAndStorage();
+    testCountHoleInterpolation();
+    testCountGaiaPeakTieBreaks();
+    testPSFCountLocus();
+    testFWHMDisplayIsolation();
     testGaiaParsingAndMatching();
     testGrouping();
     testKNNRebuiltAfterMinChiCut();

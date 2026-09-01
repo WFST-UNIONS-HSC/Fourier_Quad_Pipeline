@@ -19,7 +19,7 @@ namespace Internal {
 // ==========================================
 struct StarSelectionState {
     bool gaia_matched = false;
-    bool in_fwhm_locus = false;
+    bool in_size_locus = false;
     bool selected_group = false;
     bool selected_press = false;
     double full_power_sum = 0.0;
@@ -88,7 +88,11 @@ struct ChipPSFFitState {
 //         only O(N*window + N*K) grouping storage rather than a square matrix.
 // ==========================================
 struct ChipPSFState {
+    static constexpr int star_area_index = 12;
     using StarRow = std::array<double, LensingConfig::npara>;
+
+    static_assert(star_area_index < LensingConfig::npara,
+                  "star_area index must fit the private PSF row");
 
     std::vector<StarRow> stars;
     std::vector<StarSelectionState> selection;

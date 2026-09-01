@@ -59,13 +59,12 @@ namespace LensingConfig {
     //         thresholds explicit and independently rebuild-configurable.
     // ==========================================
     constexpr int psf_exposure_min_candidates = 60;  // Minimum exposure-wide PSF candidates.
-    constexpr int psf_fwhm_hist_bins = 20;  // FWHM histogram bin count.
-    constexpr double psf_fwhm_pilot_clip_sigma = 3.0;  // Robust pilot clipping multiplier.
-    constexpr int psf_fwhm_pilot_clip_iterations = 3;  // Robust pilot clipping passes.
-    constexpr double psf_fwhm_zero_mad_quantile = 0.05;  // Symmetric lower quantile; upper is one minus this value.
-    constexpr double psf_fwhm_hist_range_sigma = 5.0;  // Local histogram half-range in pilot widths.
-    constexpr double psf_fwhm_locus_sigma = 4.0;  // Exposure FWHM-locus sigma window.
-    constexpr int psf_fwhm_locus_min_samples = 30;  // Minimum FWHM-locus samples.
+    constexpr double psf_count_pilot_clip_sigma = 3.0;  // Robust star-area pilot clipping multiplier.
+    constexpr int psf_count_pilot_clip_iterations = 3;  // Robust star-area pilot clipping passes.
+    constexpr double psf_count_zero_mad_quantile = 0.05;  // Symmetric lower quantile; upper is one minus this value.
+    constexpr double psf_count_hist_range_sigma = 5.0;  // Local star-area histogram half-range in pilot widths.
+    constexpr double psf_count_locus_sigma = 4.0;  // Exposure star-area locus sigma window.
+    constexpr int psf_count_locus_min_samples = 30;  // Minimum star-area locus samples.
     constexpr int PsfGroupingType = 2;  // One selects threshold graph; two selects mutual KNN.
     constexpr double psf_minchi_reference_fraction = 1.0 / 3.0;  // Exposure top-size reference fraction.
     constexpr int psf_minchi_reference_max_per_chip = 5;  // Reference-star cap per chip.
@@ -88,17 +87,15 @@ namespace LensingConfig {
                   "PSF minChi reference fraction must lie in (0,1]");
     static_assert(psf_minchi_reference_max_per_chip > 0,
                   "PSF minChi reference cap must be positive");
-    static_assert(psf_fwhm_hist_bins >= 3,
-                  "PSF FWHM histogram requires at least three bins");
-    static_assert(psf_fwhm_pilot_clip_sigma > 0.0,
-                  "PSF FWHM pilot clipping sigma must be positive");
-    static_assert(psf_fwhm_pilot_clip_iterations > 0,
-                  "PSF FWHM pilot clipping iterations must be positive");
-    static_assert(psf_fwhm_zero_mad_quantile >= 0.0
-                      && psf_fwhm_zero_mad_quantile < 0.5,
-                  "PSF FWHM zero-MAD quantile must lie in [0,0.5)");
-    static_assert(psf_fwhm_hist_range_sigma > 0.0,
-                  "PSF FWHM histogram range sigma must be positive");
+    static_assert(psf_count_pilot_clip_sigma > 0.0,
+                  "PSF star-area pilot clipping sigma must be positive");
+    static_assert(psf_count_pilot_clip_iterations > 0,
+                  "PSF star-area pilot clipping iterations must be positive");
+    static_assert(psf_count_zero_mad_quantile >= 0.0
+                      && psf_count_zero_mad_quantile < 0.5,
+                  "PSF star-area zero-MAD quantile must lie in [0,0.5)");
+    static_assert(psf_count_hist_range_sigma > 0.0,
+                  "PSF star-area histogram range sigma must be positive");
     static_assert(psf_knn_k > 0, "PSF KNN count must be positive");
     static_assert(psf_press_max_removals >= 0,
                   "PSF PRESS removal cap must be non-negative");
