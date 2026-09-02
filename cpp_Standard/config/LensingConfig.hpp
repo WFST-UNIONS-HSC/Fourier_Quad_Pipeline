@@ -32,7 +32,8 @@ namespace LensingConfig {
                                 13 *       // FFT for source
                                 17 *       // Shear measurement
                                 19 *       // Exposure info
-                                23;        // Catalog Combiners
+                                23 *       // Catalog Combiners
+                                1;
     constexpr int include_FLAT = 0;  // Apply super-flat correction when one.
     constexpr int include_Mask = 2;  // Select the DQ-mask input mode.
     constexpr int include_BGsub = 1;  // Subtract the fitted science-image background.

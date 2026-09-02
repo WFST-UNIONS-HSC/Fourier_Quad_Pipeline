@@ -9,6 +9,8 @@
 namespace PSFModel {
 namespace Internal {
 
+inline constexpr int PSFCountHistogramBinWidth = 2;
+
 // ==========================================
 // Structure: Describe the inclusive central Fourier window used by PSF chi
 // Method: Derive one shared bound pair from the square stamp side length.
@@ -100,7 +102,14 @@ struct PSFCountLocusDiagnostics {
     bool has_gaia_median = false;
     double gaia_median = 0.0;
     int histogram_first_count = 0;
+    int histogram_last_count = -1;
     int peak_bin = -1;
+    double mad_lower = 0.0;
+    double mad_upper = 0.0;
+    int left_elbow_bin = -1;
+    int right_elbow_bin = -1;
+    bool left_elbow_guard_applied = false;
+    bool right_elbow_guard_applied = false;
     std::vector<double> histogram;
     std::vector<double> working_histogram;
     std::vector<double> smoothed_histogram;
@@ -110,9 +119,76 @@ struct PSFCountLocusDiagnostics {
 };
 
 // ==========================================
+// Structure: Publish an inclusive PSF count-histogram bin range
+// Method: Use invalid negative bounds when no deterministic range is available.
+// ==========================================
+struct PSFCountBinRange {
+    int first = -1;
+    int last = -1;
+};
+
+// ==========================================
+// Structure: Publish independently detected outer histogram elbows
+// Method: Keep each side unavailable until a positive-curvature candidate wins.
+// ==========================================
+struct PSFCountElbows {
+    int left = -1;
+    int right = -1;
+};
+
+// ==========================================
+// Structure: Publish one re-absorbing asymmetric-MAD refinement
+// Method: Return final center, side widths, and retained real-sample count.
+// ==========================================
+struct PSFCountRefinement {
+    bool valid = false;
+    double center = 0.0;
+    double lower_width = 0.0;
+    double upper_width = 0.0;
+    int sample_count = 0;
+};
+
+// ==========================================
+// Function: Return the nominal center of one fixed two-count histogram bin
+// Method: Offset the first allowed count by two per bin and one half count.
+// ==========================================
+double psfCountHistogramBinCenter(
+    int histogram_first_count,
+    int bin);
+
+// ==========================================
+// Function: Find the selected peak's complete significant peak complex
+// Method: Include every local peak strictly above H_selected/e, then descend
+//         outward from the outermost qualifying peaks until the next rise.
+// ==========================================
+PSFCountBinRange findPSFCountPeakComplexBasin(
+    const std::vector<int>& peaks,
+    const std::vector<double>& smoothed_histogram,
+    int selected_peak);
+
+// ==========================================
+// Function: Find independent outer elbows around the selected count peak
+// Method: Cross below ten percent of peak height on each side, then maximize
+//         positive signed curvature outward with nearest-bin tie breaking.
+// ==========================================
+PSFCountElbows findPSFCountOuterElbows(
+    const std::vector<double>& smoothed_histogram,
+    int selected_peak);
+
+// ==========================================
+// Function: Refine a peak-basin seed with re-absorbing asymmetric MAD
+// Method: Rebuild each pass from every real sample in the pilot histogram domain.
+// ==========================================
+PSFCountRefinement refinePSFCountPopulation(
+    const std::vector<double>& seed_values,
+    const std::vector<double>& domain_values,
+    double locus_sigma,
+    int iterations);
+
+// ==========================================
 // Function: Select one integer star-area histogram peak deterministically
-// Method: Anchor Gaia eligibility to the global nearest distance plus one count,
-//         then rank by Gaia count, density, exact distance, and lower count.
+// Method: Anchor Gaia eligibility to nominal bin-center distance plus one count,
+//         then rank by Gaia count, density, exact distance, and lower bin.
 // ==========================================
 int selectPSFCountPeak(
     const std::vector<int>& peaks,
@@ -123,7 +199,7 @@ int selectPSFCountPeak(
     bool pilot_uses_gaia);
 
 // ==========================================
-// Function: Fill bounded one- or two-level holes in a working histogram
+// Function: Fill bounded one- or two-bin holes in a working histogram
 // Method: Detect zero runs only in the immutable raw histogram and linearly
 //         interpolate between positive endpoints without chaining.
 // ==========================================
@@ -132,8 +208,8 @@ std::vector<double> interpolateShortInternalHoles(
 
 // ==========================================
 // Function: Estimate an exposure-wide integer star-area locus
-// Method: Build one-count bins, fill only short internal holes for smoothing,
-//         select a count peak, and refine its basin with asymmetric count MAD.
+// Method: Build fixed two-count bins, refine the significant peak complex with
+//         re-absorbing asymmetric MAD, then apply independent outer elbows.
 // ==========================================
 bool estimatePSFCountLocus(
     const std::vector<PSFCountSample>& samples,

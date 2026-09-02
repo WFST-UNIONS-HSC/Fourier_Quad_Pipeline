@@ -90,19 +90,19 @@ void testStarAreaMeasurementAndStorage() {
 }
 
 // ==========================================
-// Function: Verify bounded non-chaining interpolation of short count holes
-// Method: Exercise one/two-level fills, long/edge gaps, and raw-run detection.
+// Function: Verify bounded non-chaining interpolation of short count-bin holes
+// Method: Exercise one/two-bin fills, long/edge gaps, and raw-run detection.
 // ==========================================
 void testCountHoleInterpolation() {
     require(interpolateShortInternalHoles({100.0, 0.0, 80.0})
                 == std::vector<double>({100.0, 90.0, 80.0}),
-            "one-count internal hole must be linearly interpolated");
+            "one two-count-bin internal hole must be linearly interpolated");
     require(interpolateShortInternalHoles({100.0, 0.0, 0.0, 70.0})
                 == std::vector<double>({100.0, 90.0, 80.0, 70.0}),
-            "two-count internal hole must be linearly interpolated");
+            "two two-count-bin internal holes must be linearly interpolated");
     require(interpolateShortInternalHoles({100.0, 0.0, 0.0, 0.0, 70.0})
                 == std::vector<double>({100.0, 0.0, 0.0, 0.0, 70.0}),
-            "three-count gaps must remain raw zeros");
+            "three-bin gaps must remain raw zeros");
     require(interpolateShortInternalHoles({0.0, 0.0, 50.0, 0.0})
                 == std::vector<double>({0.0, 0.0, 50.0, 0.0}),
             "edge zeros must never be extrapolated");
@@ -114,7 +114,7 @@ void testCountHoleInterpolation() {
 }
 
 // ==========================================
-// Function: Verify fixed one-count Gaia near-tie peak selection
+// Function: Verify fixed one-count Gaia near-tie peak selection on two-count bins
 // Method: Cover every ranking tier, global anchoring, order invariance, and the
 //         unchanged no-Gaia maximum-density route.
 // ==========================================
@@ -126,26 +126,26 @@ void testCountGaiaPeakTieBreaks() {
     gaia[2] = 2.0;
     gaia[4] = 4.0;
     require(selectPSFCountPeak(
-                {2, 4}, smoothed, gaia, 30, 33.0, true) == 4,
+                {2, 4}, smoothed, gaia, 30, 36.5, true) == 4,
             "equal-distance count peaks must prefer higher raw Gaia count");
     smoothed[6] = 20.0;
     gaia[6] = 100.0;
     require(selectPSFCountPeak(
-                {2, 4, 6}, smoothed, gaia, 30, 33.4, true) == 4
+                {2, 4, 6}, smoothed, gaia, 30, 37.9, true) == 4
                 && selectPSFCountPeak(
-                    {6, 4, 2}, smoothed, gaia, 30, 33.4, true) == 4,
+                    {6, 4, 2}, smoothed, gaia, 30, 37.9, true) == 4,
             "one-count eligibility must use a global anchor without chaining");
     gaia[4] = gaia[2];
     smoothed[4] = 7.0;
     require(selectPSFCountPeak(
-                {2, 4}, smoothed, gaia, 30, 33.3, true) == 4,
+                {2, 4}, smoothed, gaia, 30, 36.5, true) == 4,
             "Gaia ties must prefer higher smoothed density");
     smoothed[4] = smoothed[2];
     require(selectPSFCountPeak(
-                {2, 4}, smoothed, gaia, 30, 32.7, true) == 2,
+                {2, 4}, smoothed, gaia, 30, 36.25, true) == 2,
             "density ties must prefer exact pilot distance");
     require(selectPSFCountPeak(
-                {4, 2}, smoothed, gaia, 30, 33.0, true) == 2,
+                {4, 2}, smoothed, gaia, 30, 36.5, true) == 2,
             "complete ties must prefer the lower count level");
     require(selectPSFCountPeak(
                 {2, 6}, smoothed, gaia, 30, 33.0, false) == 6,
@@ -154,7 +154,7 @@ void testCountGaiaPeakTieBreaks() {
 
 // ==========================================
 // Function: Verify integer pilot, histogram, locus, and width-floor behavior
-// Method: Exercise zero MAD, exact one-count bins, immutable raw diagnostics,
+// Method: Exercise zero MAD, exact two-count bins, immutable raw diagnostics,
 //         single-level support, strict cuts, and insufficient-sample failure.
 // ==========================================
 void testPSFCountLocus() {
@@ -175,12 +175,13 @@ void testPSFCountLocus() {
                 && diagnostics.pilot_upper == 44.0,
             "zero-MAD pilot must retain all samples and use unpadded Q05-Q95");
     require(diagnostics.histogram_first_count == 37
-                && diagnostics.histogram.size() == 8
+                && diagnostics.histogram_last_count == 44
+                && diagnostics.histogram.size() == 4
                 && diagnostics.histogram[0] == 60.0
-                && diagnostics.histogram[3] == 30.0
-                && diagnostics.histogram[7] == 10.0
+                && diagnostics.histogram[1] == 30.0
+                && diagnostics.histogram[3] == 10.0
                 && diagnostics.working_histogram != diagnostics.histogram,
-            "count histogram must map one exact integer level per bin");
+            "count histogram must map adjacent integer levels into width-two bins");
 
     PSFCountLocusConfig custom_quantile_config = config;
     custom_quantile_config.zero_mad_quantile = 0.20;
@@ -201,6 +202,7 @@ void testPSFCountLocus() {
     std::vector<PSFCountSample> repeated(40, {37, false});
     require(estimatePSFCountLocus(repeated, config, locus, &diagnostics)
                 && diagnostics.histogram_first_count == 37
+                && diagnostics.histogram_last_count == 37
                 && diagnostics.histogram.size() == 1
                 && diagnostics.histogram[0] == 40.0
                 && locus.center == 37.0
@@ -208,11 +210,30 @@ void testPSFCountLocus() {
                 && locus.upper_width == 1.0
                 && locus.lower == 33.0
                 && locus.upper == 41.0,
-            "single count-level support must use deterministic one-count widths");
+            "single count-level support must keep deterministic one-count MAD floors");
     require(!(33.0 > locus.lower && 33.0 < locus.upper)
                 && (37.0 > locus.lower && 37.0 < locus.upper)
                 && !(41.0 > locus.lower && 41.0 < locus.upper),
             "final production star-area selection must remain strict");
+
+    std::vector<PSFCountSample> guarded;
+    guarded.insert(guarded.end(), 6, {30, false});
+    guarded.insert(guarded.end(), 88, {40, false});
+    guarded.insert(guarded.end(), 6, {50, false});
+    require(estimatePSFCountLocus(guarded, config, locus, &diagnostics)
+                && diagnostics.histogram_first_count == 30
+                && diagnostics.histogram_last_count == 50
+                && diagnostics.histogram.size() == 11
+                && diagnostics.left_elbow_bin == 2
+                && diagnostics.right_elbow_bin == 8
+                && diagnostics.mad_lower == 36.0
+                && diagnostics.mad_upper == 44.0
+                && diagnostics.left_elbow_guard_applied
+                && diagnostics.right_elbow_guard_applied
+                && locus.lower == 34.5
+                && locus.upper == 46.5
+                && locus.center == 40.0,
+            "outer elbows must widen final cuts without changing MAD statistics");
 
     std::vector<PSFCountSample> right_skew;
     std::vector<PSFCountSample> left_skew;
@@ -243,6 +264,69 @@ void testPSFCountLocus() {
 }
 
 // ==========================================
+// Function: Verify peak-complex, elbow, and re-absorbing refinement helpers
+// Method: Lock strict height/crossing rules, signed curvature, nearest ties,
+//         unavailable sides, nominal centers, and pilot-domain re-entry.
+// ==========================================
+void testPSFCountTopologyAndRefinement() {
+    require(psfCountHistogramBinCenter(30, 0) == 30.5
+                && psfCountHistogramBinCenter(30, 4) == 38.5,
+            "two-count bins must use their nominal half-count centers");
+
+    const PSFCountBinRange complex = findPSFCountPeakComplexBasin(
+        {2, 4, 6},
+        {5.0, 4.0, 40.0, 10.0, 100.0, 20.0, 50.0, 4.0, 6.0},
+        4);
+    require(complex.first == 1 && complex.last == 7,
+            "all peaks above H_selected/e must form one valley-agnostic complex");
+
+    const double exact_floor = 100.0 * std::exp(-1.0);
+    const PSFCountBinRange strict = findPSFCountPeakComplexBasin(
+        {1, 3, 5},
+        {5.0, exact_floor, 1.0, 100.0, 1.0, 20.0, 5.0},
+        3);
+    require(strict.first == 2 && strict.last == 4,
+            "a peak exactly at H_selected/e must be excluded from the complex");
+
+    const PSFCountElbows elbows = findPSFCountOuterElbows(
+        {0.0, 1.0, 8.0, 20.0, 100.0, 20.0, 8.0, 1.0, 0.0},
+        4);
+    require(elbows.left == 1 && elbows.right == 7,
+            "elbow search must retain candidates from the crossing to each edge");
+
+    const PSFCountElbows tied = findPSFCountOuterElbows(
+        {2.0, 2.0, 8.0, 20.0, 100.0, 20.0, 8.0, 2.0, 2.0},
+        4);
+    require(tied.left == 2 && tied.right == 6,
+            "equal positive curvature must prefer the candidate nearest the peak");
+
+    const PSFCountElbows unavailable = findPSFCountOuterElbows(
+        {9.0, 9.9, 10.0, 100.0, 10.0, 9.9, 9.0},
+        3);
+    require(unavailable.left == -1 && unavailable.right == -1,
+            "nonpositive curvature after a strict crossing must leave elbows unavailable");
+    const PSFCountElbows no_crossing = findPSFCountOuterElbows(
+        {20.0, 30.0, 100.0, 30.0, 20.0},
+        2);
+    require(no_crossing.left == -1 && no_crossing.right == -1,
+            "a side without a below-ten-percent crossing must stay unavailable");
+    const PSFCountElbows edge_crossing = findPSFCountOuterElbows(
+        {0.0, 100.0, 20.0},
+        1);
+    require(edge_crossing.left == -1,
+            "an edge crossing without an interior curvature bin must stay unavailable");
+
+    const PSFCountRefinement refinement = refinePSFCountPopulation(
+        {10.0, 10.0, 11.0, 12.0, 12.0},
+        {10.0, 10.0, 11.0, 12.0, 12.0, 13.0},
+        2.0,
+        2);
+    require(refinement.valid && refinement.sample_count == 6
+                && refinement.center == 11.5,
+            "MAD passes must re-absorb eligible real samples from the domain");
+}
+
+// ==========================================
 // Function: Verify post-minChi and selected diagnostics use the science grid
 // Method: Check exact bins, nested subset bounds, out-of-range accounting, and
 //         that every upstream count-locus diagnostic remains unchanged.
@@ -256,6 +340,7 @@ void testCountOverlayHistograms() {
     diagnostics.pilot_upper = 33.0;
     diagnostics.histogram_sample_count = 14;
     diagnostics.histogram_first_count = 30;
+    diagnostics.histogram_last_count = 37;
     diagnostics.peak_bin = 1;
     diagnostics.histogram = {4.0, 5.0, 3.0, 2.0};
     diagnostics.working_histogram = {4.0, 5.0, 3.0, 2.0};
@@ -263,11 +348,11 @@ void testCountOverlayHistograms() {
     diagnostics.gaia_histogram = {0.0, 2.0, 1.0, 0.0};
     const PSFCountLocusDiagnostics baseline = diagnostics;
 
-    populateMinChiSurvivorCountHistogram({30, 31, 31, 33}, diagnostics);
+    populateMinChiSurvivorCountHistogram({30, 31, 31, 37}, diagnostics);
     require(diagnostics.minchi_survivor_count == 4
                 && diagnostics.minchi_survivor_histogram
-                    == std::vector<double>({1.0, 2.0, 0.0, 1.0}),
-            "minChi survivors must use one exact integer count per science bin");
+                    == std::vector<double>({3.0, 0.0, 0.0, 1.0}),
+            "minChi survivors must use the fixed two-count science grid");
     for (std::size_t bin = 0; bin < diagnostics.histogram.size(); ++bin) {
         require(diagnostics.minchi_survivor_histogram[bin]
                     <= diagnostics.histogram[bin],
@@ -282,6 +367,8 @@ void testCountOverlayHistograms() {
                     == baseline.histogram_sample_count
                 && diagnostics.histogram_first_count
                     == baseline.histogram_first_count
+                && diagnostics.histogram_last_count
+                    == baseline.histogram_last_count
                 && diagnostics.peak_bin == baseline.peak_bin
                 && diagnostics.histogram == baseline.histogram
                 && diagnostics.working_histogram
@@ -291,27 +378,27 @@ void testCountOverlayHistograms() {
                 && diagnostics.gaia_histogram == baseline.gaia_histogram,
             "minChi histogram completion must not alter count science");
 
-    populateSelectedGroupCountHistogram({31, 33}, diagnostics);
+    populateSelectedGroupCountHistogram({31, 37}, diagnostics);
     require(diagnostics.selected_group_count == 2
                 && diagnostics.selected_group_histogram
-                    == std::vector<double>({0.0, 1.0, 0.0, 1.0}),
-            "selected stars must use one exact integer count per science bin");
+                    == std::vector<double>({1.0, 0.0, 0.0, 1.0}),
+            "selected stars must use the fixed two-count science grid");
     for (std::size_t bin = 0; bin < diagnostics.histogram.size(); ++bin) {
         require(diagnostics.selected_group_histogram[bin]
                     <= diagnostics.minchi_survivor_histogram[bin],
                 "selected count bins must remain subsets of minChi bins");
     }
 
-    populateMinChiSurvivorCountHistogram({29, 30, 31, 34}, diagnostics);
+    populateMinChiSurvivorCountHistogram({29, 30, 31, 38}, diagnostics);
     require(diagnostics.minchi_survivor_count == 4
                 && diagnostics.minchi_survivor_histogram
-                    == std::vector<double>({1.0, 1.0, 0.0, 0.0}),
+                    == std::vector<double>({2.0, 0.0, 0.0, 0.0}),
             "out-of-grid stars must count as minChi survivors without SVG bins");
 
-    populateSelectedGroupCountHistogram({29, 30, 31, 34}, diagnostics);
+    populateSelectedGroupCountHistogram({29, 30, 31, 38}, diagnostics);
     require(diagnostics.selected_group_count == 4
                 && diagnostics.selected_group_histogram
-                    == std::vector<double>({1.0, 1.0, 0.0, 0.0}),
+                    == std::vector<double>({2.0, 0.0, 0.0, 0.0}),
             "out-of-grid stars must count as selected without entering SVG bins");
 }
 
@@ -676,6 +763,7 @@ int main() {
     testCountHoleInterpolation();
     testCountGaiaPeakTieBreaks();
     testPSFCountLocus();
+    testPSFCountTopologyAndRefinement();
     testCountOverlayHistograms();
     testGaiaParsingAndMatching();
     testGrouping();

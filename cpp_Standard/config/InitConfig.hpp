@@ -25,7 +25,7 @@ inline const std::vector<DatasetSpec> DATASETS = {
 // "Contains1", "Contains2" ...
 inline const std::vector<std::string> CONTAINS = {"v1"};  // OR-matched archive basename tokens.
 inline constexpr const char* EXISTING = "fail";  // Existing-output policy.
-inline constexpr int F77_MAX_PATH = 150;  // Generated-path compatibility limit; zero disables it.
+inline constexpr int F77_MAX_PATH = 0;  // Generated-path compatibility limit; zero disables it.
 
 }  // namespace InitConfig
 

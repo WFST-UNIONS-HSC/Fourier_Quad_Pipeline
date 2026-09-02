@@ -47,7 +47,8 @@ namespace LensingConfig {
                                 13 *       // FFT for source
                                 17 *       // Shear measurement
                                 19 *       // Exposure info
-                                23;        // Catalog Combiners
+                                23 *       // Catalog Combiners
+                                1;
     constexpr int include_BGsub = 1;  // Subtract the fitted science-image background.
 
     // Split parameters

@@ -270,9 +270,20 @@ PSFChiWindow getPSFChiWindow(int n) {
 }
 
 // ==========================================
+// Function: Return the nominal center of one fixed two-count histogram bin
+// Method: Offset the first allowed count by two per bin and one half count.
+// ==========================================
+double psfCountHistogramBinCenter(
+    int histogram_first_count,
+    int bin) {
+    return static_cast<double>(histogram_first_count)
+        + static_cast<double>(PSFCountHistogramBinWidth * bin) + 0.5;
+}
+
+// ==========================================
 // Function: Select one integer star-area histogram peak deterministically
 // Method: Use density without Gaia; with Gaia, anchor eligibility to the global
-//         nearest distance plus one count and apply the deterministic ranking.
+//         nominal-center distance plus one count and rank deterministically.
 // ==========================================
 int selectPSFCountPeak(
     const std::vector<int>& peaks,
@@ -308,7 +319,8 @@ int selectPSFCountPeak(
     double minimum_distance = std::numeric_limits<double>::infinity();
     for (int peak : peaks) {
         const double distance = std::abs(
-            static_cast<double>(histogram_first_count + peak) - pilot_center);
+            psfCountHistogramBinCenter(histogram_first_count, peak)
+                - pilot_center);
         minimum_distance = std::min(minimum_distance, distance);
     }
 
@@ -316,7 +328,7 @@ int selectPSFCountPeak(
     double selected_distance = std::numeric_limits<double>::infinity();
     for (int candidate : peaks) {
         const double candidate_distance = std::abs(
-            static_cast<double>(histogram_first_count + candidate)
+            psfCountHistogramBinCenter(histogram_first_count, candidate)
                 - pilot_center);
         if (candidate_distance > minimum_distance + 1.0) {
             continue;
@@ -349,7 +361,112 @@ int selectPSFCountPeak(
 }
 
 // ==========================================
-// Function: Fill bounded one- or two-level holes in a working histogram
+// Function: Find the selected peak's complete significant peak complex
+// Method: Include local peaks strictly above H_selected/e and descend outward
+//         from their extrema until the smoothed histogram rises again.
+// ==========================================
+PSFCountBinRange findPSFCountPeakComplexBasin(
+    const std::vector<int>& peaks,
+    const std::vector<double>& smoothed_histogram,
+    int selected_peak) {
+    PSFCountBinRange basin;
+    if (selected_peak < 0
+        || selected_peak >= static_cast<int>(smoothed_histogram.size())
+        || !std::isfinite(smoothed_histogram[selected_peak])
+        || smoothed_histogram[selected_peak] <= 0.0) {
+        return basin;
+    }
+
+    const double minimum_height =
+        smoothed_histogram[selected_peak] * std::exp(-1.0);
+    for (int peak : peaks) {
+        if (peak < 0 || peak >= static_cast<int>(smoothed_histogram.size())
+            || !std::isfinite(smoothed_histogram[peak])) {
+            return {};
+        }
+        if (smoothed_histogram[peak] > minimum_height) {
+            if (basin.first < 0) basin.first = peak;
+            basin.first = std::min(basin.first, peak);
+            basin.last = std::max(basin.last, peak);
+        }
+    }
+    if (basin.first < 0 || basin.last < 0
+        || selected_peak < basin.first || selected_peak > basin.last) {
+        return {};
+    }
+    while (basin.first > 0
+           && smoothed_histogram[basin.first - 1]
+                <= smoothed_histogram[basin.first]) {
+        --basin.first;
+    }
+    while (basin.last + 1 < static_cast<int>(smoothed_histogram.size())
+           && smoothed_histogram[basin.last + 1]
+                <= smoothed_histogram[basin.last]) {
+        ++basin.last;
+    }
+    return basin;
+}
+
+// ==========================================
+// Function: Find independent outer elbows around the selected count peak
+// Method: Cross below ten percent of peak height, then maximize positive signed
+//         curvature toward each domain edge with nearest-bin tie breaking.
+// ==========================================
+PSFCountElbows findPSFCountOuterElbows(
+    const std::vector<double>& smoothed_histogram,
+    int selected_peak) {
+    PSFCountElbows elbows;
+    if (selected_peak < 0
+        || selected_peak >= static_cast<int>(smoothed_histogram.size())
+        || !std::isfinite(smoothed_histogram[selected_peak])
+        || smoothed_histogram[selected_peak] <= 0.0) {
+        return elbows;
+    }
+    const double threshold = 0.10 * smoothed_histogram[selected_peak];
+
+    int left_crossing = -1;
+    for (int bin = selected_peak - 1; bin >= 0; --bin) {
+        if (smoothed_histogram[bin] < threshold) {
+            left_crossing = bin;
+            break;
+        }
+    }
+    double best_curvature = 0.0;
+    for (int bin = left_crossing; bin >= 1; --bin) {
+        const double curvature = smoothed_histogram[bin - 1]
+            - 2.0 * smoothed_histogram[bin]
+            + smoothed_histogram[bin + 1];
+        if (std::isfinite(curvature) && curvature > best_curvature) {
+            best_curvature = curvature;
+            elbows.left = bin;
+        }
+    }
+
+    int right_crossing = -1;
+    for (int bin = selected_peak + 1;
+         bin < static_cast<int>(smoothed_histogram.size()); ++bin) {
+        if (smoothed_histogram[bin] < threshold) {
+            right_crossing = bin;
+            break;
+        }
+    }
+    best_curvature = 0.0;
+    for (int bin = right_crossing;
+         bin >= 0 && bin + 1 < static_cast<int>(smoothed_histogram.size());
+         ++bin) {
+        const double curvature = smoothed_histogram[bin - 1]
+            - 2.0 * smoothed_histogram[bin]
+            + smoothed_histogram[bin + 1];
+        if (std::isfinite(curvature) && curvature > best_curvature) {
+            best_curvature = curvature;
+            elbows.right = bin;
+        }
+    }
+    return elbows;
+}
+
+// ==========================================
+// Function: Fill bounded one- or two-bin holes in a working histogram
 // Method: Detect every zero run from the immutable raw input, then interpolate
 //         only short internal runs between positive raw endpoints.
 // ==========================================
@@ -378,6 +495,65 @@ std::vector<double> interpolateShortInternalHoles(
         }
     }
     return working;
+}
+
+// ==========================================
+// Function: Refine a peak-basin seed with re-absorbing asymmetric MAD
+// Method: Rebuild each pass from all real pilot-domain samples inside the current
+//         asymmetric bounds, allowing previously excluded samples to return.
+// ==========================================
+PSFCountRefinement refinePSFCountPopulation(
+    const std::vector<double>& seed_values,
+    const std::vector<double>& domain_values,
+    double locus_sigma,
+    int iterations) {
+    PSFCountRefinement result;
+    if (seed_values.empty() || domain_values.empty()
+        || !std::isfinite(locus_sigma) || locus_sigma <= 0.0
+        || iterations <= 0) {
+        return result;
+    }
+    std::vector<double> population = seed_values;
+    std::vector<double> domain = domain_values;
+    if (std::any_of(population.begin(), population.end(),
+                    [](double value) { return !std::isfinite(value); })
+        || std::any_of(domain.begin(), domain.end(),
+                       [](double value) { return !std::isfinite(value); })) {
+        return result;
+    }
+    std::sort(population.begin(), population.end());
+    std::sort(domain.begin(), domain.end());
+
+    double center = 0.0;
+    double lower_width = 0.0;
+    double upper_width = 0.0;
+    for (int iteration = 0; iteration < iterations; ++iteration) {
+        if (!medianAndAsymmetricMad(
+                population, center, lower_width, upper_width)) {
+            return {};
+        }
+        const double clip_lower = center - locus_sigma * lower_width;
+        const double clip_upper = center + locus_sigma * upper_width;
+        std::vector<double> refined;
+        refined.reserve(domain.size());
+        for (double value : domain) {
+            if (value >= clip_lower && value <= clip_upper) {
+                refined.push_back(value);
+            }
+        }
+        if (refined.empty()) return {};
+        population.swap(refined);
+    }
+    if (!medianAndAsymmetricMad(
+            population, center, lower_width, upper_width)) {
+        return {};
+    }
+    result.valid = true;
+    result.center = center;
+    result.lower_width = lower_width;
+    result.upper_width = upper_width;
+    result.sample_count = static_cast<int>(population.size());
+    return result;
 }
 
 // ==========================================
@@ -427,8 +603,8 @@ double fwhmFromStarArea(
 
 // ==========================================
 // Function: Estimate an exposure-wide integer star-area locus
-// Method: Build one-count bins, fill only short internal holes for smoothing,
-//         select a count peak, and refine its basin with asymmetric count MAD.
+// Method: Build fixed two-count bins, refine the significant peak complex from
+//         all pilot-domain samples, and widen only with independent outer elbows.
 // ==========================================
 bool estimatePSFCountLocus(
     const std::vector<PSFCountSample>& samples,
@@ -542,11 +718,14 @@ bool estimatePSFCountLocus(
         histogram_last_count = nearest;
     }
     const int histogram_bin_count =
-        histogram_last_count - histogram_first_count + 1;
+        (histogram_last_count - histogram_first_count)
+            / PSFCountHistogramBinWidth + 1;
     if (histogram_bin_count <= 0) return false;
 
     std::vector<double> histogram(
         static_cast<std::size_t>(histogram_bin_count), 0.0);
+    std::vector<double> domain_values;
+    domain_values.reserve(values.size());
     int histogram_sample_count = 0;
     int histogram_below_count = 0;
     int histogram_above_count = 0;
@@ -560,8 +739,10 @@ bool estimatePSFCountLocus(
             histogram_above_count++;
             continue;
         }
-        const int bin = star_area - histogram_first_count;
+        const int bin = (star_area - histogram_first_count)
+            / PSFCountHistogramBinWidth;
         histogram[bin] += 1.0;
+        domain_values.push_back(value);
         histogram_sample_count++;
     }
 
@@ -580,7 +761,8 @@ bool estimatePSFCountLocus(
             gaia_histogram_above_count++;
             continue;
         }
-        const int bin = star_area - histogram_first_count;
+        const int bin = (star_area - histogram_first_count)
+            / PSFCountHistogramBinWidth;
         gaia_histogram[bin] += 1.0;
         gaia_histogram_sample_count++;
     }
@@ -634,6 +816,7 @@ bool estimatePSFCountLocus(
         diagnostics->gaia_histogram_above_count =
             gaia_histogram_above_count;
         diagnostics->histogram_first_count = histogram_first_count;
+        diagnostics->histogram_last_count = histogram_last_count;
         diagnostics->peak_bin = peak_bin;
         diagnostics->histogram = histogram;
         diagnostics->working_histogram = working;
@@ -641,19 +824,15 @@ bool estimatePSFCountLocus(
         diagnostics->gaia_histogram = gaia_histogram;
     }
 
-    int basin_first = peak_bin;
-    while (basin_first > 0
-           && smoothed[basin_first - 1] <= smoothed[basin_first]) {
-        basin_first--;
-    }
-    int basin_last = peak_bin;
-    while (basin_last + 1 < histogram_bin_count
-           && smoothed[basin_last + 1] <= smoothed[basin_last]) {
-        basin_last++;
-    }
-
-    const int basin_low = histogram_first_count + basin_first;
-    const int basin_high = histogram_first_count + basin_last;
+    const PSFCountBinRange basin = findPSFCountPeakComplexBasin(
+        peaks, smoothed, peak_bin);
+    if (basin.first < 0 || basin.last < basin.first) return false;
+    const int basin_low = histogram_first_count
+        + PSFCountHistogramBinWidth * basin.first;
+    const int basin_high = std::min(
+        histogram_last_count,
+        histogram_first_count
+            + PSFCountHistogramBinWidth * (basin.last + 1) - 1);
     std::vector<double> population;
     for (double value : values) {
         if (value >= static_cast<double>(basin_low)
@@ -665,8 +844,12 @@ bool estimatePSFCountLocus(
         const int fallback_first = std::max(0, peak_bin - 2);
         const int fallback_last = std::min(
             histogram_bin_count - 1, peak_bin + 2);
-        const int fallback_low = histogram_first_count + fallback_first;
-        const int fallback_high = histogram_first_count + fallback_last;
+        const int fallback_low = histogram_first_count
+            + PSFCountHistogramBinWidth * fallback_first;
+        const int fallback_high = std::min(
+            histogram_last_count,
+            histogram_first_count
+                + PSFCountHistogramBinWidth * (fallback_last + 1) - 1);
         population.clear();
         for (double value : values) {
             if (value >= static_cast<double>(fallback_low)
@@ -677,39 +860,38 @@ bool estimatePSFCountLocus(
     }
     if (population.empty()) return false;
 
-    double center = 0.0;
-    double lower_width = 0.0;
-    double upper_width = 0.0;
-    for (int iteration = 0; iteration < 2; ++iteration) {
-        if (!medianAndAsymmetricMad(
-                population, center, lower_width, upper_width)) {
-            return false;
-        }
-        const double clip_lower =
-            center - config.locus_sigma * lower_width;
-        const double clip_upper =
-            center + config.locus_sigma * upper_width;
-        std::vector<double> clipped;
-        clipped.reserve(population.size());
-        for (double value : population) {
-            if (value >= clip_lower && value <= clip_upper) {
-                clipped.push_back(value);
-            }
-        }
-        if (clipped.empty() || clipped.size() == population.size()) break;
-        population.swap(clipped);
-    }
-    if (!medianAndAsymmetricMad(
-            population, center, lower_width, upper_width)) {
-        return false;
-    }
+    const PSFCountRefinement refinement = refinePSFCountPopulation(
+        population, domain_values, config.locus_sigma, 2);
+    if (!refinement.valid) return false;
+    const double mad_lower = refinement.center
+        - config.locus_sigma * refinement.lower_width;
+    const double mad_upper = refinement.center
+        + config.locus_sigma * refinement.upper_width;
+    const PSFCountElbows elbows = findPSFCountOuterElbows(
+        smoothed, peak_bin);
+    const double left_elbow = elbows.left >= 0
+        ? psfCountHistogramBinCenter(histogram_first_count, elbows.left)
+        : mad_lower;
+    const double right_elbow = elbows.right >= 0
+        ? psfCountHistogramBinCenter(histogram_first_count, elbows.right)
+        : mad_upper;
 
     locus.valid = true;
-    locus.center = center;
-    locus.lower_width = lower_width;
-    locus.upper_width = upper_width;
-    locus.lower = center - config.locus_sigma * lower_width;
-    locus.upper = center + config.locus_sigma * upper_width;
+    locus.center = refinement.center;
+    locus.lower_width = refinement.lower_width;
+    locus.upper_width = refinement.upper_width;
+    locus.lower = std::min(mad_lower, left_elbow);
+    locus.upper = std::max(mad_upper, right_elbow);
+    if (diagnostics != nullptr) {
+        diagnostics->mad_lower = mad_lower;
+        diagnostics->mad_upper = mad_upper;
+        diagnostics->left_elbow_bin = elbows.left;
+        diagnostics->right_elbow_bin = elbows.right;
+        diagnostics->left_elbow_guard_applied =
+            elbows.left >= 0 && left_elbow < mad_lower;
+        diagnostics->right_elbow_guard_applied =
+            elbows.right >= 0 && right_elbow > mad_upper;
+    }
     return std::isfinite(locus.lower) && std::isfinite(locus.upper);
 }
 
@@ -720,17 +902,20 @@ bool estimatePSFCountLocus(
 static void populateCountHistogramOnScienceGrid(
     const std::vector<int>& star_areas,
     int histogram_first_count,
+    int histogram_last_count,
     std::size_t histogram_bin_count,
     std::vector<double>& output_histogram) {
     output_histogram.assign(histogram_bin_count, 0.0);
     if (histogram_bin_count == 0) return;
 
     const int first_count = histogram_first_count;
-    const int last_count = first_count
-        + static_cast<int>(histogram_bin_count) - 1;
+    const int last_count = histogram_last_count;
+    if (last_count < first_count) return;
     for (int star_area : star_areas) {
         if (star_area < first_count || star_area > last_count) continue;
-        const int bin = star_area - first_count;
+        const int bin = (star_area - first_count)
+            / PSFCountHistogramBinWidth;
+        if (bin < 0 || bin >= static_cast<int>(histogram_bin_count)) continue;
         output_histogram[static_cast<std::size_t>(bin)] += 1.0;
     }
 }
@@ -748,6 +933,7 @@ void populateMinChiSurvivorCountHistogram(
     populateCountHistogramOnScienceGrid(
         minchi_star_areas,
         diagnostics.histogram_first_count,
+        diagnostics.histogram_last_count,
         diagnostics.histogram.size(),
         diagnostics.minchi_survivor_histogram);
 }
@@ -765,6 +951,7 @@ void populateSelectedGroupCountHistogram(
     populateCountHistogramOnScienceGrid(
         selected_star_areas,
         diagnostics.histogram_first_count,
+        diagnostics.histogram_last_count,
         diagnostics.histogram.size(),
         diagnostics.selected_group_histogram);
 }

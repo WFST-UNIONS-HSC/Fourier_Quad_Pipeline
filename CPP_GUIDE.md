@@ -65,19 +65,29 @@ clips while the proposed population keeps a positive MAD, then uses a local
 unpadded interpolated `Q(q)--Q(1-q)` bounds, where
 `q = LensingConfig::psf_count_zero_mad_quantile` defaults to `0.05`.
 
-The science histogram has exactly one integer count level per bin. Its raw
-counts remain immutable; only bounded internal holes of one or two levels are
-linearly interpolated in a working histogram before 1-2-3-2-1 smoothing. Gaia
-peak eligibility is anchored to the global nearest distance plus exactly one
-count. Final two-pass asymmetric MAD refinement excludes center duplicates,
-uses a fixed one-count floor on each side, and production applies strict
+The science histogram has a fixed width of two integer count levels per bin;
+its nominal bin center is `first + 2 * bin + 0.5`, while diagnostics retain the
+actual inclusive first/last pilot-domain counts. Raw counts remain immutable.
+Only bounded internal holes of one or two bins (two or four counts) are linearly
+interpolated in a working histogram before the unchanged 1-2-3-2-1 smoothing.
+Gaia peak eligibility is anchored to global nearest nominal-center distance
+plus exactly one count. Every local peak strictly above `H_selected / e` forms
+one peak complex regardless of internal valleys, and the seed basin descends
+outward from its outermost peaks until the next rise. Each of two asymmetric-MAD
+passes rebuilds from all real samples in the pilot histogram domain, so eligible
+samples can re-enter; center duplicates stay excluded from side MADs and both
+widths retain their one-count floor. Independently on each side, the first bin
+strictly below ten percent of the selected height starts an outward search for
+the maximum positive signed second difference. An available elbow can only
+widen its pre-guard MAD cut. Production still applies strict
 `lower < star_area < upper` cuts.
 
 Both variants still write `stamps/svg_StarLocus/<exposure>_locus.svg`, now
 directly in the integer `exp(-1)` pixel-count coordinate used by science. Each
-histogram bin is one integer count level; raw, smoothed, Gaia, exact post-minChi/
-pre-grouping survivors, and pre-PRESS shared-group distributions plus pilot,
-peak, median, and final-cut markers all share that grid. Historical index-10
+histogram bin spans two integer count levels; raw, smoothed, Gaia, exact
+post-minChi/pre-grouping survivors, and pre-PRESS shared-group distributions
+plus pilot, selected peak, Gaia median, pre-guard MAD cuts, available outer
+elbows, and final guarded cuts all share that grid. Historical index-10
 FWHM remains available to its existing
 non-locus output and rescale consumers, but the SVG no longer reads or maps it.
 `process_init` creates the output directory; a legacy data tree that skips

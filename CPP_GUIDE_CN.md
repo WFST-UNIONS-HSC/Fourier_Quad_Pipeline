@@ -58,16 +58,23 @@ clipping，且只接受下一 population 仍为正 MAD 的 clip，然后使用�
 初始 MAD 为零时保留完整输入并使用无 padding 的插值 `Q(q)--Q(1-q)` bounds；
 `q = LensingConfig::psf_count_zero_mad_quantile`，默认 `0.05`。
 
-科学 histogram 每个整数 count level 固定对应一个 bin。raw count 始终不修改；只在
-working histogram 中对两侧由正值封闭的 1 或 2 层内部空洞做线性插值，再进行
-1-2-3-2-1 平滑。Gaia 峰资格固定为全局最近距离再加 1 count。最终两轮不对称 MAD
-refinement 排除等于中心的重复值，两侧均使用固定 1-count 宽度下限；生产选择继续采用
-严格的 `lower < star_area < upper`。
+科学 histogram 的 bin 宽固定为 2 个整数 count level，名义中心为
+`first + 2 * bin + 0.5`，diagnostics 同时保存 pilot domain 实际包含的首末整数。
+raw count 始终不修改；只在 working histogram 中对两侧由正值封闭的 1 或 2 个 bin
+（即 2 或 4 个 count）的内部空洞做线性插值，再进行不变的 1-2-3-2-1 平滑。Gaia
+峰资格以名义 bin center 的全局最近距离再加 1 count 为界。所有严格满足
+`H > H_selected / e` 的局部峰组成一个 peak complex，不考虑内部 valley；seed basin
+从最外侧有效峰向外下降，遇到下一次上升停止。随后两轮不对称 MAD refinement 每轮都
+从 pilot histogram domain 内全部真实样本重建 population，允许重新吸收；等于中心的
+重复值仍不进入两侧 MAD，宽度下限仍为 1 count。左右两侧各自从第一个严格低于所选峰
+高度 10% 的 bin 向边界搜索，选择最大正有符号二阶差分作为 elbow；可用 elbow 只能向外
+放宽 pre-guard MAD cut。生产选择继续采用严格的 `lower < star_area < upper`。
 
 Standard 与 Lite 仍写出 `stamps/svg_StarLocus/<exposure>_locus.svg`，但横轴现在直接
-使用科学选择的整数 `exp(-1)` pixel count。每个 histogram bin 对应一个整数 count
+使用科学选择的整数 `exp(-1)` pixel count。每个 histogram bin 覆盖两个整数 count
 level；raw、smoothed、Gaia、精确的 minChi 后/grouping 前 survivor，以及 grouping 后/
-PRESS 前的 shared-group 分布连同 pilot、峰、median 和最终 cuts 均使用同一 count grid。
+PRESS 前的 shared-group 分布连同 pilot、所选峰、Gaia median、pre-guard MAD cuts、
+可用的左右 elbow 和最终 guarded cuts 均使用同一 count grid。
 历史 index-10 FWHM 仍供已有非 locus 输出与
 rescale 消费者使用，但 SVG 不再读取或映射它。输出目录由 `process_init` 创建；旧数据树
 若跳过初始化，必须在运行 Stage 5 前补齐该目录。

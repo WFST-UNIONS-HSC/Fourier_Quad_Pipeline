@@ -100,8 +100,8 @@ namespace PSFModel {
 
     // ==========================================
     // Function: Write one exposure-level integer-area locus SVG diagnostic
-    // Method: Render the same-pass robust pilot bounds and zero-MAD decisions,
-    //         all/Gaia/minChi/shared-group histograms, peak, widths, and cuts.
+    // Method: Render the same-pass two-count histograms, pilot/peak/MAD/elbow
+    //         decisions, and final guarded cuts before PRESS rejection.
     // ==========================================
     static void writePSFCountLocusSVG(
         const std::string& dirOutput,
@@ -118,12 +118,34 @@ namespace PSFModel {
         }
         const std::size_t bin_count = diagnostics.histogram.size();
         const int first_count = diagnostics.histogram_first_count;
-        const int last_count = first_count
-            + static_cast<int>(bin_count) - 1;
+        const int last_count = diagnostics.histogram_last_count;
+        const int expected_bin_count = last_count >= first_count
+            ? (last_count - first_count)
+                / Internal::PSFCountHistogramBinWidth + 1
+            : 0;
+        if (expected_bin_count != static_cast<int>(bin_count)
+            || !std::isfinite(diagnostics.mad_lower)
+            || !std::isfinite(diagnostics.mad_upper)) {
+            return;
+        }
         const double histogram_lower =
             static_cast<double>(first_count) - 0.5;
         const double histogram_upper =
-            static_cast<double>(last_count) + 0.5;
+            static_cast<double>(first_count)
+                + static_cast<double>(Internal::PSFCountHistogramBinWidth)
+                    * static_cast<double>(bin_count) - 0.5;
+        const bool has_left_elbow = diagnostics.left_elbow_bin >= 0
+            && diagnostics.left_elbow_bin < static_cast<int>(bin_count);
+        const bool has_right_elbow = diagnostics.right_elbow_bin >= 0
+            && diagnostics.right_elbow_bin < static_cast<int>(bin_count);
+        const double left_elbow_value = has_left_elbow
+            ? Internal::psfCountHistogramBinCenter(
+                first_count, diagnostics.left_elbow_bin)
+            : 0.0;
+        const double right_elbow_value = has_right_elbow
+            ? Internal::psfCountHistogramBinCenter(
+                first_count, diagnostics.right_elbow_bin)
+            : 0.0;
         const bool has_gaia_histogram =
             !diagnostics.gaia_histogram.empty()
             && diagnostics.gaia_histogram.size()
@@ -144,7 +166,7 @@ namespace PSFModel {
                             << ")";
 
         constexpr double canvas_width = 1200.0;
-        constexpr double canvas_height = 930.0;
+        constexpr double canvas_height = 1160.0;
         constexpr double plot_left = 90.0;
         constexpr double plot_right = 870.0;
         constexpr double plot_top = 110.0;
@@ -158,6 +180,10 @@ namespace PSFModel {
         x_max = std::max(x_max, histogram_upper);
         x_min = std::min(x_min, diagnostics.pilot_center);
         x_max = std::max(x_max, diagnostics.pilot_center);
+        x_min = std::min(x_min, diagnostics.mad_lower);
+        x_max = std::max(x_max, diagnostics.mad_upper);
+        if (has_left_elbow) x_min = std::min(x_min, left_elbow_value);
+        if (has_right_elbow) x_max = std::max(x_max, right_elbow_value);
         if (diagnostics.has_gaia_median) {
             x_min = std::min(x_min, diagnostics.gaia_median);
             x_max = std::max(x_max, diagnostics.gaia_median);
@@ -237,8 +263,10 @@ namespace PSFModel {
         output << "  <g id=\"raw-histogram\" fill=\"#b8bec7\">\n";
         for (std::size_t bin = 0; bin < bin_count; ++bin) {
             const double left_value = static_cast<double>(first_count)
-                + static_cast<double>(bin) - 0.5;
-            const double right_value = left_value + 1.0;
+                + static_cast<double>(Internal::PSFCountHistogramBinWidth)
+                    * static_cast<double>(bin) - 0.5;
+            const double right_value = left_value
+                + static_cast<double>(Internal::PSFCountHistogramBinWidth);
             const double left = mapX(left_value);
             const double right = mapX(right_value);
             const double top = mapY(diagnostics.histogram[bin]);
@@ -250,8 +278,8 @@ namespace PSFModel {
                << "  <polyline id=\"smoothed-histogram\" fill=\"none\" "
                   "stroke=\"#2468b4\" stroke-width=\"3\" points=\"";
         for (std::size_t bin = 0; bin < bin_count; ++bin) {
-            const double center = static_cast<double>(first_count)
-                + static_cast<double>(bin);
+            const double center = Internal::psfCountHistogramBinCenter(
+                first_count, static_cast<int>(bin));
             output << mapX(center) << ','
                    << mapY(diagnostics.smoothed_histogram[bin]) << ' ';
         }
@@ -260,8 +288,8 @@ namespace PSFModel {
             output << "  <polyline id=\"gaia-histogram\" fill=\"none\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\" points=\"";
             for (std::size_t bin = 0; bin < bin_count; ++bin) {
-                const double center = static_cast<double>(first_count)
-                    + static_cast<double>(bin);
+                const double center = Internal::psfCountHistogramBinCenter(
+                    first_count, static_cast<int>(bin));
                 output << mapX(center) << ','
                        << mapY(diagnostics.gaia_histogram[bin]) << ' ';
             }
@@ -271,8 +299,8 @@ namespace PSFModel {
             output << "  <polyline id=\"minchi-survivor-histogram\" fill=\"none\" "
                       "stroke=\"#e377c2\" stroke-width=\"3\" points=\"";
             for (std::size_t bin = 0; bin < bin_count; ++bin) {
-                const double center = static_cast<double>(first_count)
-                    + static_cast<double>(bin);
+                const double center = Internal::psfCountHistogramBinCenter(
+                    first_count, static_cast<int>(bin));
                 output << mapX(center) << ','
                        << mapY(diagnostics.minchi_survivor_histogram[bin]) << ' ';
             }
@@ -282,16 +310,16 @@ namespace PSFModel {
             output << "  <polyline id=\"selected-group-histogram\" fill=\"none\" "
                       "stroke=\"#17becf\" stroke-width=\"3\" points=\"";
             for (std::size_t bin = 0; bin < bin_count; ++bin) {
-                const double center = static_cast<double>(first_count)
-                    + static_cast<double>(bin);
+                const double center = Internal::psfCountHistogramBinCenter(
+                    first_count, static_cast<int>(bin));
                 output << mapX(center) << ','
                        << mapY(diagnostics.selected_group_histogram[bin]) << ' ';
             }
             output << "\"/>\n";
         }
 
-        const double peak_value = static_cast<double>(
-            first_count + diagnostics.peak_bin);
+        const double peak_value = Internal::psfCountHistogramBinCenter(
+            first_count, diagnostics.peak_bin);
         output << "  <line id=\"selected-peak\" x1=\"" << mapX(peak_value)
                << "\" y1=\"" << plot_top << "\" x2=\"" << mapX(peak_value)
                << "\" y2=\"" << plot_bottom
@@ -310,6 +338,32 @@ namespace PSFModel {
                    << "\" y2=\"" << plot_bottom
                    << "\" stroke=\"#2ca02c\" stroke-width=\"2\" "
                       "stroke-dasharray=\"8,4,2,4\"/>\n";
+        }
+        output << "  <line id=\"mad-lower\" x1=\""
+               << mapX(diagnostics.mad_lower)
+               << "\" y1=\"" << plot_top << "\" x2=\""
+               << mapX(diagnostics.mad_lower) << "\" y2=\"" << plot_bottom
+               << "\" stroke=\"#8c564b\" stroke-width=\"2\" "
+                  "stroke-dasharray=\"5,3\"/>\n"
+               << "  <line id=\"mad-upper\" x1=\""
+               << mapX(diagnostics.mad_upper)
+               << "\" y1=\"" << plot_top << "\" x2=\""
+               << mapX(diagnostics.mad_upper) << "\" y2=\"" << plot_bottom
+               << "\" stroke=\"#8c564b\" stroke-width=\"2\" "
+                  "stroke-dasharray=\"5,3\"/>\n";
+        if (has_left_elbow) {
+            output << "  <line id=\"left-elbow\" x1=\""
+                   << mapX(left_elbow_value) << "\" y1=\"" << plot_top
+                   << "\" x2=\"" << mapX(left_elbow_value) << "\" y2=\""
+                   << plot_bottom << "\" stroke=\"#bc8f00\" stroke-width=\"2\" "
+                      "stroke-dasharray=\"2,3\"/>\n";
+        }
+        if (has_right_elbow) {
+            output << "  <line id=\"right-elbow\" x1=\""
+                   << mapX(right_elbow_value) << "\" y1=\"" << plot_top
+                   << "\" x2=\"" << mapX(right_elbow_value) << "\" y2=\""
+                   << plot_bottom << "\" stroke=\"#bc8f00\" stroke-width=\"2\" "
+                      "stroke-dasharray=\"2,3\"/>\n";
         }
         output << "  <line id=\"locus-lower\" x1=\"" << mapX(locus.lower)
                << "\" y1=\"" << plot_top << "\" x2=\"" << mapX(locus.lower)
@@ -376,70 +430,94 @@ namespace PSFModel {
                << locus.upper_width << "</text>\n"
                << "    <text x=\"900\" y=\"445\">Final sigma = "
                << LensingConfig::psf_count_locus_sigma << "</text>\n"
-               << "    <text x=\"900\" y=\"468\">Final lower = "
+               << "    <text x=\"900\" y=\"468\">MAD lower = "
+               << diagnostics.mad_lower << "</text>\n"
+               << "    <text x=\"900\" y=\"491\">MAD upper = "
+               << diagnostics.mad_upper << "</text>\n"
+               << "    <text x=\"900\" y=\"514\">Final lower = "
                << locus.lower << "</text>\n"
-               << "    <text x=\"900\" y=\"491\">Final upper = "
+               << "    <text x=\"900\" y=\"537\">Final upper = "
                << locus.upper << "</text>\n"
-               << "    <text x=\"900\" y=\"514\">Gaia matches = "
+               << "    <text x=\"900\" y=\"560\">Gaia matches = "
                << diagnostics.gaia_match_count << "</text>\n"
-               << "    <text x=\"900\" y=\"537\">Gaia histogram = "
+               << "    <text x=\"900\" y=\"583\">Gaia histogram = "
                << diagnostics.gaia_histogram_sample_count << "</text>\n"
-               << "    <text x=\"900\" y=\"560\">Gaia below / above = "
+               << "    <text x=\"900\" y=\"606\">Gaia below / above = "
                << diagnostics.gaia_histogram_below_count << " / "
                << diagnostics.gaia_histogram_above_count << "</text>\n"
-               << "    <text x=\"900\" y=\"583\">MinChi survivors = "
+               << "    <text x=\"900\" y=\"629\">MinChi survivors = "
                << diagnostics.minchi_survivor_count << "</text>\n"
-               << "    <text x=\"900\" y=\"606\">Shared-group selected = "
+               << "    <text x=\"900\" y=\"652\">Shared-group selected = "
                << diagnostics.selected_group_count << "</text>\n";
         if (diagnostics.has_gaia_median) {
-            output << "    <text x=\"900\" y=\"629\">Gaia raw median = "
+            output << "    <text x=\"900\" y=\"675\">Gaia raw median = "
                    << diagnostics.gaia_median << "</text>\n";
         }
-        output << "    <text x=\"930\" y=\"660\">raw histogram</text>\n"
-               << "    <text x=\"930\" y=\"686\">smoothed histogram</text>\n";
+        output << "    <text x=\"900\" y=\"698\">Left elbow = ";
+        if (has_left_elbow) output << left_elbow_value;
+        else output << "unavailable";
+        output << "</text>\n"
+               << "    <text x=\"900\" y=\"721\">Right elbow = ";
+        if (has_right_elbow) output << right_elbow_value;
+        else output << "unavailable";
+        output << "</text>\n"
+               << "    <text x=\"900\" y=\"744\">Left guard applied = "
+               << (diagnostics.left_elbow_guard_applied ? "yes" : "no")
+               << "</text>\n"
+               << "    <text x=\"900\" y=\"767\">Right guard applied = "
+               << (diagnostics.right_elbow_guard_applied ? "yes" : "no")
+               << "</text>\n"
+               << "    <text x=\"930\" y=\"820\">raw histogram</text>\n"
+               << "    <text x=\"930\" y=\"846\">smoothed histogram</text>\n";
         if (has_gaia_histogram) {
-            output << "    <text x=\"930\" y=\"712\">Gaia histogram</text>\n";
+            output << "    <text x=\"930\" y=\"872\">Gaia histogram</text>\n";
         }
         if (has_minchi_survivor_histogram) {
-            output << "    <text x=\"930\" y=\"738\">MinChi survivors</text>\n";
+            output << "    <text x=\"930\" y=\"898\">MinChi survivors</text>\n";
         }
         if (has_selected_group_histogram) {
-            output << "    <text x=\"930\" y=\"764\">Shared-group selected</text>\n";
+            output << "    <text x=\"930\" y=\"924\">Shared-group selected</text>\n";
         }
-        output << "    <text x=\"930\" y=\"790\">selected peak</text>\n"
-               << "    <text x=\"930\" y=\"816\">pilot center</text>\n"
-               << "    <text x=\"930\" y=\"842\">locus center</text>\n"
-               << "    <text x=\"930\" y=\"868\">lower / upper cut</text>\n";
+        output << "    <text x=\"930\" y=\"950\">selected peak</text>\n"
+               << "    <text x=\"930\" y=\"976\">pilot center</text>\n"
+               << "    <text x=\"930\" y=\"1002\">locus center</text>\n"
+               << "    <text x=\"930\" y=\"1028\">pre-guard MAD cuts</text>\n"
+               << "    <text x=\"930\" y=\"1054\">outer elbows</text>\n"
+               << "    <text x=\"930\" y=\"1080\">final guarded cuts</text>\n";
         if (diagnostics.has_gaia_median) {
-            output << "    <text x=\"930\" y=\"894\">Gaia raw median</text>\n";
+            output << "    <text x=\"930\" y=\"1106\">Gaia raw median</text>\n";
         }
         output << "  </g>\n"
-               << "  <rect x=\"900\" y=\"647\" width=\"20\" height=\"14\" "
+               << "  <rect x=\"900\" y=\"807\" width=\"20\" height=\"14\" "
                   "fill=\"#b8bec7\"/>\n"
-               << "  <line x1=\"900\" y1=\"681\" x2=\"920\" y2=\"681\" "
+               << "  <line x1=\"900\" y1=\"841\" x2=\"920\" y2=\"841\" "
                   "stroke=\"#2468b4\" stroke-width=\"3\"/>\n";
         if (has_gaia_histogram) {
-            output << "  <line x1=\"900\" y1=\"707\" x2=\"920\" y2=\"707\" "
+            output << "  <line x1=\"900\" y1=\"867\" x2=\"920\" y2=\"867\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\"/>\n";
         }
         if (has_minchi_survivor_histogram) {
-            output << "  <line x1=\"900\" y1=\"733\" x2=\"920\" y2=\"733\" "
+            output << "  <line x1=\"900\" y1=\"893\" x2=\"920\" y2=\"893\" "
                       "stroke=\"#e377c2\" stroke-width=\"3\"/>\n";
         }
         if (has_selected_group_histogram) {
-            output << "  <line x1=\"900\" y1=\"759\" x2=\"920\" y2=\"759\" "
+            output << "  <line x1=\"900\" y1=\"919\" x2=\"920\" y2=\"919\" "
                       "stroke=\"#17becf\" stroke-width=\"3\"/>\n";
         }
-        output << "  <line x1=\"900\" y1=\"785\" x2=\"920\" y2=\"785\" "
+        output << "  <line x1=\"900\" y1=\"945\" x2=\"920\" y2=\"945\" "
                   "stroke=\"#f28e2b\" stroke-width=\"2\" stroke-dasharray=\"3,3\"/>\n"
-               << "  <line x1=\"900\" y1=\"811\" x2=\"920\" y2=\"811\" "
+               << "  <line x1=\"900\" y1=\"971\" x2=\"920\" y2=\"971\" "
                   "stroke=\"#9467bd\" stroke-width=\"2\" stroke-dasharray=\"6,3\"/>\n"
-               << "  <line x1=\"900\" y1=\"837\" x2=\"920\" y2=\"837\" "
+               << "  <line x1=\"900\" y1=\"997\" x2=\"920\" y2=\"997\" "
                   "stroke=\"#111111\" stroke-width=\"3\"/>\n"
-               << "  <line x1=\"900\" y1=\"863\" x2=\"920\" y2=\"863\" "
+               << "  <line x1=\"900\" y1=\"1023\" x2=\"920\" y2=\"1023\" "
+                  "stroke=\"#8c564b\" stroke-width=\"2\" stroke-dasharray=\"5,3\"/>\n"
+               << "  <line x1=\"900\" y1=\"1049\" x2=\"920\" y2=\"1049\" "
+                  "stroke=\"#bc8f00\" stroke-width=\"2\" stroke-dasharray=\"2,3\"/>\n"
+               << "  <line x1=\"900\" y1=\"1075\" x2=\"920\" y2=\"1075\" "
                   "stroke=\"#d62728\" stroke-width=\"3\" stroke-dasharray=\"8,5\"/>\n";
         if (diagnostics.has_gaia_median) {
-            output << "  <line x1=\"900\" y1=\"889\" x2=\"920\" y2=\"889\" "
+            output << "  <line x1=\"900\" y1=\"1101\" x2=\"920\" y2=\"1101\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\" "
                       "stroke-dasharray=\"8,4,2,4\"/>\n";
         }

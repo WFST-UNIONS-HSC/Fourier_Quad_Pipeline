@@ -12,6 +12,21 @@
 #include <string>
 #include <string_view>
 
+namespace ProcessConfig {
+
+// Workflow path defaults copied into RuntimeOptions before CLI overrides.
+inline constexpr const char* EXPO_LIST = "";  // Top-level exposure-list path.
+inline constexpr const char* REARR_OUTPUT_DIRECTORY = "baked";  // Rearranged catalogs.
+inline constexpr const char* REARR_OUTPUT_BASE_DIRECTORY = "";  // Empty uses dataset root.
+inline constexpr const char* REARRANGED_EXPO_LIST_FILENAME =
+    "cat_gband_ori.list";  // Published rearranged list name.
+inline constexpr const char* REARRANGED_EXPO_LIST_DIRECTORY = "";  // Input-list parent.
+inline constexpr const char* FD_EXPO_LIST = "";  // Optional FD-specific list.
+inline constexpr const char* FD_OUTPUT_DIRECTORY = "fdout";  // FD results.
+inline constexpr const char* FD_OUTPUT_BASE_DIRECTORY = "";  // Empty uses dataset root.
+
+}  // namespace ProcessConfig
+
 namespace LensingConfig {
 
 // Catalog inputs originally supplied by para.inc; optional flat/PSF branches are absent in Lite.
@@ -21,6 +36,17 @@ inline constexpr const char* SOURCE_CAT_DEFAULT =
     "/lustre/home/acct-phyzj/share/DES/testy/des_y6_cat";  // External source tiles.
 
 }  // namespace LensingConfig
+
+namespace InitConfig {
+
+inline constexpr const char* SCIENCE_ROOT =
+    "/lustre/home/acct-phyzj/share/DES/g";  // Science archive root.
+inline constexpr const char* DQ_ROOT =
+    "/lustre/home/acct-phyzj/share/DES/mask_v1/g_mask";  // DQ archive root.
+inline constexpr const char* OUTPUT_ROOT =
+    "/lustre/home/acct-phyzj/share/DES/g_band_v1";  // Pipeline output root.
+
+}  // namespace InitConfig
 
 namespace AstroCatConfig {
 
@@ -37,32 +63,6 @@ inline constexpr const char* EXTCAT_OUTPUT_DIRECTORY =
     LensingConfig::SOURCE_CAT_DEFAULT;  // Tile output and process_main input.
 
 }  // namespace ExtCatConfig
-
-namespace InitConfig {
-
-inline constexpr const char* SCIENCE_ROOT =
-    "/lustre/home/acct-phyzj/share/DES/g";  // Science archive root.
-inline constexpr const char* DQ_ROOT =
-    "/lustre/home/acct-phyzj/share/DES/mask_v1/g_mask";  // DQ archive root.
-inline constexpr const char* OUTPUT_ROOT =
-    "/lustre/home/acct-phyzj/share/DES/g_band_v1";  // Pipeline output root.
-
-}  // namespace InitConfig
-
-namespace ProcessConfig {
-
-// Workflow path defaults copied into RuntimeOptions before CLI overrides.
-inline constexpr const char* EXPO_LIST = "";  // Top-level exposure-list path.
-inline constexpr const char* REARR_OUTPUT_DIRECTORY = "baked";  // Rearranged catalogs.
-inline constexpr const char* REARR_OUTPUT_BASE_DIRECTORY = "";  // Empty uses dataset root.
-inline constexpr const char* REARRANGED_EXPO_LIST_FILENAME =
-    "cat_gband_ori.list";  // Published rearranged list name.
-inline constexpr const char* REARRANGED_EXPO_LIST_DIRECTORY = "";  // Input-list parent.
-inline constexpr const char* FD_EXPO_LIST = "";  // Optional FD-specific list.
-inline constexpr const char* FD_OUTPUT_DIRECTORY = "fdout";  // FD results.
-inline constexpr const char* FD_OUTPUT_BASE_DIRECTORY = "";  // Empty uses dataset root.
-
-}  // namespace ProcessConfig
 
 namespace ProcessRearrConfig {
 
