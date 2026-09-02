@@ -83,9 +83,11 @@ widen its pre-guard MAD cut. Production still applies strict
 `lower < star_area < upper` cuts.
 
 `PsfGroupingType = 3` keeps the same quality, Gaia/star-area, normalized-window,
-and minChi gates, then bypasses both graph grouping implementations. It builds
-one exposure-wide Freedman-Diaconis histogram from every finite unordered
-same-chip minChi-survivor pair. The edge-renormalized 1-2-3-2-1 smoother does
+and minChi gates, then bypasses both graph grouping implementations. It uses
+every finite unordered same-chip minChi-survivor pair for the exposure-wide
+Freedman-Diaconis IQR, range, and histogram, while the width's `n^(-1/3)` scale
+uses the total minChi-survivor star count instead of the correlated pair count.
+The edge-renormalized 1-2-3-2-1 smoother does
 not fill holes; flat local maxima collapse to their lower middle bin. Peaks are
 valid only when strictly above `H_main / e`; the first invalid peak right of the
 rightmost valid peak bounds the search for the maximum positive signed-curvature
@@ -96,7 +98,8 @@ the origin-zero histogram includes zeros and uses the strict `0.10 H_main` peak
 rule. Fractions equal to the cut pass. Missing estimators fail open, all-zero
 fractions add no rejection, stars without a finite pair denominator do not pass
 a successful pair stage, and every chip still needs `nstar_min_local` stars.
-Detailed `PSF_TYPE3_*` logs expose both adaptive grids and decisions.
+Detailed `PSF_TYPE3_*` logs expose both adaptive grids and decisions, including
+separate `fd_samples` and `fd_scale_samples` counts.
 
 Both variants still write `stamps/svg_StarLocus/<exposure>_locus.svg`, now
 directly in the integer `exp(-1)` pixel-count coordinate used by science. Each

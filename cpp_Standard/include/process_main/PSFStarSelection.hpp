@@ -279,6 +279,8 @@ struct PSFUpperElbowHistogramConfig {
     bool exclude_zero_from_fd = false;
     bool zero_iqr_uses_min_positive = false;
     bool force_zero_origin = false;
+    // Zero uses the actual FD-distribution sample count.
+    std::size_t fd_scale_sample_count = 0;
 };
 
 // ==========================================
@@ -290,6 +292,7 @@ struct PSFUpperElbowHistogramResult {
     PSFUpperElbowStatus status = PSFUpperElbowStatus::NoFiniteValues;
     std::size_t finite_value_count = 0;
     std::size_t fd_sample_count = 0;
+    std::size_t fd_scale_sample_count = 0;
     double fd_iqr = 0.0;
     double bin_origin = 0.0;
     double bin_width = 0.0;

@@ -1331,6 +1331,8 @@ namespace PSFModel {
         std::cout << label
                   << " finite=" << result.finite_value_count
                   << " fd_samples=" << result.fd_sample_count
+                  << " fd_scale_samples="
+                  << result.fd_scale_sample_count
                   << " iqr=" << result.fd_iqr
                   << " width=" << result.bin_width
                   << " origin=" << result.bin_origin
@@ -1359,6 +1361,29 @@ namespace PSFModel {
             for (Internal::StarSelectionState& selection : chip.selection) {
                 selection.bad_pair_fraction = 0.0;
             }
+        }
+
+        // ==========================================
+        // Function: Derive the Type-3 Stage-1 FD scale count
+        // Method: Sum minChi survivors with checked size_t addition; a
+        //         representational overflow preserves the fail-open selection.
+        // ==========================================
+        std::size_t active_star_count = 0U;
+        for (int chip_index = 0; chip_index < nchip; ++chip_index) {
+            const std::size_t chip_active_count =
+                active_indices[chip_index].size();
+            if (chip_active_count
+                > std::numeric_limits<std::size_t>::max()
+                    - active_star_count) {
+                Internal::PSFUpperElbowHistogramResult count_failure;
+                count_failure.status =
+                    Internal::PSFUpperElbowStatus::InvalidInput;
+                logAdaptiveHistogram(
+                    "PSF_TYPE3_PAIR", count_failure, "FAIL_OPEN");
+                commitAdaptivePairSelection(nchip, active_indices, state);
+                return;
+            }
+            active_star_count += chip_active_count;
         }
 
         std::vector<float> pair_chi;
@@ -1400,7 +1425,8 @@ namespace PSFModel {
             LensingConfig::psf_pair_chi_valid_peak_fraction,
             false,
             false,
-            false};
+            false,
+            active_star_count};
         if (!Internal::estimatePSFUpperElbowCut(
                 pair_chi, pair_config, pair_result)) {
             logAdaptiveHistogram(
@@ -1495,7 +1521,8 @@ namespace PSFModel {
                 LensingConfig::psf_bad_fraction_valid_peak_fraction,
                 true,
                 true,
-                true};
+                true,
+                0U};
             apply_fraction_cut = Internal::estimatePSFUpperElbowCut(
                 fraction_values, fraction_config, fraction_result);
             logAdaptiveHistogram(

@@ -410,7 +410,7 @@ void testCountOverlayHistograms() {
 // ==========================================
 void testAdaptiveUpperElbowHistogram() {
     const PSFUpperElbowHistogramConfig pair_config = {
-        std::exp(-1.0), false, false, false};
+        std::exp(-1.0), false, false, false, 0U};
     PSFUpperElbowHistogramResult result;
     const std::vector<double> ordinary = {
         0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0,
@@ -418,6 +418,7 @@ void testAdaptiveUpperElbowHistogram() {
     estimatePSFUpperElbowCut(ordinary, pair_config, result);
     require(result.finite_value_count == 8
                 && result.fd_sample_count == 8
+                && result.fd_scale_sample_count == 8
                 && std::abs(result.fd_iqr - 1.5) < 1.0e-12
                 && std::abs(result.bin_width - 1.5) < 1.0e-12
                 && result.bin_origin == 0.0
@@ -427,6 +428,31 @@ void testAdaptiveUpperElbowHistogram() {
                     == 8.0
                 && result.histogram.back() == 2.0,
             "ordinary FD bins must filter nonfinite input and include the maximum");
+
+    PSFUpperElbowHistogramConfig explicit_scale_config = pair_config;
+    explicit_scale_config.fd_scale_sample_count = 4U;
+    estimatePSFUpperElbowCut(ordinary, explicit_scale_config, result);
+    const double explicit_scale_width = 3.0 / std::cbrt(4.0);
+    require(result.fd_sample_count == 8
+                && result.fd_scale_sample_count == 4
+                && std::abs(result.fd_iqr - 1.5) < 1.0e-12
+                && std::abs(result.bin_width - explicit_scale_width)
+                    < 1.0e-12,
+            "explicit FD scale count must change only the cube-root factor");
+
+    PSFUpperElbowHistogramConfig scale_1000_config = pair_config;
+    scale_1000_config.fd_scale_sample_count = 1000U;
+    estimatePSFUpperElbowCut(ordinary, scale_1000_config, result);
+    const double width_1000 = result.bin_width;
+    PSFUpperElbowHistogramConfig scale_10000_config = pair_config;
+    scale_10000_config.fd_scale_sample_count = 10000U;
+    estimatePSFUpperElbowCut(ordinary, scale_10000_config, result);
+    require(result.fd_sample_count == 8
+                && result.fd_scale_sample_count == 10000
+                && std::abs(
+                    result.bin_width / width_1000 - std::cbrt(0.1))
+                    < 1.0e-12,
+            "FD width must scale with the explicit star count to power -1/3");
 
     std::vector<double> outlier = {
         0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 100.0};
@@ -448,7 +474,7 @@ void testAdaptiveUpperElbowHistogram() {
             "pair-chi zero IQR must fail open without an invented width");
 
     const PSFUpperElbowHistogramConfig fraction_config = {
-        0.10, true, true, true};
+        0.10, true, true, true, 0U};
     require(!estimatePSFUpperElbowCut(
                 std::vector<double>({0.0, 0.0, 0.0}),
                 fraction_config,
@@ -463,6 +489,7 @@ void testAdaptiveUpperElbowHistogram() {
         result);
     require(result.finite_value_count == 6
                 && result.fd_sample_count == 4
+                && result.fd_scale_sample_count == 4
                 && result.fd_iqr == 0.0
                 && result.bin_width == 0.25
                 && result.bin_origin == 0.0

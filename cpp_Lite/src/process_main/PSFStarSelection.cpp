@@ -443,7 +443,10 @@ bool estimatePSFUpperElbowCutImpl(
             }
         }
         result.fd_sample_count = fd_values.size();
-        if (fd_values.empty()) {
+        result.fd_scale_sample_count = config.fd_scale_sample_count > 0U
+            ? config.fd_scale_sample_count
+            : result.fd_sample_count;
+        if (fd_values.empty() || result.fd_scale_sample_count == 0U) {
             result.status = PSFUpperElbowStatus::NoFDSamples;
             return false;
         }
@@ -453,7 +456,8 @@ bool estimatePSFUpperElbowCutImpl(
         result.fd_iqr = third_quartile - first_quartile;
         if (std::isfinite(result.fd_iqr) && result.fd_iqr > 0.0) {
             result.bin_width = 2.0 * result.fd_iqr
-                / std::cbrt(static_cast<double>(fd_values.size()));
+                / std::cbrt(static_cast<double>(
+                    result.fd_scale_sample_count));
         } else if (config.zero_iqr_uses_min_positive
                    && fd_values.front() > 0.0) {
             result.bin_width = fd_values.front();
