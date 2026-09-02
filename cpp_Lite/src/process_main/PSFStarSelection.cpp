@@ -714,6 +714,45 @@ bool estimatePSFCountLocus(
 }
 
 // ==========================================
+// Function: Populate one integer-area histogram on the science count grid
+// Method: Reset the output bins and count only in-range integer star areas.
+// ==========================================
+static void populateCountHistogramOnScienceGrid(
+    const std::vector<int>& star_areas,
+    int histogram_first_count,
+    std::size_t histogram_bin_count,
+    std::vector<double>& output_histogram) {
+    output_histogram.assign(histogram_bin_count, 0.0);
+    if (histogram_bin_count == 0) return;
+
+    const int first_count = histogram_first_count;
+    const int last_count = first_count
+        + static_cast<int>(histogram_bin_count) - 1;
+    for (int star_area : star_areas) {
+        if (star_area < first_count || star_area > last_count) continue;
+        const int bin = star_area - first_count;
+        output_histogram[static_cast<std::size_t>(bin)] += 1.0;
+    }
+}
+
+// ==========================================
+// Function: Populate the minChi-survivor integer-area histogram
+// Method: Count all actual grouping inputs and bin only values on the science
+//         grid without changing upstream count-locus diagnostics.
+// ==========================================
+void populateMinChiSurvivorCountHistogram(
+    const std::vector<int>& minchi_star_areas,
+    PSFCountLocusDiagnostics& diagnostics) {
+    diagnostics.minchi_survivor_count =
+        static_cast<int>(minchi_star_areas.size());
+    populateCountHistogramOnScienceGrid(
+        minchi_star_areas,
+        diagnostics.histogram_first_count,
+        diagnostics.histogram.size(),
+        diagnostics.minchi_survivor_histogram);
+}
+
+// ==========================================
 // Function: Populate the shared-group integer-area histogram
 // Method: Count all selected stars and bin only values on the science grid
 //         without changing upstream count-locus diagnostics.
@@ -723,19 +762,11 @@ void populateSelectedGroupCountHistogram(
     PSFCountLocusDiagnostics& diagnostics) {
     diagnostics.selected_group_count =
         static_cast<int>(selected_star_areas.size());
-    diagnostics.selected_group_histogram.assign(
-        diagnostics.histogram.size(), 0.0);
-    if (diagnostics.histogram.empty()) return;
-
-    const int first_count = diagnostics.histogram_first_count;
-    const int last_count = first_count
-        + static_cast<int>(diagnostics.histogram.size()) - 1;
-    for (int star_area : selected_star_areas) {
-        if (star_area < first_count || star_area > last_count) continue;
-        const int bin = star_area - first_count;
-        diagnostics.selected_group_histogram[static_cast<std::size_t>(bin)]
-            += 1.0;
-    }
+    populateCountHistogramOnScienceGrid(
+        selected_star_areas,
+        diagnostics.histogram_first_count,
+        diagnostics.histogram.size(),
+        diagnostics.selected_group_histogram);
 }
 
 // ==========================================

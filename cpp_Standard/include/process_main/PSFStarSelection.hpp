@@ -75,7 +75,7 @@ struct PSFCountLocus {
 // ==========================================
 // Structure: Publish exact integer star-area locus diagnostics
 // Method: Keep raw counts immutable, expose the hole-filled working histogram,
-//         and retain pilot, range, Gaia, and selected-peak accounting.
+//         and retain pilot, range, Gaia, minChi, and group accounting.
 // ==========================================
 struct PSFCountLocusDiagnostics {
     int sample_count = 0;
@@ -95,6 +95,7 @@ struct PSFCountLocusDiagnostics {
     int gaia_histogram_sample_count = 0;
     int gaia_histogram_below_count = 0;
     int gaia_histogram_above_count = 0;
+    int minchi_survivor_count = 0;
     int selected_group_count = 0;
     bool has_gaia_median = false;
     double gaia_median = 0.0;
@@ -104,6 +105,7 @@ struct PSFCountLocusDiagnostics {
     std::vector<double> working_histogram;
     std::vector<double> smoothed_histogram;
     std::vector<double> gaia_histogram;
+    std::vector<double> minchi_survivor_histogram;
     std::vector<double> selected_group_histogram;
 };
 
@@ -155,6 +157,15 @@ double fwhmFromStarArea(
     double star_area,
     int stamp_side,
     double pixel_size);
+
+// ==========================================
+// Function: Populate the minChi-survivor integer-area histogram
+// Method: Count all actual grouping inputs and bin only values on the science
+//         grid without changing upstream count-locus diagnostics.
+// ==========================================
+void populateMinChiSurvivorCountHistogram(
+    const std::vector<int>& minchi_star_areas,
+    PSFCountLocusDiagnostics& diagnostics);
 
 // ==========================================
 // Function: Populate the shared-group integer-area histogram

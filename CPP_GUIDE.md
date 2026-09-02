@@ -75,9 +75,10 @@ uses a fixed one-count floor on each side, and production applies strict
 
 Both variants still write `stamps/svg_StarLocus/<exposure>_locus.svg`, now
 directly in the integer `exp(-1)` pixel-count coordinate used by science. Each
-histogram bin is one integer count level; raw, smoothed, Gaia, and pre-PRESS
-shared-group distributions plus pilot, peak, median, and final-cut markers all
-share that grid. Historical index-10 FWHM remains available to its existing
+histogram bin is one integer count level; raw, smoothed, Gaia, exact post-minChi/
+pre-grouping survivors, and pre-PRESS shared-group distributions plus pilot,
+peak, median, and final-cut markers all share that grid. Historical index-10
+FWHM remains available to its existing
 non-locus output and rescale consumers, but the SVG no longer reads or maps it.
 `process_init` creates the output directory; a legacy data tree that skips
 initialization must provide it before Stage 5.

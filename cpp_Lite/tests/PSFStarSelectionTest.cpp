@@ -243,11 +243,11 @@ void testPSFCountLocus() {
 }
 
 // ==========================================
-// Function: Verify selected-group diagnostics use the science count grid
-// Method: Check exact bins, subset bounds, out-of-range accounting, and that
-//         every upstream count-locus diagnostic remains unchanged.
+// Function: Verify post-minChi and selected diagnostics use the science grid
+// Method: Check exact bins, nested subset bounds, out-of-range accounting, and
+//         that every upstream count-locus diagnostic remains unchanged.
 // ==========================================
-void testSelectedGroupCountHistogram() {
+void testCountOverlayHistograms() {
     PSFCountLocusDiagnostics diagnostics;
     diagnostics.sample_count = 14;
     diagnostics.gaia_match_count = 3;
@@ -263,15 +263,15 @@ void testSelectedGroupCountHistogram() {
     diagnostics.gaia_histogram = {0.0, 2.0, 1.0, 0.0};
     const PSFCountLocusDiagnostics baseline = diagnostics;
 
-    populateSelectedGroupCountHistogram({30, 31, 31, 33}, diagnostics);
-    require(diagnostics.selected_group_count == 4
-                && diagnostics.selected_group_histogram
+    populateMinChiSurvivorCountHistogram({30, 31, 31, 33}, diagnostics);
+    require(diagnostics.minchi_survivor_count == 4
+                && diagnostics.minchi_survivor_histogram
                     == std::vector<double>({1.0, 2.0, 0.0, 1.0}),
-            "selected stars must use one exact integer count per science bin");
+            "minChi survivors must use one exact integer count per science bin");
     for (std::size_t bin = 0; bin < diagnostics.histogram.size(); ++bin) {
-        require(diagnostics.selected_group_histogram[bin]
+        require(diagnostics.minchi_survivor_histogram[bin]
                     <= diagnostics.histogram[bin],
-                "selected count bins must remain subsets of candidate bins");
+                "minChi bins must remain subsets of candidate bins");
     }
     require(diagnostics.sample_count == baseline.sample_count
                 && diagnostics.gaia_match_count == baseline.gaia_match_count
@@ -289,7 +289,24 @@ void testSelectedGroupCountHistogram() {
                 && diagnostics.smoothed_histogram
                     == baseline.smoothed_histogram
                 && diagnostics.gaia_histogram == baseline.gaia_histogram,
-            "selected histogram completion must not alter count science");
+            "minChi histogram completion must not alter count science");
+
+    populateSelectedGroupCountHistogram({31, 33}, diagnostics);
+    require(diagnostics.selected_group_count == 2
+                && diagnostics.selected_group_histogram
+                    == std::vector<double>({0.0, 1.0, 0.0, 1.0}),
+            "selected stars must use one exact integer count per science bin");
+    for (std::size_t bin = 0; bin < diagnostics.histogram.size(); ++bin) {
+        require(diagnostics.selected_group_histogram[bin]
+                    <= diagnostics.minchi_survivor_histogram[bin],
+                "selected count bins must remain subsets of minChi bins");
+    }
+
+    populateMinChiSurvivorCountHistogram({29, 30, 31, 34}, diagnostics);
+    require(diagnostics.minchi_survivor_count == 4
+                && diagnostics.minchi_survivor_histogram
+                    == std::vector<double>({1.0, 1.0, 0.0, 0.0}),
+            "out-of-grid stars must count as minChi survivors without SVG bins");
 
     populateSelectedGroupCountHistogram({29, 30, 31, 34}, diagnostics);
     require(diagnostics.selected_group_count == 4
@@ -659,7 +676,7 @@ int main() {
     testCountHoleInterpolation();
     testCountGaiaPeakTieBreaks();
     testPSFCountLocus();
-    testSelectedGroupCountHistogram();
+    testCountOverlayHistograms();
     testGaiaParsingAndMatching();
     testGrouping();
     testKNNRebuiltAfterMinChiCut();

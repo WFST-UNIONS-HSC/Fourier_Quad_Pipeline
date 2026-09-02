@@ -101,7 +101,7 @@ namespace PSFModel {
     // ==========================================
     // Function: Write one exposure-level integer-area locus SVG diagnostic
     // Method: Render the same-pass robust pilot bounds and zero-MAD decisions,
-    //         all/Gaia/shared-group count histograms, peak, widths, and cuts.
+    //         all/Gaia/minChi/shared-group histograms, peak, widths, and cuts.
     // ==========================================
     static void writePSFCountLocusSVG(
         const std::string& dirOutput,
@@ -127,6 +127,10 @@ namespace PSFModel {
         const bool has_gaia_histogram =
             !diagnostics.gaia_histogram.empty()
             && diagnostics.gaia_histogram.size()
+                == diagnostics.histogram.size();
+        const bool has_minchi_survivor_histogram =
+            !diagnostics.minchi_survivor_histogram.empty()
+            && diagnostics.minchi_survivor_histogram.size()
                 == diagnostics.histogram.size();
         const bool has_selected_group_histogram =
             !diagnostics.selected_group_histogram.empty()
@@ -171,6 +175,11 @@ namespace PSFModel {
         }
         if (has_gaia_histogram) {
             for (const double count : diagnostics.gaia_histogram) {
+                y_max = std::max(y_max, count);
+            }
+        }
+        if (has_minchi_survivor_histogram) {
+            for (const double count : diagnostics.minchi_survivor_histogram) {
                 y_max = std::max(y_max, count);
             }
         }
@@ -255,6 +264,17 @@ namespace PSFModel {
                     + static_cast<double>(bin);
                 output << mapX(center) << ','
                        << mapY(diagnostics.gaia_histogram[bin]) << ' ';
+            }
+            output << "\"/>\n";
+        }
+        if (has_minchi_survivor_histogram) {
+            output << "  <polyline id=\"minchi-survivor-histogram\" fill=\"none\" "
+                      "stroke=\"#e377c2\" stroke-width=\"3\" points=\"";
+            for (std::size_t bin = 0; bin < bin_count; ++bin) {
+                const double center = static_cast<double>(first_count)
+                    + static_cast<double>(bin);
+                output << mapX(center) << ','
+                       << mapY(diagnostics.minchi_survivor_histogram[bin]) << ' ';
             }
             output << "\"/>\n";
         }
@@ -367,10 +387,12 @@ namespace PSFModel {
                << "    <text x=\"900\" y=\"560\">Gaia below / above = "
                << diagnostics.gaia_histogram_below_count << " / "
                << diagnostics.gaia_histogram_above_count << "</text>\n"
-               << "    <text x=\"900\" y=\"583\">Shared-group selected = "
+               << "    <text x=\"900\" y=\"583\">MinChi survivors = "
+               << diagnostics.minchi_survivor_count << "</text>\n"
+               << "    <text x=\"900\" y=\"606\">Shared-group selected = "
                << diagnostics.selected_group_count << "</text>\n";
         if (diagnostics.has_gaia_median) {
-            output << "    <text x=\"900\" y=\"606\">Gaia raw median = "
+            output << "    <text x=\"900\" y=\"629\">Gaia raw median = "
                    << diagnostics.gaia_median << "</text>\n";
         }
         output << "    <text x=\"930\" y=\"660\">raw histogram</text>\n"
@@ -378,15 +400,18 @@ namespace PSFModel {
         if (has_gaia_histogram) {
             output << "    <text x=\"930\" y=\"712\">Gaia histogram</text>\n";
         }
-        if (has_selected_group_histogram) {
-            output << "    <text x=\"930\" y=\"738\">Shared-group selected</text>\n";
+        if (has_minchi_survivor_histogram) {
+            output << "    <text x=\"930\" y=\"738\">MinChi survivors</text>\n";
         }
-        output << "    <text x=\"930\" y=\"764\">selected peak</text>\n"
-               << "    <text x=\"930\" y=\"790\">pilot center</text>\n"
-               << "    <text x=\"930\" y=\"816\">locus center</text>\n"
-               << "    <text x=\"930\" y=\"842\">lower / upper cut</text>\n";
+        if (has_selected_group_histogram) {
+            output << "    <text x=\"930\" y=\"764\">Shared-group selected</text>\n";
+        }
+        output << "    <text x=\"930\" y=\"790\">selected peak</text>\n"
+               << "    <text x=\"930\" y=\"816\">pilot center</text>\n"
+               << "    <text x=\"930\" y=\"842\">locus center</text>\n"
+               << "    <text x=\"930\" y=\"868\">lower / upper cut</text>\n";
         if (diagnostics.has_gaia_median) {
-            output << "    <text x=\"930\" y=\"868\">Gaia raw median</text>\n";
+            output << "    <text x=\"930\" y=\"894\">Gaia raw median</text>\n";
         }
         output << "  </g>\n"
                << "  <rect x=\"900\" y=\"647\" width=\"20\" height=\"14\" "
@@ -397,20 +422,24 @@ namespace PSFModel {
             output << "  <line x1=\"900\" y1=\"707\" x2=\"920\" y2=\"707\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\"/>\n";
         }
-        if (has_selected_group_histogram) {
+        if (has_minchi_survivor_histogram) {
             output << "  <line x1=\"900\" y1=\"733\" x2=\"920\" y2=\"733\" "
+                      "stroke=\"#e377c2\" stroke-width=\"3\"/>\n";
+        }
+        if (has_selected_group_histogram) {
+            output << "  <line x1=\"900\" y1=\"759\" x2=\"920\" y2=\"759\" "
                       "stroke=\"#17becf\" stroke-width=\"3\"/>\n";
         }
-        output << "  <line x1=\"900\" y1=\"759\" x2=\"920\" y2=\"759\" "
+        output << "  <line x1=\"900\" y1=\"785\" x2=\"920\" y2=\"785\" "
                   "stroke=\"#f28e2b\" stroke-width=\"2\" stroke-dasharray=\"3,3\"/>\n"
-               << "  <line x1=\"900\" y1=\"785\" x2=\"920\" y2=\"785\" "
-                  "stroke=\"#9467bd\" stroke-width=\"2\" stroke-dasharray=\"6,3\"/>\n"
                << "  <line x1=\"900\" y1=\"811\" x2=\"920\" y2=\"811\" "
-                  "stroke=\"#111111\" stroke-width=\"3\"/>\n"
+                  "stroke=\"#9467bd\" stroke-width=\"2\" stroke-dasharray=\"6,3\"/>\n"
                << "  <line x1=\"900\" y1=\"837\" x2=\"920\" y2=\"837\" "
+                  "stroke=\"#111111\" stroke-width=\"3\"/>\n"
+               << "  <line x1=\"900\" y1=\"863\" x2=\"920\" y2=\"863\" "
                   "stroke=\"#d62728\" stroke-width=\"3\" stroke-dasharray=\"8,5\"/>\n";
         if (diagnostics.has_gaia_median) {
-            output << "  <line x1=\"900\" y1=\"863\" x2=\"920\" y2=\"863\" "
+            output << "  <line x1=\"900\" y1=\"889\" x2=\"920\" y2=\"889\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\" "
                       "stroke-dasharray=\"8,4,2,4\"/>\n";
         }
@@ -1040,6 +1069,24 @@ namespace PSFModel {
 
         const ActiveIndicesByChip active_indices =
             buildMinChiActiveIndices(nchip, state);
+        std::size_t minchi_survivor_total = 0;
+        for (const std::vector<int>& chip_indices : active_indices) {
+            minchi_survivor_total += chip_indices.size();
+        }
+        std::vector<int> minchi_survivor_star_areas;
+        minchi_survivor_star_areas.reserve(minchi_survivor_total);
+        for (int chip_index = 0; chip_index < nchip; ++chip_index) {
+            for (int star_index : active_indices[chip_index]) {
+                minchi_survivor_star_areas.push_back(
+                    static_cast<int>(std::llround(
+                        state.getStarPara(
+                            chip_index,
+                            star_index,
+                            ChipPSFState::star_area_index))));
+            }
+        }
+        Internal::populateMinChiSurvivorCountHistogram(
+            minchi_survivor_star_areas, locus_diagnostics);
         ExposureGroups groups_by_chip;
         if constexpr (LensingConfig::PsfGroupingType == 1) {
             groups_by_chip = groupStarsLegacy(nchip, state, active_indices);

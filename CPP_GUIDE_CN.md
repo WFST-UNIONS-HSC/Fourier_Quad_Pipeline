@@ -66,8 +66,9 @@ refinement 排除等于中心的重复值，两侧均使用固定 1-count 宽度
 
 Standard 与 Lite 仍写出 `stamps/svg_StarLocus/<exposure>_locus.svg`，但横轴现在直接
 使用科学选择的整数 `exp(-1)` pixel count。每个 histogram bin 对应一个整数 count
-level；raw、smoothed、Gaia、grouping 后/PRESS 前的 shared-group 分布，以及 pilot、峰、
-median 和最终 cuts 均使用同一 count grid。历史 index-10 FWHM 仍供已有非 locus 输出与
+level；raw、smoothed、Gaia、精确的 minChi 后/grouping 前 survivor，以及 grouping 后/
+PRESS 前的 shared-group 分布连同 pilot、峰、median 和最终 cuts 均使用同一 count grid。
+历史 index-10 FWHM 仍供已有非 locus 输出与
 rescale 消费者使用，但 SVG 不再读取或映射它。输出目录由 `process_init` 创建；旧数据树
 若跳过初始化，必须在运行 Stage 5 前补齐该目录。
 
