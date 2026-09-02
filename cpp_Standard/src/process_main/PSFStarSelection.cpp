@@ -714,176 +714,25 @@ bool estimatePSFCountLocus(
 }
 
 // ==========================================
-// Function: Build the unchanged FWHM SVG view from isolated display samples
-// Method: Map count science markers to FWHM and independently histogram FWHM.
+// Function: Populate the shared-group integer-area histogram
+// Method: Count all selected stars and bin only values on the science grid
+//         without changing upstream count-locus diagnostics.
 // ==========================================
-bool buildFWHMLocusDisplay(
-    const std::vector<FWHMDisplaySample>& samples,
-    const PSFCountLocus& count_locus,
-    const PSFCountLocusDiagnostics& count_diagnostics,
-    double locus_sigma,
-    int stamp_side,
-    double pixel_size,
-    FWHMDisplayLocus& display_locus,
-    FWHMDisplayDiagnostics& display_diagnostics) {
-    display_locus = {};
-    display_diagnostics = {};
-    const int bin_count = static_cast<int>(
-        count_diagnostics.histogram.size());
-    if (!count_locus.valid || bin_count <= 0 || locus_sigma <= 0.0
-        || count_diagnostics.peak_bin < 0
-        || count_diagnostics.peak_bin >= bin_count) {
-        return false;
-    }
-    const int first_count = count_diagnostics.histogram_first_count;
-    const int last_count = first_count + bin_count - 1;
-    const auto map_count = [&](double value) {
-        return fwhmFromStarArea(
-            std::max(value, 0.5), stamp_side, pixel_size);
-    };
-
-    display_locus.center = map_count(count_locus.center);
-    display_locus.lower = map_count(count_locus.upper);
-    display_locus.upper = map_count(count_locus.lower);
-    display_locus.lower_width =
-        (display_locus.center - display_locus.lower) / locus_sigma;
-    display_locus.upper_width =
-        (display_locus.upper - display_locus.center) / locus_sigma;
-    display_locus.valid = std::isfinite(display_locus.center)
-        && display_locus.center > 0.0
-        && display_locus.lower < display_locus.upper;
-    if (!display_locus.valid) return false;
-
-    display_diagnostics.sample_count = count_diagnostics.sample_count;
-    display_diagnostics.gaia_match_count = count_diagnostics.gaia_match_count;
-    display_diagnostics.pilot_uses_gaia =
-        count_diagnostics.pilot_uses_gaia;
-    display_diagnostics.pilot_input_count =
-        count_diagnostics.pilot_input_count;
-    display_diagnostics.pilot_retained_count =
-        count_diagnostics.pilot_retained_count;
-    display_diagnostics.pilot_center =
-        map_count(count_diagnostics.pilot_center);
-    display_diagnostics.pilot_lower =
-        map_count(count_diagnostics.pilot_upper);
-    display_diagnostics.pilot_upper =
-        map_count(count_diagnostics.pilot_lower);
-    display_diagnostics.pilot_width = count_diagnostics.pilot_width > 0.0
-        ? std::max(
-            display_diagnostics.pilot_center
-                - map_count(count_diagnostics.pilot_center
-                    + count_diagnostics.pilot_width),
-            map_count(count_diagnostics.pilot_center
-                    - count_diagnostics.pilot_width)
-                - display_diagnostics.pilot_center)
-        : 0.0;
-    display_diagnostics.pilot_uses_quantile_range =
-        count_diagnostics.pilot_uses_quantile_range;
-    display_diagnostics.pilot_rejected_zero_mad_clip =
-        count_diagnostics.pilot_rejected_zero_mad_clip;
-    display_diagnostics.has_gaia_median =
-        count_diagnostics.has_gaia_median;
-    if (display_diagnostics.has_gaia_median) {
-        display_diagnostics.gaia_median =
-            map_count(count_diagnostics.gaia_median);
-    }
-    display_diagnostics.histogram_lower =
-        map_count(static_cast<double>(last_count) + 0.5);
-    display_diagnostics.histogram_upper =
-        map_count(static_cast<double>(first_count) - 0.5);
-    display_diagnostics.peak_value = map_count(
-        static_cast<double>(first_count + count_diagnostics.peak_bin));
-    if (!(display_diagnostics.histogram_upper
-            > display_diagnostics.histogram_lower)) {
-        return false;
-    }
-
-    display_diagnostics.histogram.assign(
-        static_cast<std::size_t>(bin_count), 0.0);
-    display_diagnostics.gaia_histogram.assign(
-        static_cast<std::size_t>(bin_count), 0.0);
-    const double span = display_diagnostics.histogram_upper
-        - display_diagnostics.histogram_lower;
-    for (const FWHMDisplaySample& sample : samples) {
-        if (!std::isfinite(sample.fwhm) || sample.fwhm <= 0.0) continue;
-        int* below = sample.gaia_matched
-            ? &display_diagnostics.gaia_histogram_below_count
-            : nullptr;
-        int* above = sample.gaia_matched
-            ? &display_diagnostics.gaia_histogram_above_count
-            : nullptr;
-        if (sample.fwhm < display_diagnostics.histogram_lower) {
-            ++display_diagnostics.histogram_below_count;
-            if (below != nullptr) ++(*below);
-            continue;
-        }
-        if (sample.fwhm > display_diagnostics.histogram_upper) {
-            ++display_diagnostics.histogram_above_count;
-            if (above != nullptr) ++(*above);
-            continue;
-        }
-        int bin = static_cast<int>((sample.fwhm
-            - display_diagnostics.histogram_lower) / span * bin_count);
-        bin = std::clamp(bin, 0, bin_count - 1);
-        display_diagnostics.histogram[static_cast<std::size_t>(bin)] += 1.0;
-        ++display_diagnostics.histogram_sample_count;
-        if (sample.gaia_matched) {
-            display_diagnostics.gaia_histogram[static_cast<std::size_t>(bin)]
-                += 1.0;
-            ++display_diagnostics.gaia_histogram_sample_count;
-        }
-    }
-
-    const int offsets[] = {-2, -1, 0, 1, 2};
-    const double weights[] = {1.0, 2.0, 3.0, 2.0, 1.0};
-    display_diagnostics.smoothed_histogram.assign(
-        static_cast<std::size_t>(bin_count), 0.0);
-    for (int bin = 0; bin < bin_count; ++bin) {
-        double weighted_sum = 0.0;
-        double weight_sum = 0.0;
-        for (int offset_index = 0; offset_index < 5; ++offset_index) {
-            const int neighbour = bin + offsets[offset_index];
-            if (neighbour < 0 || neighbour >= bin_count) continue;
-            weighted_sum += weights[offset_index]
-                * display_diagnostics.histogram[neighbour];
-            weight_sum += weights[offset_index];
-        }
-        display_diagnostics.smoothed_histogram[bin] =
-            weighted_sum / weight_sum;
-    }
-    return true;
-}
-
-// ==========================================
-// Function: Populate the shared-group FWHM overlay on the display bin grid
-// Method: Count every selected value and bin finite in-range values without
-//         changing science or upstream display diagnostics.
-// ==========================================
-void populateSelectedGroupFWHMHistogram(
-    const std::vector<double>& selected_fwhm,
-    FWHMDisplayDiagnostics& diagnostics) {
+void populateSelectedGroupCountHistogram(
+    const std::vector<int>& selected_star_areas,
+    PSFCountLocusDiagnostics& diagnostics) {
     diagnostics.selected_group_count =
-        static_cast<int>(selected_fwhm.size());
+        static_cast<int>(selected_star_areas.size());
     diagnostics.selected_group_histogram.assign(
         diagnostics.histogram.size(), 0.0);
-    if (diagnostics.histogram.empty()
-        || !(diagnostics.histogram_upper > diagnostics.histogram_lower)) {
-        return;
-    }
-    const double bin_width =
-        (diagnostics.histogram_upper - diagnostics.histogram_lower)
-        / static_cast<double>(diagnostics.histogram.size());
-    if (!std::isfinite(bin_width) || bin_width <= 0.0) return;
-    for (double value : selected_fwhm) {
-        if (!std::isfinite(value)
-            || value < diagnostics.histogram_lower
-            || value > diagnostics.histogram_upper) {
-            continue;
-        }
-        int bin = static_cast<int>(
-            (value - diagnostics.histogram_lower) / bin_width);
-        bin = std::clamp(
-            bin, 0, static_cast<int>(diagnostics.histogram.size()) - 1);
+    if (diagnostics.histogram.empty()) return;
+
+    const int first_count = diagnostics.histogram_first_count;
+    const int last_count = first_count
+        + static_cast<int>(diagnostics.histogram.size()) - 1;
+    for (int star_area : selected_star_areas) {
+        if (star_area < first_count || star_area > last_count) continue;
+        const int bin = star_area - first_count;
         diagnostics.selected_group_histogram[static_cast<std::size_t>(bin)]
             += 1.0;
     }

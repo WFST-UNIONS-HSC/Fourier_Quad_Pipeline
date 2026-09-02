@@ -64,11 +64,12 @@ working histogram 中对两侧由正值封闭的 1 或 2 层内部空洞做线�
 refinement 排除等于中心的重复值，两侧均使用固定 1-count 宽度下限；生产选择继续采用
 严格的 `lower < star_area < upper`。
 
-Standard 与 Lite 仍写出 `stamps/svg_StarLocus/<exposure>_locus.svg`，保留原有 FWHM
-横轴、曲线、布局及 grouping 后/PRESS 前的 shared-group 叠加。FWHM histogram 仅用于
-显示；科学 pilot、峰和 cuts 通过历史 `star_area - 1e-5` 公式映射到 FWHM，绘图数据
-不会反向参与选择。输出目录由 `process_init` 创建；旧数据树若跳过初始化，必须在
-运行 Stage 5 前补齐该目录。
+Standard 与 Lite 仍写出 `stamps/svg_StarLocus/<exposure>_locus.svg`，但横轴现在直接
+使用科学选择的整数 `exp(-1)` pixel count。每个 histogram bin 对应一个整数 count
+level；raw、smoothed、Gaia、grouping 后/PRESS 前的 shared-group 分布，以及 pilot、峰、
+median 和最终 cuts 均使用同一 count grid。历史 index-10 FWHM 仍供已有非 locus 输出与
+rescale 消费者使用，但 SVG 不再读取或映射它。输出目录由 `process_init` 创建；旧数据树
+若跳过初始化，必须在运行 Stage 5 前补齐该目录。
 
 ## 编译
 

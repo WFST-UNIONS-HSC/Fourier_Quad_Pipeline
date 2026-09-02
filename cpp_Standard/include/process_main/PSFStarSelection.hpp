@@ -104,6 +104,7 @@ struct PSFCountLocusDiagnostics {
     std::vector<double> working_histogram;
     std::vector<double> smoothed_histogram;
     std::vector<double> gaia_histogram;
+    std::vector<double> selected_group_histogram;
 };
 
 // ==========================================
@@ -156,84 +157,13 @@ double fwhmFromStarArea(
     double pixel_size);
 
 // ==========================================
-// Structure: Supply one quality-valid FWHM value to SVG-only diagnostics
-// Method: Retain FWHM and Gaia labels without exposing them to locus science.
+// Function: Populate the shared-group integer-area histogram
+// Method: Count all selected stars and bin only values on the science grid
+//         without changing upstream count-locus diagnostics.
 // ==========================================
-struct FWHMDisplaySample {
-    double fwhm = 0.0;
-    bool gaia_matched = false;
-};
-
-// ==========================================
-// Structure: Publish count-locus coordinates mapped onto the FWHM SVG axis
-// Method: Reverse count bounds through the historical FWHM conversion.
-// ==========================================
-struct FWHMDisplayLocus {
-    bool valid = false;
-    double center = 0.0;
-    double lower_width = 0.0;
-    double upper_width = 0.0;
-    double lower = 0.0;
-    double upper = 0.0;
-};
-
-// ==========================================
-// Structure: Publish SVG-only FWHM histogram and annotation data
-// Method: Keep display bins and mapped science markers separate from count
-//         diagnostics so plotting cannot affect stellar selection.
-// ==========================================
-struct FWHMDisplayDiagnostics {
-    int sample_count = 0;
-    int gaia_match_count = 0;
-    bool pilot_uses_gaia = false;
-    int pilot_input_count = 0;
-    int pilot_retained_count = 0;
-    double pilot_center = 0.0;
-    double pilot_width = 0.0;
-    double pilot_lower = 0.0;
-    double pilot_upper = 0.0;
-    bool pilot_uses_quantile_range = false;
-    bool pilot_rejected_zero_mad_clip = false;
-    int histogram_sample_count = 0;
-    int histogram_below_count = 0;
-    int histogram_above_count = 0;
-    int gaia_histogram_sample_count = 0;
-    int gaia_histogram_below_count = 0;
-    int gaia_histogram_above_count = 0;
-    int selected_group_count = 0;
-    bool has_gaia_median = false;
-    double gaia_median = 0.0;
-    double histogram_lower = 0.0;
-    double histogram_upper = 0.0;
-    double peak_value = 0.0;
-    std::vector<double> histogram;
-    std::vector<double> smoothed_histogram;
-    std::vector<double> gaia_histogram;
-    std::vector<double> selected_group_histogram;
-};
-
-// ==========================================
-// Function: Build the unchanged FWHM SVG view from isolated display samples
-// Method: Map count science markers to FWHM and independently histogram FWHM.
-// ==========================================
-bool buildFWHMLocusDisplay(
-    const std::vector<FWHMDisplaySample>& samples,
-    const PSFCountLocus& count_locus,
-    const PSFCountLocusDiagnostics& count_diagnostics,
-    double locus_sigma,
-    int stamp_side,
-    double pixel_size,
-    FWHMDisplayLocus& display_locus,
-    FWHMDisplayDiagnostics& display_diagnostics);
-
-// ==========================================
-// Function: Populate the shared-group FWHM overlay on the display bin grid
-// Method: Count every selected value and bin finite in-range values without
-//         changing science or upstream display diagnostics.
-// ==========================================
-void populateSelectedGroupFWHMHistogram(
-    const std::vector<double>& selected_fwhm,
-    FWHMDisplayDiagnostics& diagnostics);
+void populateSelectedGroupCountHistogram(
+    const std::vector<int>& selected_star_areas,
+    PSFCountLocusDiagnostics& diagnostics);
 
 enum class AstrometryGaiaReadStatus {
     Accepted,

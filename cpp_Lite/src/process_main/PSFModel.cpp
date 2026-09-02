@@ -99,22 +99,31 @@ namespace PSFModel {
     }
 
     // ==========================================
-    // Function: Write one exposure-level FWHM-locus SVG diagnostic
+    // Function: Write one exposure-level integer-area locus SVG diagnostic
     // Method: Render the same-pass robust pilot bounds and zero-MAD decisions,
-    //         all/Gaia/shared-group histograms, peak, side widths, and cuts.
+    //         all/Gaia/shared-group count histograms, peak, widths, and cuts.
     // ==========================================
-    static void writeFWHMLocusSVG(
+    static void writePSFCountLocusSVG(
         const std::string& dirOutput,
         const std::string& exposure,
-        const Internal::FWHMDisplayLocus& locus,
-        const Internal::FWHMDisplayDiagnostics& diagnostics) {
+        const Internal::PSFCountLocus& locus,
+        const Internal::PSFCountLocusDiagnostics& diagnostics) {
         if (!locus.valid || diagnostics.histogram.empty()
             || diagnostics.histogram.size()
                 != diagnostics.smoothed_histogram.size()
-            || !(diagnostics.histogram_upper
-                > diagnostics.histogram_lower)) {
+            || diagnostics.peak_bin < 0
+            || diagnostics.peak_bin
+                >= static_cast<int>(diagnostics.histogram.size())) {
             return;
         }
+        const std::size_t bin_count = diagnostics.histogram.size();
+        const int first_count = diagnostics.histogram_first_count;
+        const int last_count = first_count
+            + static_cast<int>(bin_count) - 1;
+        const double histogram_lower =
+            static_cast<double>(first_count) - 0.5;
+        const double histogram_upper =
+            static_cast<double>(last_count) + 0.5;
         const bool has_gaia_histogram =
             !diagnostics.gaia_histogram.empty()
             && diagnostics.gaia_histogram.size()
@@ -141,8 +150,8 @@ namespace PSFModel {
 
         double x_min = std::min(diagnostics.pilot_lower, locus.lower);
         double x_max = std::max(diagnostics.pilot_upper, locus.upper);
-        x_min = std::min(x_min, diagnostics.histogram_lower);
-        x_max = std::max(x_max, diagnostics.histogram_upper);
+        x_min = std::min(x_min, histogram_lower);
+        x_max = std::max(x_max, histogram_upper);
         x_min = std::min(x_min, diagnostics.pilot_center);
         x_max = std::max(x_max, diagnostics.pilot_center);
         if (diagnostics.has_gaia_median) {
@@ -191,7 +200,7 @@ namespace PSFModel {
                << "  <rect width=\"100%\" height=\"100%\" fill=\"white\"/>\n"
                << "  <text x=\"600\" y=\"38\" text-anchor=\"middle\" "
                   "font-family=\"sans-serif\" font-size=\"24\" font-weight=\"bold\">"
-                  "PSF Star FWHM Locus</text>\n"
+                  "PSF Star Pixel-Count Locus</text>\n"
                << "  <text x=\"600\" y=\"68\" text-anchor=\"middle\" "
                   "font-family=\"sans-serif\" font-size=\"16\">Exposure: "
                << escapeSVGText(exposure) << "</text>\n";
@@ -217,16 +226,10 @@ namespace PSFModel {
         }
 
         output << "  <g id=\"raw-histogram\" fill=\"#b8bec7\">\n";
-        const double histogram_span =
-            diagnostics.histogram_upper - diagnostics.histogram_lower;
-        const std::size_t bin_count = diagnostics.histogram.size();
         for (std::size_t bin = 0; bin < bin_count; ++bin) {
-            const double left_value = diagnostics.histogram_lower
-                + histogram_span * static_cast<double>(bin)
-                    / static_cast<double>(bin_count);
-            const double right_value = diagnostics.histogram_lower
-                + histogram_span * static_cast<double>(bin + 1)
-                    / static_cast<double>(bin_count);
+            const double left_value = static_cast<double>(first_count)
+                + static_cast<double>(bin) - 0.5;
+            const double right_value = left_value + 1.0;
             const double left = mapX(left_value);
             const double right = mapX(right_value);
             const double top = mapY(diagnostics.histogram[bin]);
@@ -238,9 +241,8 @@ namespace PSFModel {
                << "  <polyline id=\"smoothed-histogram\" fill=\"none\" "
                   "stroke=\"#2468b4\" stroke-width=\"3\" points=\"";
         for (std::size_t bin = 0; bin < bin_count; ++bin) {
-            const double center = diagnostics.histogram_lower
-                + histogram_span * (static_cast<double>(bin) + 0.5)
-                    / static_cast<double>(bin_count);
+            const double center = static_cast<double>(first_count)
+                + static_cast<double>(bin);
             output << mapX(center) << ','
                    << mapY(diagnostics.smoothed_histogram[bin]) << ' ';
         }
@@ -249,9 +251,8 @@ namespace PSFModel {
             output << "  <polyline id=\"gaia-histogram\" fill=\"none\" "
                       "stroke=\"#2ca02c\" stroke-width=\"2\" points=\"";
             for (std::size_t bin = 0; bin < bin_count; ++bin) {
-                const double center = diagnostics.histogram_lower
-                    + histogram_span * (static_cast<double>(bin) + 0.5)
-                        / static_cast<double>(bin_count);
+                const double center = static_cast<double>(first_count)
+                    + static_cast<double>(bin);
                 output << mapX(center) << ','
                        << mapY(diagnostics.gaia_histogram[bin]) << ' ';
             }
@@ -261,16 +262,16 @@ namespace PSFModel {
             output << "  <polyline id=\"selected-group-histogram\" fill=\"none\" "
                       "stroke=\"#17becf\" stroke-width=\"3\" points=\"";
             for (std::size_t bin = 0; bin < bin_count; ++bin) {
-                const double center = diagnostics.histogram_lower
-                    + histogram_span * (static_cast<double>(bin) + 0.5)
-                        / static_cast<double>(bin_count);
+                const double center = static_cast<double>(first_count)
+                    + static_cast<double>(bin);
                 output << mapX(center) << ','
                        << mapY(diagnostics.selected_group_histogram[bin]) << ' ';
             }
             output << "\"/>\n";
         }
 
-        const double peak_value = diagnostics.peak_value;
+        const double peak_value = static_cast<double>(
+            first_count + diagnostics.peak_bin);
         output << "  <line id=\"selected-peak\" x1=\"" << mapX(peak_value)
                << "\" y1=\"" << plot_top << "\" x2=\"" << mapX(peak_value)
                << "\" y2=\"" << plot_bottom
@@ -312,7 +313,7 @@ namespace PSFModel {
                << "\" stroke=\"black\" stroke-width=\"2\"/>\n"
                << "  <text x=\"" << (plot_left + plot_right) / 2.0
                << "\" y=\"715\" text-anchor=\"middle\" font-family=\"sans-serif\" "
-                  "font-size=\"16\">FWHM</text>\n"
+                  "font-size=\"16\">exp(-1) Pixel Count</text>\n"
                << "  <text x=\"25\" y=\"380\" text-anchor=\"middle\" "
                   "transform=\"rotate(-90 25 380)\" font-family=\"sans-serif\" "
                   "font-size=\"16\">Candidate count</text>\n";
@@ -596,7 +597,7 @@ namespace PSFModel {
                     int star_area = 0;
                     getPSFFWHM(source_p, FWHM, star_area);
                     if (!Internal::candidateDiagnosticsAreFinite(
-                            size, ee[0], ee[1], FWHM)
+                            size, ee[0], ee[1])
                         || star_area <= 0) {
                         state.getStarPara(k, i, 4) = -1.0;
                         continue;
@@ -805,7 +806,7 @@ namespace PSFModel {
 
     // ==========================================
     // Function: Construct legacy threshold groups for every exposure chip
-    // Method: Preserve the existing all-FWHM-pair threshold sample exactly,
+    // Method: Preserve the existing all-size-locus-pair threshold sample exactly,
     //         then apply its threshold graph only to shared minChi survivors.
     // ==========================================
     [[maybe_unused]] static ExposureGroups groupStarsLegacy(
@@ -962,10 +963,7 @@ namespace PSFModel {
         }
 
         std::vector<Internal::PSFCountSample> count_samples;
-        std::vector<Internal::FWHMDisplaySample> fwhm_display_samples;
         count_samples.reserve(static_cast<std::size_t>(quality_valid_count));
-        fwhm_display_samples.reserve(
-            static_cast<std::size_t>(quality_valid_count));
         for (int chip_index = 0; chip_index < nchip; ++chip_index) {
             ChipPSFState& chip = state.chips[chip_index];
             const std::vector<std::array<double, 2>> gaia_xy =
@@ -985,9 +983,6 @@ namespace PSFModel {
                         ChipPSFState::star_area_index)));
                 count_samples.push_back({
                     star_area,
-                    selection.gaia_matched});
-                fwhm_display_samples.push_back({
-                    state.getStarPara(chip_index, star_index, 10),
                     selection.gaia_matched});
             }
         }
@@ -1053,34 +1048,25 @@ namespace PSFModel {
         }
         applySharedGroupSelection(nchip, groups_by_chip, state);
 
-        std::vector<double> selected_group_fwhm;
+        std::vector<int> selected_group_star_areas;
         for (int chip_index = 0; chip_index < nchip; ++chip_index) {
             const ChipPSFState& chip = state.chips[chip_index];
             for (int star_index = 0;
                  star_index < state.getNStar(chip_index); ++star_index) {
                 if (chip.selection[star_index].selected_group) {
-                    selected_group_fwhm.push_back(
-                        state.getStarPara(chip_index, star_index, 10));
+                    selected_group_star_areas.push_back(
+                        static_cast<int>(std::llround(
+                            state.getStarPara(
+                                chip_index,
+                                star_index,
+                                ChipPSFState::star_area_index))));
                 }
             }
         }
-        Internal::FWHMDisplayLocus display_locus;
-        Internal::FWHMDisplayDiagnostics display_diagnostics;
-        if (!Internal::buildFWHMLocusDisplay(
-                fwhm_display_samples,
-                locus,
-                locus_diagnostics,
-                LensingConfig::psf_count_locus_sigma,
-                LensingConfig::ns,
-                LensingConfig::pixel_size,
-                display_locus,
-                display_diagnostics)) {
-            return;
-        }
-        Internal::populateSelectedGroupFWHMHistogram(
-            selected_group_fwhm, display_diagnostics);
-        writeFWHMLocusSVG(
-            dirOutput, prefix_e, display_locus, display_diagnostics);
+        Internal::populateSelectedGroupCountHistogram(
+            selected_group_star_areas, locus_diagnostics);
+        writePSFCountLocusSVG(
+            dirOutput, prefix_e, locus, locus_diagnostics);
     }
 
     // ==========================================

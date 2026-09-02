@@ -46,12 +46,6 @@ void testChiWindowAndDistance() {
 }
 
 // ==========================================
-// Function: Build the production-shaped FWHM-locus test configuration
-// Method: Keep the production quantile, pilot, and final-cut controls fixed while
-//         allowing histogram-resolution checks to vary only the bin count.
-// ==========================================
-
-// ==========================================
 // Function: Build the production-shaped integer star-area locus configuration
 // Method: Keep the current pilot, quantile, final-cut, and Gaia controls fixed.
 // ==========================================
@@ -249,64 +243,59 @@ void testPSFCountLocus() {
 }
 
 // ==========================================
-// Function: Verify FWHM SVG diagnostics remain isolated from count science
-// Method: Build mapped display data, check reversed bounds and exact science
-//         peak mapping, then add an overlay without mutating count diagnostics.
+// Function: Verify selected-group diagnostics use the science count grid
+// Method: Check exact bins, subset bounds, out-of-range accounting, and that
+//         every upstream count-locus diagnostic remains unchanged.
 // ==========================================
-void testFWHMDisplayIsolation() {
-    const PSFCountLocusConfig config = countLocusConfig();
-    std::vector<PSFCountSample> count_samples;
-    std::vector<FWHMDisplaySample> display_samples;
-    for (int area = 30; area <= 40; ++area) {
-        for (int copy = 0; copy < 12; ++copy) {
-            const bool gaia_match = area >= 34 && area <= 36 && copy < 2;
-            count_samples.push_back({area, gaia_match});
-            display_samples.push_back({
-                fwhmFromStarArea(area, 64, 0.2628), gaia_match});
-        }
+void testSelectedGroupCountHistogram() {
+    PSFCountLocusDiagnostics diagnostics;
+    diagnostics.sample_count = 14;
+    diagnostics.gaia_match_count = 3;
+    diagnostics.pilot_center = 31.0;
+    diagnostics.pilot_lower = 30.0;
+    diagnostics.pilot_upper = 33.0;
+    diagnostics.histogram_sample_count = 14;
+    diagnostics.histogram_first_count = 30;
+    diagnostics.peak_bin = 1;
+    diagnostics.histogram = {4.0, 5.0, 3.0, 2.0};
+    diagnostics.working_histogram = {4.0, 5.0, 3.0, 2.0};
+    diagnostics.smoothed_histogram = {4.5, 4.0, 3.0, 2.5};
+    diagnostics.gaia_histogram = {0.0, 2.0, 1.0, 0.0};
+    const PSFCountLocusDiagnostics baseline = diagnostics;
+
+    populateSelectedGroupCountHistogram({30, 31, 31, 33}, diagnostics);
+    require(diagnostics.selected_group_count == 4
+                && diagnostics.selected_group_histogram
+                    == std::vector<double>({1.0, 2.0, 0.0, 1.0}),
+            "selected stars must use one exact integer count per science bin");
+    for (std::size_t bin = 0; bin < diagnostics.histogram.size(); ++bin) {
+        require(diagnostics.selected_group_histogram[bin]
+                    <= diagnostics.histogram[bin],
+                "selected count bins must remain subsets of candidate bins");
     }
-    PSFCountLocus count_locus;
-    PSFCountLocusDiagnostics count_diagnostics;
-    require(estimatePSFCountLocus(
-                count_samples, config, count_locus, &count_diagnostics),
-            "display-isolation fixture must produce count science");
-    const PSFCountLocus baseline_locus = count_locus;
-    const PSFCountLocusDiagnostics baseline_diagnostics = count_diagnostics;
-    FWHMDisplayLocus display_locus;
-    FWHMDisplayDiagnostics display_diagnostics;
-    require(buildFWHMLocusDisplay(
-                display_samples,
-                count_locus,
-                count_diagnostics,
-                config.locus_sigma,
-                64,
-                0.2628,
-                display_locus,
-                display_diagnostics),
-            "count science must map to an independent FWHM SVG view");
-    require(display_locus.lower
-                == fwhmFromStarArea(count_locus.upper, 64, 0.2628)
-                && display_locus.upper
-                    == fwhmFromStarArea(count_locus.lower, 64, 0.2628)
-                && display_diagnostics.peak_value == fwhmFromStarArea(
-                    count_diagnostics.histogram_first_count
-                        + count_diagnostics.peak_bin,
-                    64,
-                    0.2628),
-            "count-to-FWHM mapping must reverse bounds and preserve exact peak");
-    populateSelectedGroupFWHMHistogram(
-        {display_samples[0].fwhm, display_samples[1].fwhm},
-        display_diagnostics);
-    require(display_diagnostics.selected_group_count == 2
-                && count_locus.center == baseline_locus.center
-                && count_locus.lower == baseline_locus.lower
-                && count_diagnostics.histogram
-                    == baseline_diagnostics.histogram
-                && count_diagnostics.working_histogram
-                    == baseline_diagnostics.working_histogram
-                && count_diagnostics.smoothed_histogram
-                    == baseline_diagnostics.smoothed_histogram,
-            "FWHM display and overlay construction must not mutate count science");
+    require(diagnostics.sample_count == baseline.sample_count
+                && diagnostics.gaia_match_count == baseline.gaia_match_count
+                && diagnostics.pilot_center == baseline.pilot_center
+                && diagnostics.pilot_lower == baseline.pilot_lower
+                && diagnostics.pilot_upper == baseline.pilot_upper
+                && diagnostics.histogram_sample_count
+                    == baseline.histogram_sample_count
+                && diagnostics.histogram_first_count
+                    == baseline.histogram_first_count
+                && diagnostics.peak_bin == baseline.peak_bin
+                && diagnostics.histogram == baseline.histogram
+                && diagnostics.working_histogram
+                    == baseline.working_histogram
+                && diagnostics.smoothed_histogram
+                    == baseline.smoothed_histogram
+                && diagnostics.gaia_histogram == baseline.gaia_histogram,
+            "selected histogram completion must not alter count science");
+
+    populateSelectedGroupCountHistogram({29, 30, 31, 34}, diagnostics);
+    require(diagnostics.selected_group_count == 4
+                && diagnostics.selected_group_histogram
+                    == std::vector<double>({1.0, 1.0, 0.0, 0.0}),
+            "out-of-grid stars must count as selected without entering SVG bins");
 }
 
 // ==========================================
@@ -670,7 +659,7 @@ int main() {
     testCountHoleInterpolation();
     testCountGaiaPeakTieBreaks();
     testPSFCountLocus();
-    testFWHMDisplayIsolation();
+    testSelectedGroupCountHistogram();
     testGaiaParsingAndMatching();
     testGrouping();
     testKNNRebuiltAfterMinChiCut();
