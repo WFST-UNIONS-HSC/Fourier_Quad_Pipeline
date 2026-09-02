@@ -29,6 +29,8 @@
 #include <complex>
 #include <limits>
 #include <memory>
+#include <new>
+#include <stdexcept>
 
 // Extern variables defined elsewhere (e.g. main.cpp)
 
@@ -464,7 +466,7 @@ namespace PSFModel {
                << diagnostics.gaia_histogram_above_count << "</text>\n"
                << "    <text x=\"900\" y=\"629\">MinChi survivors = "
                << diagnostics.minchi_survivor_count << "</text>\n"
-               << "    <text x=\"900\" y=\"652\">Shared-group selected = "
+               << "    <text x=\"900\" y=\"652\">Pre-PRESS selected = "
                << diagnostics.selected_group_count << "</text>\n";
         if (diagnostics.has_gaia_median) {
             output << "    <text x=\"900\" y=\"675\">Gaia raw median = "
@@ -493,7 +495,7 @@ namespace PSFModel {
             output << "    <text x=\"930\" y=\"898\">MinChi survivors</text>\n";
         }
         if (has_selected_group_histogram) {
-            output << "    <text x=\"930\" y=\"924\">Shared-group selected</text>\n";
+            output << "    <text x=\"930\" y=\"924\">Pre-PRESS selected</text>\n";
         }
         output << "    <text x=\"930\" y=\"950\">selected peak</text>\n"
                << "    <text x=\"930\" y=\"976\">pilot center</text>\n"
@@ -970,6 +972,7 @@ namespace PSFModel {
                 selection.in_size_locus = false;
                 selection.selected_group = false;
                 selection.selected_press = false;
+                selection.bad_pair_fraction = 0.0;
                 std::vector<float>().swap(selection.chi_window);
                 std::vector<Internal::NeighborEdge>().swap(selection.knn);
             }
@@ -1234,7 +1237,7 @@ namespace PSFModel {
     // Method: Reject all candidates first, retain selected components only when
     //         the local minimum passes, and release temporary grouping caches.
     // ==========================================
-    static void applySharedGroupSelection(
+    [[maybe_unused]] static void applySharedGroupSelection(
         int nchip,
         const ExposureGroups& groups_by_chip,
         ExposurePSFState& state) {
@@ -1270,6 +1273,294 @@ namespace PSFModel {
                 }
             }
         }
+    }
+
+    // ==========================================
+    // Function: Commit one direct Type-3 pre-PRESS survivor collection
+    // Method: Validate original indices, enforce the chip minimum atomically,
+    //         update legacy flags, and release every rejected temporary cache.
+    // ==========================================
+    static void commitAdaptivePairSelection(
+        int nchip,
+        const ActiveIndicesByChip& proposed_indices,
+        ExposurePSFState& state) {
+        for (int chip_index = 0; chip_index < nchip; ++chip_index) {
+            ChipPSFState& chip = state.chips[chip_index];
+            const int nstar = state.getNStar(chip_index);
+            std::vector<bool> proposed(static_cast<std::size_t>(nstar), false);
+            if (chip_index < static_cast<int>(proposed_indices.size())) {
+                for (int star_index : proposed_indices[chip_index]) {
+                    if (star_index >= 0 && star_index < nstar) {
+                        proposed[star_index] = true;
+                    }
+                }
+            }
+            const int proposed_count = static_cast<int>(std::count(
+                proposed.begin(), proposed.end(), true));
+            const bool keep_chip =
+                proposed_count >= LensingConfig::nstar_min_local;
+            for (int star_index = 0; star_index < nstar; ++star_index) {
+                Internal::StarSelectionState& selection =
+                    chip.selection[star_index];
+                selection.selected_group = keep_chip && proposed[star_index];
+                state.getStarPara(chip_index, star_index, 4) =
+                    selection.selected_group ? 1.0 : -1.0;
+                std::vector<Internal::NeighborEdge>().swap(selection.knn);
+                if (!selection.selected_group) {
+                    std::vector<float>().swap(selection.chi_window);
+                }
+            }
+            std::cout << "PSF_TYPE3_CHIP chip=" << (chip_index + 1)
+                      << " proposed=" << proposed_count
+                      << " retained=" << (keep_chip ? proposed_count : 0)
+                      << " decision="
+                      << (keep_chip ? "KEEP" : "REJECT_MINIMUM")
+                      << std::endl;
+        }
+    }
+
+    // ==========================================
+    // Function: Log one Type-3 adaptive histogram decision
+    // Method: Publish FD sample/grid/topology fields for reproducible fail-open
+    //         diagnosis without requiring a new rendered diagnostic product.
+    // ==========================================
+    static void logAdaptiveHistogram(
+        const char* label,
+        const Internal::PSFUpperElbowHistogramResult& result,
+        const char* decision) {
+        std::cout << label
+                  << " finite=" << result.finite_value_count
+                  << " fd_samples=" << result.fd_sample_count
+                  << " iqr=" << result.fd_iqr
+                  << " width=" << result.bin_width
+                  << " origin=" << result.bin_origin
+                  << " bins=" << result.histogram.size()
+                  << " main_peak=" << result.main_peak_bin
+                  << " rightmost_valid="
+                  << result.rightmost_valid_peak_bin
+                  << " first_invalid=" << result.first_invalid_peak_bin
+                  << " elbow=" << result.elbow_bin
+                  << " cut=" << result.cut
+                  << " status="
+                  << Internal::psfUpperElbowStatusName(result.status)
+                  << " decision=" << decision << std::endl;
+    }
+
+    // ==========================================
+    // Function: Select minChi survivors with adaptive pair/fraction elbows
+    // Method: Estimate an exposure pair-chi cut, recompute same-chip finite
+    //         pairs into per-star bad fractions, then commit a direct pre-PRESS gate.
+    // ==========================================
+    static void applyAdaptivePairFractionSelection(
+        int nchip,
+        ExposurePSFState& state,
+        const ActiveIndicesByChip& active_indices) {
+        for (ChipPSFState& chip : state.chips) {
+            for (Internal::StarSelectionState& selection : chip.selection) {
+                selection.bad_pair_fraction = 0.0;
+            }
+        }
+
+        std::vector<float> pair_chi;
+        try {
+            for (int chip_index = 0; chip_index < nchip; ++chip_index) {
+                const ChipPSFState& chip = state.chips[chip_index];
+                const std::vector<int>& active = active_indices[chip_index];
+                for (std::size_t first = 0;
+                     first + 1 < active.size(); ++first) {
+                    for (std::size_t second = first + 1;
+                         second < active.size(); ++second) {
+                        const float chi = Internal::normalizedChiDistance(
+                            chip.selection[active[first]].chi_window,
+                            chip.selection[active[second]].chi_window);
+                        if (std::isfinite(chi)) pair_chi.push_back(chi);
+                    }
+                }
+            }
+        } catch (const std::bad_alloc&) {
+            Internal::PSFUpperElbowHistogramResult allocation_failure;
+            allocation_failure.status =
+                Internal::PSFUpperElbowStatus::AllocationFailure;
+            logAdaptiveHistogram(
+                "PSF_TYPE3_PAIR", allocation_failure, "FAIL_OPEN");
+            commitAdaptivePairSelection(nchip, active_indices, state);
+            return;
+        } catch (const std::length_error&) {
+            Internal::PSFUpperElbowHistogramResult allocation_failure;
+            allocation_failure.status =
+                Internal::PSFUpperElbowStatus::AllocationFailure;
+            logAdaptiveHistogram(
+                "PSF_TYPE3_PAIR", allocation_failure, "FAIL_OPEN");
+            commitAdaptivePairSelection(nchip, active_indices, state);
+            return;
+        }
+
+        Internal::PSFUpperElbowHistogramResult pair_result;
+        const Internal::PSFUpperElbowHistogramConfig pair_config = {
+            LensingConfig::psf_pair_chi_valid_peak_fraction,
+            false,
+            false,
+            false};
+        if (!Internal::estimatePSFUpperElbowCut(
+                pair_chi, pair_config, pair_result)) {
+            logAdaptiveHistogram(
+                "PSF_TYPE3_PAIR", pair_result, "FAIL_OPEN");
+            commitAdaptivePairSelection(nchip, active_indices, state);
+            return;
+        }
+        logAdaptiveHistogram("PSF_TYPE3_PAIR", pair_result, "APPLY");
+        std::vector<float>().swap(pair_chi);
+
+        std::vector<std::vector<std::size_t>> total_pairs;
+        std::vector<std::vector<std::size_t>> bad_pairs;
+        try {
+            total_pairs.resize(static_cast<std::size_t>(nchip));
+            bad_pairs.resize(static_cast<std::size_t>(nchip));
+            for (int chip_index = 0; chip_index < nchip; ++chip_index) {
+                total_pairs[chip_index].assign(
+                    static_cast<std::size_t>(state.getNStar(chip_index)), 0U);
+                bad_pairs[chip_index].assign(
+                    static_cast<std::size_t>(state.getNStar(chip_index)), 0U);
+                const ChipPSFState& chip = state.chips[chip_index];
+                const std::vector<int>& active = active_indices[chip_index];
+                for (std::size_t first = 0;
+                     first + 1 < active.size(); ++first) {
+                    for (std::size_t second = first + 1;
+                         second < active.size(); ++second) {
+                        const int first_index = active[first];
+                        const int second_index = active[second];
+                        const float chi = Internal::normalizedChiDistance(
+                            chip.selection[first_index].chi_window,
+                            chip.selection[second_index].chi_window);
+                        if (!std::isfinite(chi)) continue;
+                        total_pairs[chip_index][first_index]++;
+                        total_pairs[chip_index][second_index]++;
+                        if (Internal::isPSFType3BadPair(
+                                static_cast<double>(chi), pair_result.cut)) {
+                            bad_pairs[chip_index][first_index]++;
+                            bad_pairs[chip_index][second_index]++;
+                        }
+                    }
+                }
+            }
+        } catch (const std::bad_alloc&) {
+            Internal::PSFUpperElbowHistogramResult allocation_failure;
+            allocation_failure.status =
+                Internal::PSFUpperElbowStatus::AllocationFailure;
+            logAdaptiveHistogram(
+                "PSF_TYPE3_FRACTION", allocation_failure, "FAIL_OPEN");
+            commitAdaptivePairSelection(nchip, active_indices, state);
+            return;
+        } catch (const std::length_error&) {
+            Internal::PSFUpperElbowHistogramResult allocation_failure;
+            allocation_failure.status =
+                Internal::PSFUpperElbowStatus::AllocationFailure;
+            logAdaptiveHistogram(
+                "PSF_TYPE3_FRACTION", allocation_failure, "FAIL_OPEN");
+            commitAdaptivePairSelection(nchip, active_indices, state);
+            return;
+        }
+
+        std::vector<double> fraction_values;
+        std::size_t positive_fraction_count = 0;
+        for (int chip_index = 0; chip_index < nchip; ++chip_index) {
+            ChipPSFState& chip = state.chips[chip_index];
+            for (int star_index : active_indices[chip_index]) {
+                const std::size_t denominator =
+                    total_pairs[chip_index][star_index];
+                if (denominator == 0U) continue;
+                const double fraction = static_cast<double>(
+                    bad_pairs[chip_index][star_index])
+                    / static_cast<double>(denominator);
+                chip.selection[star_index].bad_pair_fraction = fraction;
+                fraction_values.push_back(fraction);
+                if (fraction > 0.0) positive_fraction_count++;
+            }
+        }
+
+        bool apply_fraction_cut = false;
+        Internal::PSFUpperElbowHistogramResult fraction_result;
+        if (positive_fraction_count == 0U) {
+            fraction_result.finite_value_count = fraction_values.size();
+            fraction_result.status =
+                Internal::PSFUpperElbowStatus::NoFDSamples;
+            logAdaptiveHistogram(
+                "PSF_TYPE3_FRACTION",
+                fraction_result,
+                fraction_values.empty()
+                    ? "NO_DENOMINATORS"
+                    : "ALL_ZERO_PASS");
+        } else {
+            const Internal::PSFUpperElbowHistogramConfig fraction_config = {
+                LensingConfig::psf_bad_fraction_valid_peak_fraction,
+                true,
+                true,
+                true};
+            apply_fraction_cut = Internal::estimatePSFUpperElbowCut(
+                fraction_values, fraction_config, fraction_result);
+            logAdaptiveHistogram(
+                "PSF_TYPE3_FRACTION",
+                fraction_result,
+                apply_fraction_cut ? "APPLY" : "FAIL_OPEN");
+        }
+
+        ActiveIndicesByChip proposed_indices(static_cast<std::size_t>(nchip));
+        for (int chip_index = 0; chip_index < nchip; ++chip_index) {
+            const std::vector<int>& active = active_indices[chip_index];
+            std::vector<double> fractions(active.size(), 0.0);
+            std::vector<bool> has_denominator(active.size(), false);
+            for (std::size_t index = 0; index < active.size(); ++index) {
+                const int star_index = active[index];
+                has_denominator[index] =
+                    total_pairs[chip_index][star_index] > 0U;
+                fractions[index] =
+                    state.chips[chip_index]
+                        .selection[star_index].bad_pair_fraction;
+            }
+            const Internal::PSFType3ChipSelection chip_selection =
+                Internal::selectPSFType3FractionSurvivors(
+                    fractions,
+                    has_denominator,
+                    apply_fraction_cut,
+                    fraction_result.cut,
+                    LensingConfig::nstar_min_local);
+            double fraction_sum = 0.0;
+            double fraction_maximum = 0.0;
+            for (std::size_t index = 0; index < active.size(); ++index) {
+                if (!has_denominator[index]) continue;
+                fraction_sum += fractions[index];
+                fraction_maximum = std::max(
+                    fraction_maximum, fractions[index]);
+            }
+            const double fraction_mean = chip_selection.finite_pair_count > 0U
+                ? fraction_sum
+                    / static_cast<double>(chip_selection.finite_pair_count)
+                : 0.0;
+            for (std::size_t index = 0;
+                 index < chip_selection.selected.size(); ++index) {
+                if (chip_selection.selected[index]) {
+                    proposed_indices[chip_index].push_back(active[index]);
+                }
+            }
+            std::cout << "PSF_TYPE3_FRACTION_CHIP chip="
+                      << (chip_index + 1)
+                      << " active=" << active.size()
+                      << " finite_denominator="
+                      << chip_selection.finite_pair_count
+                      << " mean=" << fraction_mean
+                      << " max=" << fraction_maximum
+                      << " selected=" << chip_selection.retained_count
+                      << " minimum_reject="
+                      << (chip_selection.rejected_by_minimum ? 1 : 0)
+                      << " decision="
+                      << (chip_selection.rejected_by_minimum
+                              ? "REJECT_MINIMUM"
+                              : (chip_selection.finite_pair_count == 0U
+                                     ? "NO_FINITE_PAIRS"
+                                     : "KEEP"))
+                      << std::endl;
+        }
+        commitAdaptivePairSelection(nchip, proposed_indices, state);
     }
 
     // ==========================================
@@ -1349,6 +1640,7 @@ namespace PSFModel {
                 selection.selected_press = false;
                 selection.knn.clear();
                 selection.min_chi = std::numeric_limits<float>::infinity();
+                selection.bad_pair_fraction = 0.0;
                 if (state.getStarPara(chip_index, star_index, 4) <= 0.0) continue;
 
                 const double star_area = state.getStarPara(
@@ -1391,13 +1683,20 @@ namespace PSFModel {
         }
         Internal::populateMinChiSurvivorCountHistogram(
             minchi_survivor_star_areas, locus_diagnostics);
-        ExposureGroups groups_by_chip;
-        if constexpr (LensingConfig::PsfGroupingType == 1) {
-            groups_by_chip = groupStarsLegacy(nchip, state, active_indices);
+        if constexpr (LensingConfig::PsfGroupingType == 3) {
+            applyAdaptivePairFractionSelection(
+                nchip, state, active_indices);
         } else {
-            groups_by_chip = groupStarsKNN(nchip, state, active_indices);
+            ExposureGroups groups_by_chip;
+            if constexpr (LensingConfig::PsfGroupingType == 1) {
+                groups_by_chip = groupStarsLegacy(
+                    nchip, state, active_indices);
+            } else {
+                groups_by_chip = groupStarsKNN(
+                    nchip, state, active_indices);
+            }
+            applySharedGroupSelection(nchip, groups_by_chip, state);
         }
-        applySharedGroupSelection(nchip, groups_by_chip, state);
 
         std::vector<int> selected_group_star_areas;
         for (int chip_index = 0; chip_index < nchip; ++chip_index) {

@@ -66,7 +66,7 @@ namespace LensingConfig {
     constexpr double psf_count_hist_range_sigma = 5.0;  // Local star-area histogram half-range in pilot widths.
     constexpr double psf_count_locus_sigma = 4.0;  // Exposure star-area locus sigma window.
     constexpr int psf_count_locus_min_samples = 30;  // Minimum star-area locus samples.
-    constexpr int PsfGroupingType = 2;  // One selects threshold graph; two selects mutual KNN.
+    constexpr int PsfGroupingType = 3;  // 1 threshold graph; 2 mutual KNN; 3 adaptive pair fractions.
     constexpr double psf_minchi_reference_fraction = 1.0 / 3.0;  // Exposure top-size reference fraction.
     constexpr int psf_minchi_reference_max_per_chip = 5;  // Reference-star cap per chip.
     constexpr double psf_minchi_sigma_cut = 4.0;  // Minimum-chi rejection sigma.
@@ -75,12 +75,15 @@ namespace LensingConfig {
     constexpr int psf_group_merge_min_gaia = 1;  // Minimum Gaia matches in a merged group.
     constexpr double psf_gaia_match_radius_pix = 2.0;  // Gaia match radius in pixels.
     constexpr int psf_gaia_locus_min_matches = 5;  // Minimum Gaia matches for locus support.
+    constexpr double psf_pair_chi_valid_peak_fraction = 0.3678794411714423216;  // exp(-1) pair-chi peak threshold.
+    constexpr double psf_bad_fraction_valid_peak_fraction = 0.10;  // Bad-pair-fraction peak threshold.
     constexpr bool psf_press_rejection_enabled = true;  // Enable optional post-fit PRESS cleanup.
     constexpr double psf_press_sigma_cut = 4.0;  // Standardized PRESS rejection sigma.
     constexpr int psf_press_max_removals = 5;  // Maximum PRESS removals permitted per chip.
     constexpr double psf_loo_min_denom = 1.0e-6;  // Minimum leave-one-out denominator.
-    static_assert(PsfGroupingType == 1 || PsfGroupingType == 2,
-                  "PsfGroupingType must be 1 or 2");
+    static_assert(PsfGroupingType == 1 || PsfGroupingType == 2
+                      || PsfGroupingType == 3,
+                  "PsfGroupingType must be 1, 2, or 3");
     static_assert(psf_exposure_min_candidates > 0,
                   "PSF exposure minimum must be positive");
     static_assert(psf_minchi_reference_fraction > 0.0
@@ -97,6 +100,12 @@ namespace LensingConfig {
                   "PSF star-area zero-MAD quantile must lie in [0,0.5)");
     static_assert(psf_count_hist_range_sigma > 0.0,
                   "PSF star-area histogram range sigma must be positive");
+    static_assert(psf_pair_chi_valid_peak_fraction > 0.0
+                      && psf_pair_chi_valid_peak_fraction < 1.0,
+                  "PSF pair-chi peak fraction must lie in (0,1)");
+    static_assert(psf_bad_fraction_valid_peak_fraction > 0.0
+                      && psf_bad_fraction_valid_peak_fraction < 1.0,
+                  "PSF bad-pair peak fraction must lie in (0,1)");
     static_assert(psf_knn_k > 0, "PSF KNN count must be positive");
     static_assert(psf_press_max_removals >= 0,
                   "PSF PRESS removal cap must be non-negative");

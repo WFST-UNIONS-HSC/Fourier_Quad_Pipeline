@@ -25,6 +25,7 @@ struct StarSelectionState {
     double full_power_sum = 0.0;
     double chi_window_sum = 0.0;
     float min_chi = 0.0f;
+    double bad_pair_fraction = 0.0;
     double press_raw_score = 0.0;
     double press_standardized_score = 0.0;
     double leverage = 0.0;

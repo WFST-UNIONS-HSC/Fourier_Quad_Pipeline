@@ -82,10 +82,26 @@ the maximum positive signed second difference. An available elbow can only
 widen its pre-guard MAD cut. Production still applies strict
 `lower < star_area < upper` cuts.
 
+`PsfGroupingType = 3` keeps the same quality, Gaia/star-area, normalized-window,
+and minChi gates, then bypasses both graph grouping implementations. It builds
+one exposure-wide Freedman-Diaconis histogram from every finite unordered
+same-chip minChi-survivor pair. The edge-renormalized 1-2-3-2-1 smoother does
+not fill holes; flat local maxima collapse to their lower middle bin. Peaks are
+valid only when strictly above `H_main / e`; the first invalid peak right of the
+rightmost valid peak bounds the search for the maximum positive signed-curvature
+elbow. Pairs strictly above that bin-center cut are bad. A second same-chip pass
+forms each star's bad/finite-pair fraction. Its FD width uses positive fractions
+only (falling back to the smallest positive value when their IQR is zero), while
+the origin-zero histogram includes zeros and uses the strict `0.10 H_main` peak
+rule. Fractions equal to the cut pass. Missing estimators fail open, all-zero
+fractions add no rejection, stars without a finite pair denominator do not pass
+a successful pair stage, and every chip still needs `nstar_min_local` stars.
+Detailed `PSF_TYPE3_*` logs expose both adaptive grids and decisions.
+
 Both variants still write `stamps/svg_StarLocus/<exposure>_locus.svg`, now
 directly in the integer `exp(-1)` pixel-count coordinate used by science. Each
 histogram bin spans two integer count levels; raw, smoothed, Gaia, exact
-post-minChi/pre-grouping survivors, and pre-PRESS shared-group distributions
+post-minChi/pre-grouping survivors, and final pre-PRESS selected distributions
 plus pilot, selected peak, Gaia median, pre-guard MAD cuts, available outer
 elbows, and final guarded cuts all share that grid. Historical index-10
 FWHM remains available to its existing

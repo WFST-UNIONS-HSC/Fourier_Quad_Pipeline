@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <new>
 #include <numeric>
+#include <stdexcept>
 
 namespace PSFModel {
 namespace Internal {
@@ -255,7 +257,415 @@ private:
     std::vector<int> rank_;
 };
 
+// ==========================================
+// Function: Smooth one continuous FD histogram without filling empty bins
+// Method: Apply the shared 1-2-3-2-1 kernel with edge renormalization.
+// ==========================================
+std::vector<double> smoothUpperElbowHistogram(
+    const std::vector<double>& histogram) {
+    const int offsets[] = {-2, -1, 0, 1, 2};
+    const double weights[] = {1.0, 2.0, 3.0, 2.0, 1.0};
+    std::vector<double> smoothed(histogram.size(), 0.0);
+    for (int bin = 0; bin < static_cast<int>(histogram.size()); ++bin) {
+        double weighted_sum = 0.0;
+        double weight_sum = 0.0;
+        for (int index = 0; index < 5; ++index) {
+            const int neighbour = bin + offsets[index];
+            if (neighbour < 0
+                || neighbour >= static_cast<int>(histogram.size())) {
+                continue;
+            }
+            weighted_sum += weights[index] * histogram[neighbour];
+            weight_sum += weights[index];
+        }
+        smoothed[bin] = weight_sum > 0.0
+            ? weighted_sum / weight_sum
+            : 0.0;
+    }
+    return smoothed;
+}
+
+// ==========================================
+// Function: Collapse positive local-maximum plateaus to deterministic peaks
+// Method: Treat each exact-height run atomically and use its lower middle bin.
+// ==========================================
+std::vector<int> findUpperElbowPeaks(
+    const std::vector<double>& smoothed_histogram) {
+    std::vector<int> peaks;
+    int first = 0;
+    while (first < static_cast<int>(smoothed_histogram.size())) {
+        int last = first;
+        while (last + 1 < static_cast<int>(smoothed_histogram.size())
+               && smoothed_histogram[last + 1]
+                    == smoothed_histogram[first]) {
+            ++last;
+        }
+        const double height = smoothed_histogram[first];
+        const double left = first == 0
+            ? -std::numeric_limits<double>::infinity()
+            : smoothed_histogram[first - 1];
+        const double right = last + 1
+                == static_cast<int>(smoothed_histogram.size())
+            ? -std::numeric_limits<double>::infinity()
+            : smoothed_histogram[last + 1];
+        if (std::isfinite(height) && height > 0.0
+            && height >= left && height >= right) {
+            peaks.push_back(first + (last - first) / 2);
+        }
+        first = last + 1;
+    }
+    return peaks;
+}
+
+// ==========================================
+// Function: Classify peaks and select one right-side positive-curvature elbow
+// Method: Use the rightmost strict-valid peak and stop before its first later
+//         invalid peak; exact curvature ties keep the nearer, lower bin.
+// ==========================================
+bool analyzeUpperElbowTopology(
+    double valid_peak_fraction,
+    PSFUpperElbowHistogramResult& result) {
+    result.valid = false;
+    result.main_peak_bin = -1;
+    result.rightmost_valid_peak_bin = -1;
+    result.first_invalid_peak_bin = -1;
+    result.elbow_bin = -1;
+    result.cut = 0.0;
+    result.peaks.clear();
+    result.valid_peaks.clear();
+    result.invalid_peaks.clear();
+    result.smoothed_histogram =
+        smoothUpperElbowHistogram(result.histogram);
+    result.peaks = findUpperElbowPeaks(result.smoothed_histogram);
+    if (result.peaks.empty()) {
+        result.status = PSFUpperElbowStatus::NoPeaks;
+        return false;
+    }
+
+    result.main_peak_bin = result.peaks.front();
+    for (int peak : result.peaks) {
+        if (result.smoothed_histogram[peak]
+            > result.smoothed_histogram[result.main_peak_bin]) {
+            result.main_peak_bin = peak;
+        }
+    }
+    const double valid_height =
+        result.smoothed_histogram[result.main_peak_bin]
+        * valid_peak_fraction;
+    for (int peak : result.peaks) {
+        if (result.smoothed_histogram[peak] > valid_height) {
+            result.valid_peaks.push_back(peak);
+        } else {
+            result.invalid_peaks.push_back(peak);
+        }
+    }
+    if (result.valid_peaks.empty()) {
+        result.status = PSFUpperElbowStatus::NoPeaks;
+        return false;
+    }
+    result.rightmost_valid_peak_bin = result.valid_peaks.back();
+    for (int peak : result.invalid_peaks) {
+        if (peak > result.rightmost_valid_peak_bin) {
+            result.first_invalid_peak_bin = peak;
+            break;
+        }
+    }
+
+    const int first_candidate = std::max(
+        1, result.rightmost_valid_peak_bin + 1);
+    const int last_candidate = result.first_invalid_peak_bin >= 0
+        ? result.first_invalid_peak_bin - 1
+        : static_cast<int>(result.smoothed_histogram.size()) - 2;
+    double best_curvature = 0.0;
+    for (int bin = first_candidate; bin <= last_candidate; ++bin) {
+        const double curvature = result.smoothed_histogram[bin - 1]
+            - 2.0 * result.smoothed_histogram[bin]
+            + result.smoothed_histogram[bin + 1];
+        if (std::isfinite(curvature) && curvature > best_curvature) {
+            best_curvature = curvature;
+            result.elbow_bin = bin;
+        }
+    }
+    if (result.elbow_bin < 0) {
+        result.status = PSFUpperElbowStatus::NoElbow;
+        return false;
+    }
+    result.cut = result.bin_origin
+        + (static_cast<double>(result.elbow_bin) + 0.5)
+            * result.bin_width;
+    if (!std::isfinite(result.cut)) {
+        result.status = PSFUpperElbowStatus::InvalidInput;
+        return false;
+    }
+    result.valid = true;
+    result.status = PSFUpperElbowStatus::Valid;
+    return true;
+}
+
+// ==========================================
+// Function: Estimate one generic adaptive upper-elbow histogram
+// Method: Filter finite samples, derive an FD grid, collapse peak plateaus, and
+//         find maximum positive curvature right of the rightmost valid peak.
+// ==========================================
+template <typename Sample>
+bool estimatePSFUpperElbowCutImpl(
+    const std::vector<Sample>& input,
+    const PSFUpperElbowHistogramConfig& config,
+    PSFUpperElbowHistogramResult& result) {
+    result = {};
+    if (!std::isfinite(config.valid_peak_fraction)
+        || config.valid_peak_fraction <= 0.0
+        || config.valid_peak_fraction >= 1.0) {
+        result.status = PSFUpperElbowStatus::InvalidConfig;
+        return false;
+    }
+
+    try {
+        std::vector<double> values;
+        values.reserve(input.size());
+        for (Sample sample : input) {
+            const double value = static_cast<double>(sample);
+            if (std::isfinite(value)) values.push_back(value);
+        }
+        result.finite_value_count = values.size();
+        if (values.empty()) return false;
+        if (config.force_zero_origin
+            && *std::min_element(values.begin(), values.end()) < 0.0) {
+            result.status = PSFUpperElbowStatus::InvalidInput;
+            return false;
+        }
+
+        std::vector<double> fd_values;
+        fd_values.reserve(values.size());
+        for (double value : values) {
+            if (!config.exclude_zero_from_fd || value > 0.0) {
+                fd_values.push_back(value);
+            }
+        }
+        result.fd_sample_count = fd_values.size();
+        if (fd_values.empty()) {
+            result.status = PSFUpperElbowStatus::NoFDSamples;
+            return false;
+        }
+        std::sort(fd_values.begin(), fd_values.end());
+        const double first_quartile = sortedQuantile(fd_values, 0.25);
+        const double third_quartile = sortedQuantile(fd_values, 0.75);
+        result.fd_iqr = third_quartile - first_quartile;
+        if (std::isfinite(result.fd_iqr) && result.fd_iqr > 0.0) {
+            result.bin_width = 2.0 * result.fd_iqr
+                / std::cbrt(static_cast<double>(fd_values.size()));
+        } else if (config.zero_iqr_uses_min_positive
+                   && fd_values.front() > 0.0) {
+            result.bin_width = fd_values.front();
+        }
+        if (!std::isfinite(result.bin_width) || result.bin_width <= 0.0) {
+            result.status = PSFUpperElbowStatus::NonPositiveWidth;
+            return false;
+        }
+
+        const auto minimum_and_maximum =
+            std::minmax_element(values.begin(), values.end());
+        const double minimum = *minimum_and_maximum.first;
+        const double maximum = *minimum_and_maximum.second;
+        if (config.force_zero_origin) {
+            result.bin_origin = 0.0;
+        } else {
+            const long double origin = std::floor(
+                static_cast<long double>(minimum)
+                    / static_cast<long double>(result.bin_width))
+                * static_cast<long double>(result.bin_width);
+            result.bin_origin = static_cast<double>(origin);
+        }
+        if (!std::isfinite(result.bin_origin)
+            || result.bin_origin > minimum) {
+            result.status = PSFUpperElbowStatus::InvalidInput;
+            return false;
+        }
+
+        const long double scaled_range =
+            (static_cast<long double>(maximum)
+             - static_cast<long double>(result.bin_origin))
+            / static_cast<long double>(result.bin_width);
+        if (!std::isfinite(scaled_range) || scaled_range < 0.0L) {
+            result.status = PSFUpperElbowStatus::UnsafeBinCount;
+            return false;
+        }
+        const long double last_bin_value = std::floor(scaled_range);
+        const long double maximum_last_bin = static_cast<long double>(
+            std::numeric_limits<int>::max() - 1);
+        if (last_bin_value > maximum_last_bin) {
+            result.status = PSFUpperElbowStatus::UnsafeBinCount;
+            return false;
+        }
+        const std::size_t bin_count =
+            static_cast<std::size_t>(last_bin_value) + 1U;
+        if (bin_count == 0
+            || bin_count > result.histogram.max_size()) {
+            result.status = PSFUpperElbowStatus::UnsafeBinCount;
+            return false;
+        }
+        result.histogram.assign(bin_count, 0.0);
+        for (double value : values) {
+            long double scaled =
+                (static_cast<long double>(value)
+                 - static_cast<long double>(result.bin_origin))
+                / static_cast<long double>(result.bin_width);
+            const long double tolerance = 64.0L
+                * std::numeric_limits<long double>::epsilon()
+                * std::max(1.0L, std::abs(scaled));
+            if (!std::isfinite(scaled) || scaled < -tolerance) {
+                result.status = PSFUpperElbowStatus::InvalidInput;
+                return false;
+            }
+            if (scaled < 0.0L) scaled = 0.0L;
+            std::size_t bin = static_cast<std::size_t>(std::floor(scaled));
+            if (bin >= bin_count) bin = bin_count - 1U;
+            result.histogram[bin] += 1.0;
+        }
+        return analyzeUpperElbowTopology(
+            config.valid_peak_fraction, result);
+    } catch (const std::bad_alloc&) {
+        result = {};
+        result.status = PSFUpperElbowStatus::AllocationFailure;
+        return false;
+    } catch (const std::length_error&) {
+        result = {};
+        result.status = PSFUpperElbowStatus::AllocationFailure;
+        return false;
+    }
+}
+
 }  // namespace
+
+// ==========================================
+// Function: Analyze one already-binned upper-elbow histogram
+// Method: Validate nonnegative finite bins, then expose the production topology.
+// ==========================================
+bool analyzePSFUpperElbowHistogram(
+    const std::vector<double>& histogram,
+    double bin_origin,
+    double bin_width,
+    double valid_peak_fraction,
+    PSFUpperElbowHistogramResult& result) {
+    result = {};
+    if (histogram.empty() || !std::isfinite(bin_origin)
+        || !std::isfinite(bin_width) || bin_width <= 0.0
+        || !std::isfinite(valid_peak_fraction)
+        || valid_peak_fraction <= 0.0 || valid_peak_fraction >= 1.0
+        || std::any_of(
+            histogram.begin(), histogram.end(),
+            [](double count) {
+                return !std::isfinite(count) || count < 0.0;
+            })) {
+        result.status = PSFUpperElbowStatus::InvalidInput;
+        return false;
+    }
+    try {
+        result.bin_origin = bin_origin;
+        result.bin_width = bin_width;
+        result.histogram = histogram;
+        return analyzeUpperElbowTopology(valid_peak_fraction, result);
+    } catch (const std::bad_alloc&) {
+        result = {};
+        result.status = PSFUpperElbowStatus::AllocationFailure;
+        return false;
+    } catch (const std::length_error&) {
+        result = {};
+        result.status = PSFUpperElbowStatus::AllocationFailure;
+        return false;
+    }
+}
+
+// ==========================================
+// Function: Estimate an FD-histogram upper elbow from double samples
+// Method: Delegate to the type-generic finite-filtering implementation.
+// ==========================================
+bool estimatePSFUpperElbowCut(
+    const std::vector<double>& values,
+    const PSFUpperElbowHistogramConfig& config,
+    PSFUpperElbowHistogramResult& result) {
+    return estimatePSFUpperElbowCutImpl(values, config, result);
+}
+
+// ==========================================
+// Function: Estimate an FD-histogram upper elbow from float samples
+// Method: Delegate without first expanding the compact production pair vector.
+// ==========================================
+bool estimatePSFUpperElbowCut(
+    const std::vector<float>& values,
+    const PSFUpperElbowHistogramConfig& config,
+    PSFUpperElbowHistogramResult& result) {
+    return estimatePSFUpperElbowCutImpl(values, config, result);
+}
+
+// ==========================================
+// Function: Return a stable adaptive-histogram status label
+// Method: Map every outcome to one uppercase diagnostic token.
+// ==========================================
+const char* psfUpperElbowStatusName(PSFUpperElbowStatus status) {
+    switch (status) {
+        case PSFUpperElbowStatus::NoFiniteValues: return "NO_FINITE_VALUES";
+        case PSFUpperElbowStatus::InvalidConfig: return "INVALID_CONFIG";
+        case PSFUpperElbowStatus::InvalidInput: return "INVALID_INPUT";
+        case PSFUpperElbowStatus::NoFDSamples: return "NO_FD_SAMPLES";
+        case PSFUpperElbowStatus::NonPositiveWidth: return "NONPOSITIVE_WIDTH";
+        case PSFUpperElbowStatus::UnsafeBinCount: return "UNSAFE_BIN_COUNT";
+        case PSFUpperElbowStatus::AllocationFailure: return "ALLOCATION_FAILURE";
+        case PSFUpperElbowStatus::NoPeaks: return "NO_PEAKS";
+        case PSFUpperElbowStatus::NoElbow: return "NO_ELBOW";
+        case PSFUpperElbowStatus::Valid: return "VALID";
+    }
+    return "UNKNOWN";
+}
+
+// ==========================================
+// Function: Classify one finite pair against the Type-3 upper cut
+// Method: Preserve the scientific strict-greater-than boundary exactly.
+// ==========================================
+bool isPSFType3BadPair(double chi, double pair_chi_cut) {
+    return std::isfinite(chi) && std::isfinite(pair_chi_cut)
+        && chi > pair_chi_cut;
+}
+
+// ==========================================
+// Function: Apply the Type-3 bad-pair-fraction gate to one chip
+// Method: Require finite denominators, apply a strict upper rejection only when
+//         requested, and clear the complete result below the chip minimum.
+// ==========================================
+PSFType3ChipSelection selectPSFType3FractionSurvivors(
+    const std::vector<double>& bad_pair_fractions,
+    const std::vector<bool>& has_finite_pair_denominator,
+    bool apply_fraction_cut,
+    double fraction_cut,
+    int minimum_retained) {
+    PSFType3ChipSelection result;
+    result.selected.assign(bad_pair_fractions.size(), false);
+    if (bad_pair_fractions.size() != has_finite_pair_denominator.size()
+        || minimum_retained < 0
+        || (apply_fraction_cut
+            && (!std::isfinite(fraction_cut) || fraction_cut < 0.0))) {
+        return result;
+    }
+    for (std::size_t index = 0; index < bad_pair_fractions.size(); ++index) {
+        const double fraction = bad_pair_fractions[index];
+        if (!has_finite_pair_denominator[index]
+            || !std::isfinite(fraction) || fraction < 0.0
+            || fraction > 1.0) {
+            continue;
+        }
+        result.finite_pair_count++;
+        if (!apply_fraction_cut || fraction <= fraction_cut) {
+            result.selected[index] = true;
+            result.retained_count++;
+        }
+    }
+    if (result.retained_count < static_cast<std::size_t>(minimum_retained)) {
+        std::fill(result.selected.begin(), result.selected.end(), false);
+        result.retained_count = 0;
+        result.rejected_by_minimum = true;
+    }
+    return result;
+}
 
 // ==========================================
 // Function: Derive the shared PSF chi-window bounds
@@ -939,8 +1349,8 @@ void populateMinChiSurvivorCountHistogram(
 }
 
 // ==========================================
-// Function: Populate the shared-group integer-area histogram
-// Method: Count all selected stars and bin only values on the science grid
+// Function: Populate the historical pre-PRESS integer-area histogram
+// Method: Count all selected stars for any grouping type on the science grid
 //         without changing upstream count-locus diagnostics.
 // ==========================================
 void populateSelectedGroupCountHistogram(

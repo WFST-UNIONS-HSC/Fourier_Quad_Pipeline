@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <numeric>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -403,6 +404,162 @@ void testCountOverlayHistograms() {
 }
 
 // ==========================================
+// Function: Verify adaptive FD grids and upper-elbow topology
+// Method: Cover finite filtering, exact FD width/origin/max bins, plateau
+//         collapse, strict peak classes, invalid-peak bounds, and fail states.
+// ==========================================
+void testAdaptiveUpperElbowHistogram() {
+    const PSFUpperElbowHistogramConfig pair_config = {
+        std::exp(-1.0), false, false, false};
+    PSFUpperElbowHistogramResult result;
+    const std::vector<double> ordinary = {
+        0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0,
+        std::numeric_limits<double>::quiet_NaN()};
+    estimatePSFUpperElbowCut(ordinary, pair_config, result);
+    require(result.finite_value_count == 8
+                && result.fd_sample_count == 8
+                && std::abs(result.fd_iqr - 1.5) < 1.0e-12
+                && std::abs(result.bin_width - 1.5) < 1.0e-12
+                && result.bin_origin == 0.0
+                && result.histogram.size() == 3
+                && std::accumulate(
+                    result.histogram.begin(), result.histogram.end(), 0.0)
+                    == 8.0
+                && result.histogram.back() == 2.0,
+            "ordinary FD bins must filter nonfinite input and include the maximum");
+
+    std::vector<double> outlier = {
+        0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 100.0};
+    estimatePSFUpperElbowCut(outlier, pair_config, result);
+    require(result.finite_value_count == 9
+                && result.fd_iqr == 2.0
+                && result.histogram.size() > 3
+                && std::accumulate(
+                    result.histogram.begin(), result.histogram.end(), 0.0)
+                    == 9.0
+                && result.histogram.back() == 1.0,
+            "an outlier must extend the true FD grid without clipping its bin");
+
+    require(!estimatePSFUpperElbowCut(
+                std::vector<double>({1.0, 1.0, 1.0}),
+                pair_config,
+                result)
+                && result.status == PSFUpperElbowStatus::NonPositiveWidth,
+            "pair-chi zero IQR must fail open without an invented width");
+
+    const PSFUpperElbowHistogramConfig fraction_config = {
+        0.10, true, true, true};
+    require(!estimatePSFUpperElbowCut(
+                std::vector<double>({0.0, 0.0, 0.0}),
+                fraction_config,
+                result)
+                && result.status == PSFUpperElbowStatus::NoFDSamples,
+            "all-zero fractions must remain distinguishable from estimator failure");
+    estimatePSFUpperElbowCut(
+        std::vector<double>({
+            0.0, 0.0, 0.25, 0.25, 0.25, 0.25,
+            std::numeric_limits<double>::infinity()}),
+        fraction_config,
+        result);
+    require(result.finite_value_count == 6
+                && result.fd_sample_count == 4
+                && result.fd_iqr == 0.0
+                && result.bin_width == 0.25
+                && result.bin_origin == 0.0
+                && result.histogram == std::vector<double>({2.0, 4.0}),
+            "fraction FD must exclude zeros only from width estimation");
+
+    std::vector<double> unsafe(80, 1.0e-300);
+    unsafe.push_back(1.0);
+    require(!estimatePSFUpperElbowCut(
+                unsafe, fraction_config, result)
+                && result.status == PSFUpperElbowStatus::UnsafeBinCount,
+            "an unrepresentable FD grid must take the deterministic fail-open path");
+
+    require(!analyzePSFUpperElbowHistogram(
+                {5.0, 5.0, 5.0, 5.0}, 0.0, 1.0, 0.5, result)
+                && result.peaks == std::vector<int>({1})
+                && result.status == PSFUpperElbowStatus::NoElbow,
+            "an even plateau must collapse to its lower middle bin");
+    require(analyzePSFUpperElbowHistogram(
+                {0.0, 0.0, 10.0, 0.0, 0.0, 0.0,
+                 0.0, 0.0, 5.0, 0.0, 0.0, 0.0},
+                0.0, 1.0, 0.5, result)
+                && result.main_peak_bin == 2
+                && result.valid_peaks == std::vector<int>({2})
+                && result.invalid_peaks == std::vector<int>({8})
+                && result.first_invalid_peak_bin == 8
+                && result.elbow_bin == 5
+                && result.cut == 5.5,
+            "strict equality must invalidate the later peak and bound the elbow domain");
+    require(analyzePSFUpperElbowHistogram(
+                {0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0},
+                0.0, 1.0, 0.5, result)
+                && result.main_peak_bin == 2
+                && result.rightmost_valid_peak_bin == 6,
+            "equal-height main peaks must choose the lower bin deterministically");
+    require(analyzePSFUpperElbowHistogram(
+                {0.0, 0.0, 100.0, 0.0, 0.0, 15.0,
+                 0.0, 0.0, 5.0, 0.0, 0.0, 0.0},
+                0.0, 1.0, 0.5, result)
+                && result.elbow_bin == 5
+                && result.smoothed_histogram[result.elbow_bin]
+                    > 0.10 * result.smoothed_histogram[result.main_peak_bin],
+            "Type-3 curvature must not require a prior ten-percent crossing");
+    require(analyzePSFUpperElbowHistogram(
+                {2.0, 0.0, 31.0, 0.0, 5.0, 7.0,
+                 6.0, 7.0, 1.0, 0.0, 7.0, 5.0},
+                0.0, 1.0, 0.5, result)
+                && result.rightmost_valid_peak_bin == 6
+                && result.first_invalid_peak_bin == 11
+                && result.elbow_bin == 8,
+            "equal maximum curvatures must keep the bin nearest the valid peak");
+    require(std::string(psfUpperElbowStatusName(
+                PSFUpperElbowStatus::UnsafeBinCount)) == "UNSAFE_BIN_COUNT",
+            "adaptive histogram status labels must remain stable for logs");
+}
+
+// ==========================================
+// Function: Verify the pure per-chip Type-3 fraction gate
+// Method: Lock finite-denominator eligibility, strict-above rejection, equality
+//         retention, fail-open cuts, and atomic minimum-star enforcement.
+// ==========================================
+void testType3FractionSelection() {
+    const std::vector<double> fractions = {
+        0.0, 0.20, 0.30, std::numeric_limits<double>::quiet_NaN()};
+    const std::vector<bool> denominators = {true, true, true, false};
+    require(!isPSFType3BadPair(0.20, 0.20)
+                && isPSFType3BadPair(
+                    std::nextafter(0.20, 1.0), 0.20)
+                && !isPSFType3BadPair(
+                    std::numeric_limits<double>::infinity(), 0.20),
+            "Type-3 pair rejection must be finite and strictly above its cut");
+    PSFType3ChipSelection selected = selectPSFType3FractionSurvivors(
+        fractions, denominators, true, 0.20, 2);
+    require(selected.selected
+                == std::vector<bool>({true, true, false, false})
+                && selected.finite_pair_count == 3
+                && selected.retained_count == 2
+                && !selected.rejected_by_minimum,
+            "Type-3 must retain a fraction equal to the cut and reject only above");
+
+    selected = selectPSFType3FractionSurvivors(
+        fractions, denominators, false, 0.0, 3);
+    require(selected.selected
+                == std::vector<bool>({true, true, true, false})
+                && selected.retained_count == 3,
+            "failed fraction estimation must retain every finite-denominator star");
+
+    selected = selectPSFType3FractionSurvivors(
+        fractions, denominators, true, 0.20, 3);
+    require(selected.selected
+                == std::vector<bool>({false, false, false, false})
+                && selected.retained_count == 0
+                && selected.rejected_by_minimum,
+            "a sub-minimum Type-3 result must reject the whole chip atomically");
+}
+
+// ==========================================
 // Function: Verify astro parsing and nearest-position Gaia labels
 // Method: Parse finite matched rows, test radius boundaries and shared labels,
 //         and reject a malformed matched-source row.
@@ -765,6 +922,8 @@ int main() {
     testPSFCountLocus();
     testPSFCountTopologyAndRefinement();
     testCountOverlayHistograms();
+    testAdaptiveUpperElbowHistogram();
+    testType3FractionSelection();
     testGaiaParsingAndMatching();
     testGrouping();
     testKNNRebuiltAfterMinChiCut();

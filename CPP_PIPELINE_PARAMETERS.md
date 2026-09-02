@@ -159,7 +159,7 @@ content.
 | `psf_count_hist_range_sigma` | `double` | `5.0` | same | No | Positive width multiplier | Positive-MAD pilot half-range in count units; an initially zero-MAD pilot uses its configured symmetric quantiles. The science/SVG histogram width is a fixed, non-configurable two integer counts per bin. | Tune Stage 5 locus search range. | Yes |
 | `psf_count_locus_sigma` | `double` | `4.0` | same | No | Positive sigma multiplier | Multiplier applied independently to re-absorbing lower/upper count-MAD refinement and its pre-guard cuts. Independent outer elbows may only widen the final strict `star_area` bounds. | Tune Stage 5 selection. | Yes |
 | `psf_count_locus_min_samples` | `int` | `30` | same | No | Positive count | Minimum samples for a valid integer star-area locus. | Tune sparse-exposure handling. | Yes |
-| `PsfGroupingType` | `int` | `2` | same | No | `1` threshold graph, `2` mutual KNN | Selects PSF grouping topology. | Change for controlled algorithm comparison. | Yes |
+| `PsfGroupingType` | `int` | `3` | same | No | `1` threshold graph, `2` mutual KNN, `3` adaptive pair/fraction cuts | Selects the post-minChi pre-PRESS topology; type 3 bypasses graph grouping. | Change for controlled algorithm comparison. | Yes |
 | `psf_minchi_reference_fraction` | `double` | `1 / 3` | same | No | `(0, 1]` | Fraction of largest locus candidates eligible as references. | Tune Stage 5 threshold estimation. | Yes |
 | `psf_minchi_reference_max_per_chip` | `int` | `5` | same | No | Positive count | Caps reference stars per chip. | Tune Stage 5 threshold estimation. | Yes |
 | `psf_minchi_sigma_cut` | `double` | `4.0` | same | No | Positive sigma multiplier | Minimum-chi upper-tail rejection cut. | Tune Stage 5 selection. | Yes |
@@ -168,6 +168,8 @@ content.
 | `psf_group_merge_min_gaia` | `int` | `1` | same | No | Non-negative match count | Gaia support required to merge a secondary group. | Tune Stage 5 grouping. | Yes |
 | `psf_gaia_match_radius_pix` | `double` | `2.0` | same | No | Positive pixels | Gaia matching radius for PSF candidates. | Change for astrometric precision/pixel scale. | Yes |
 | `psf_gaia_locus_min_matches` | `int` | `5` | same | No | Positive match count | Gaia matches required for locus support. | Tune sparse fields. | Yes |
+| `psf_pair_chi_valid_peak_fraction` | `double` | `exp(-1)` | same | No | `(0, 1)` | Strict relative-height threshold for valid Type-3 pair-chi peaks. | Tune only with pair-histogram validation. | Yes |
+| `psf_bad_fraction_valid_peak_fraction` | `double` | `0.10` | same | No | `(0, 1)` | Strict relative-height threshold for valid Type-3 bad-fraction peaks. | Tune only with fraction-histogram validation. | Yes |
 | `psf_press_rejection_enabled` | `bool` | `true` | same | No | Boolean | Enables optional standardized-PRESS cleanup. | Disable for controlled fallback testing. | Yes |
 | `psf_press_sigma_cut` | `double` | `4.0` | same | No | Positive sigma multiplier | PRESS outlier rejection cut. | Tune only with PSF residual validation. | Yes |
 | `psf_press_max_removals` | `int` | `5` | same | No | Non-negative count | Maximum proposed PRESS removals per chip. | Tune only with PSF residual validation. | Yes |

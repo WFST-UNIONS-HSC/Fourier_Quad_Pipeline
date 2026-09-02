@@ -2,6 +2,7 @@
 #define PSF_STAR_SELECTION_HPP
 
 #include <array>
+#include <cstddef>
 #include <istream>
 #include <string>
 #include <vector>
@@ -244,13 +245,131 @@ void populateMinChiSurvivorCountHistogram(
     PSFCountLocusDiagnostics& diagnostics);
 
 // ==========================================
-// Function: Populate the shared-group integer-area histogram
-// Method: Count all selected stars and bin only values on the science grid
+// Function: Populate the historical pre-PRESS integer-area histogram
+// Method: Count all selected stars for any grouping type on the science grid
 //         without changing upstream count-locus diagnostics.
 // ==========================================
 void populateSelectedGroupCountHistogram(
     const std::vector<int>& selected_star_areas,
     PSFCountLocusDiagnostics& diagnostics);
+
+// ==========================================
+// Enumeration: Identify one adaptive upper-elbow histogram outcome
+// Method: Preserve deterministic failure reasons for fail-open production logs.
+// ==========================================
+enum class PSFUpperElbowStatus {
+    NoFiniteValues,
+    InvalidConfig,
+    InvalidInput,
+    NoFDSamples,
+    NonPositiveWidth,
+    UnsafeBinCount,
+    AllocationFailure,
+    NoPeaks,
+    NoElbow,
+    Valid
+};
+
+// ==========================================
+// Structure: Configure one Freedman-Diaconis upper-elbow histogram
+// Method: Separate peak validity, FD sampling, zero-IQR fallback, and origin rules.
+// ==========================================
+struct PSFUpperElbowHistogramConfig {
+    double valid_peak_fraction = 0.0;
+    bool exclude_zero_from_fd = false;
+    bool zero_iqr_uses_min_positive = false;
+    bool force_zero_origin = false;
+};
+
+// ==========================================
+// Structure: Publish one adaptive histogram and upper-elbow decision
+// Method: Retain FD statistics, topology indices, and raw/smoothed diagnostics.
+// ==========================================
+struct PSFUpperElbowHistogramResult {
+    bool valid = false;
+    PSFUpperElbowStatus status = PSFUpperElbowStatus::NoFiniteValues;
+    std::size_t finite_value_count = 0;
+    std::size_t fd_sample_count = 0;
+    double fd_iqr = 0.0;
+    double bin_origin = 0.0;
+    double bin_width = 0.0;
+    double cut = 0.0;
+    int main_peak_bin = -1;
+    int rightmost_valid_peak_bin = -1;
+    int first_invalid_peak_bin = -1;
+    int elbow_bin = -1;
+    std::vector<int> peaks;
+    std::vector<int> valid_peaks;
+    std::vector<int> invalid_peaks;
+    std::vector<double> histogram;
+    std::vector<double> smoothed_histogram;
+};
+
+// ==========================================
+// Function: Analyze one already-binned upper-elbow histogram
+// Method: Expose smoothing, plateau collapse, strict peak classes, and the
+//         right positive-curvature elbow as a deterministic test seam.
+// ==========================================
+bool analyzePSFUpperElbowHistogram(
+    const std::vector<double>& histogram,
+    double bin_origin,
+    double bin_width,
+    double valid_peak_fraction,
+    PSFUpperElbowHistogramResult& result);
+
+// ==========================================
+// Function: Estimate an FD-histogram upper elbow from double samples
+// Method: Collapse plateaus, apply strict peak validity, and maximize positive
+//         right-side signed curvature before the first invalid peak.
+// ==========================================
+bool estimatePSFUpperElbowCut(
+    const std::vector<double>& values,
+    const PSFUpperElbowHistogramConfig& config,
+    PSFUpperElbowHistogramResult& result);
+
+// ==========================================
+// Function: Estimate an FD-histogram upper elbow from float samples
+// Method: Preserve compact pair-chi storage while sharing the double algorithm.
+// ==========================================
+bool estimatePSFUpperElbowCut(
+    const std::vector<float>& values,
+    const PSFUpperElbowHistogramConfig& config,
+    PSFUpperElbowHistogramResult& result);
+
+// ==========================================
+// Function: Return a stable adaptive-histogram status label
+// Method: Map every public status enumerator to one diagnostic token.
+// ==========================================
+const char* psfUpperElbowStatusName(PSFUpperElbowStatus status);
+
+// ==========================================
+// Structure: Publish one chip's Type-3 fraction-gate decision
+// Method: Align Boolean survivors with active inputs and report minimum rejection.
+// ==========================================
+struct PSFType3ChipSelection {
+    std::vector<bool> selected;
+    std::size_t finite_pair_count = 0;
+    std::size_t retained_count = 0;
+    bool rejected_by_minimum = false;
+};
+
+// ==========================================
+// Function: Classify one finite pair against the Type-3 upper cut
+// Method: Mark bad only when both values are finite and chi is strictly greater.
+// ==========================================
+bool isPSFType3BadPair(double chi, double pair_chi_cut);
+
+// ==========================================
+// Function: Apply the Type-3 bad-pair-fraction gate to one chip
+// Method: Require finite denominators, reject only fractions strictly above an
+//         optional cut, then atomically enforce the retained-star minimum.
+// ==========================================
+PSFType3ChipSelection selectPSFType3FractionSurvivors(
+    const std::vector<double>& bad_pair_fractions,
+    const std::vector<bool>& has_finite_pair_denominator,
+    bool apply_fraction_cut,
+    double fraction_cut,
+    int minimum_retained);
 
 enum class AstrometryGaiaReadStatus {
     Accepted,

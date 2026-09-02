@@ -70,10 +70,22 @@ raw count 始终不修改；只在 working histogram 中对两侧由正值封闭
 高度 10% 的 bin 向边界搜索，选择最大正有符号二阶差分作为 elbow；可用 elbow 只能向外
 放宽 pre-guard MAD cut。生产选择继续采用严格的 `lower < star_area < upper`。
 
+`PsfGroupingType = 3` 保留同一套质量、Gaia/star-area、归一化窗口和 minChi 门控，
+随后完全绕过两种 graph grouping。它把所有 minChi survivor 的同芯片、无序、有限
+pair chi 合并成曝光级 Freedman-Diaconis histogram；1-2-3-2-1 平滑只做边界归一化，
+不填空洞，plateau 峰折叠到较低的中间 bin。局部峰必须严格满足 `H > H_main / e`；
+从最右有效峰到其右侧第一个无效峰之间选择最大正有符号二阶差分，以对应 bin center
+为 pair chi cut，只有严格大于 cut 的 pair 才算 bad。第二次同芯片 pair pass 计算每颗
+星的 `bad / finite` 比例；FD 宽度只使用正比例（其 IQR 为零时用最小正值），但原点固定
+为零的 histogram 会包含所有零值，并用严格的 `H > 0.10 H_main` 峰规则。等于 fraction
+cut 的星保留；估计失败采用 fail-open，全零比例不增加拒绝；pair stage 成功后没有有限
+分母的星不能通过，且每芯片仍必须至少保留 `nstar_min_local` 颗星。`PSF_TYPE3_*` 日志
+完整记录两级 grid、峰、elbow、cut 与 fail-open 决策。
+
 Standard 与 Lite 仍写出 `stamps/svg_StarLocus/<exposure>_locus.svg`，但横轴现在直接
 使用科学选择的整数 `exp(-1)` pixel count。每个 histogram bin 覆盖两个整数 count
-level；raw、smoothed、Gaia、精确的 minChi 后/grouping 前 survivor，以及 grouping 后/
-PRESS 前的 shared-group 分布连同 pilot、所选峰、Gaia median、pre-guard MAD cuts、
+level；raw、smoothed、Gaia、精确的 minChi 后/grouping 前 survivor，以及最终 PRESS 前
+selected 分布连同 pilot、所选峰、Gaia median、pre-guard MAD cuts、
 可用的左右 elbow 和最终 guarded cuts 均使用同一 count grid。
 历史 index-10 FWHM 仍供已有非 locus 输出与
 rescale 消费者使用，但 SVG 不再读取或映射它。输出目录由 `process_init` 创建；旧数据树
