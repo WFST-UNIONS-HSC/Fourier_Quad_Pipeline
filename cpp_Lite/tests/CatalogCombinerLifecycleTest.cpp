@@ -17,6 +17,7 @@
 #include <system_error>
 #include <vector>
 
+#include <sys/wait.h>
 #include <unistd.h>
 
 ProcessMain::State ProcessMain::state;
@@ -37,6 +38,27 @@ void require(bool condition, const std::string& message) {
                   << '\n';
         std::exit(EXIT_FAILURE);
     }
+}
+
+// ==========================================
+// Function: Require one production Stage-9 failure to terminate its child
+// Method: Fork the destructive case and accept only a nonzero exit or signal.
+// ==========================================
+template <typename Operation>
+void requireAbort(Operation operation, const std::string& message) {
+    const pid_t child = ::fork();
+    require(child >= 0, "fork failed for fatal Stage-9 case");
+    if (child == 0) {
+        operation();
+        std::_Exit(EXIT_SUCCESS);
+    }
+
+    int status = 0;
+    require(::waitpid(child, &status, 0) == child,
+            "waitpid failed for fatal Stage-9 case");
+    require((WIFEXITED(status) && WEXITSTATUS(status) != EXIT_SUCCESS)
+                || WIFSIGNALED(status),
+            message);
 }
 
 // ==========================================
@@ -93,11 +115,24 @@ public:
     }
 
     // ==========================================
-    // Function: Write independently populated shear and original catalogs
-    // Method: Always write nonblank headers and optionally one data row per input.
+    // Function: Format one complete Stage-7 shear data row
+    // Method: Fill the production width while allowing the first science value to vary.
     // ==========================================
-    void writeCatalogs(bool with_shear_data, bool with_original_data,
-                       float first_shear_value = 0.0f) const {
+    static std::string shearRow(float first_shear_value = 0.0f) {
+        std::ostringstream row;
+        for (int column = 0; column <= LensingConfig::iparity; ++column) {
+            row << (column == 0 ? "" : " ")
+                << (column == 0 ? first_shear_value : 0.0f);
+        }
+        return row.str();
+    }
+
+    // ==========================================
+    // Function: Write explicit shear and original catalog data rows
+    // Method: Keep production headers while allowing valid, invalid, and malformed fixtures.
+    // ==========================================
+    void writeCatalogRows(const std::vector<std::string>& shear_rows,
+                          const std::vector<std::string>& original_rows) const {
         std::ofstream shear(shear_file_, std::ios::trunc);
         std::ofstream orig(orig_file_, std::ios::trunc);
         require(static_cast<bool>(shear) && static_cast<bool>(orig),
@@ -108,16 +143,29 @@ public:
         }
         shear << '\n';
         orig << "ra dec\n";
+        for (const std::string& row : shear_rows) {
+            shear << row << '\n';
+        }
+        for (const std::string& row : original_rows) {
+            orig << row << '\n';
+        }
+    }
+
+    // ==========================================
+    // Function: Write the common zero-or-one-row lifecycle fixtures
+    // Method: Adapt the legacy test inputs to the explicit row writer.
+    // ==========================================
+    void writeCatalogs(bool with_shear_data, bool with_original_data,
+                       float first_shear_value = 0.0f) const {
+        std::vector<std::string> shear_rows;
+        std::vector<std::string> original_rows;
         if (with_shear_data) {
-            for (int column = 0; column <= LensingConfig::iparity; ++column) {
-                shear << (column == 0 ? "" : " ")
-                      << (column == 0 ? first_shear_value : 0.0f);
-            }
-            shear << '\n';
+            shear_rows.push_back(shearRow(first_shear_value));
         }
         if (with_original_data) {
-            orig << "180 0\n";
+            original_rows.emplace_back("180 0");
         }
+        writeCatalogRows(shear_rows, original_rows);
     }
 
     // ==========================================
@@ -233,6 +281,35 @@ void testLiveOutput(TemporaryCatalogTree& tree) {
 }
 
 // ==========================================
+// Function: Verify scientific rejection advances both paired input streams
+// Method: Reject pair one, retain pair two, and inspect its external fields.
+// ==========================================
+void testScientificInvalidPairConsumption(TemporaryCatalogTree& tree) {
+    tree.writeCatalogRows(
+        {TemporaryCatalogTree::shearRow(-99999.0f),
+         TemporaryCatalogTree::shearRow()},
+        {"101 1", "202 2"});
+    tree.combine(0.0f);
+
+    std::ifstream output(tree.outputFile());
+    std::string header;
+    std::string row;
+    std::string extra;
+    require(std::getline(output, header) && std::getline(output, row)
+                && !std::getline(output, extra),
+            "one rejected and one valid pair must produce exactly one data row");
+
+    std::istringstream values(row);
+    double external_ra = 0.0;
+    double external_dec = 0.0;
+    require(static_cast<bool>(values >> external_ra >> external_dec),
+            "retained pair must contain its external catalog fields");
+    require(std::abs(external_ra - 202.0) < 1.0e-12
+                && std::abs(external_dec - 2.0) < 1.0e-12,
+            "valid shear row must remain paired with the second original row");
+}
+
+// ==========================================
 // Function: Verify Stage-9 sentinel rejection preserves row pairing
 // Method: Combine one full-width sentinel shear row with its original row and
 //         require a header-only science catalog.
@@ -248,17 +325,64 @@ void testSentinelOutput(TemporaryCatalogTree& tree) {
             "sentinel shear row must be consumed but omitted from science output");
 }
 
+// ==========================================
+// Function: Verify structural pairing failures cannot silently desynchronize rows
+// Method: Exercise short/long orig streams and malformed, blank, or empty pairs.
+// ==========================================
+void testFatalPairingCases(TemporaryCatalogTree& tree) {
+    const std::string valid = TemporaryCatalogTree::shearRow();
+
+    requireAbort(
+        [&]() {
+            tree.writeCatalogRows({valid, valid}, {"101 1"});
+            tree.combine(0.0f);
+        },
+        "external catalog ending before shear must fail fast");
+
+    requireAbort(
+        [&]() {
+            tree.writeCatalogRows({valid}, {"101 1", "202 2"});
+            tree.combine(0.0f);
+        },
+        "unpaired trailing external catalog row must fail fast");
+
+    requireAbort(
+        [&]() {
+            tree.writeCatalogRows({valid, "0 0", valid},
+                                  {"101 1", "202 2", "303 3"});
+            tree.combine(0.0f);
+        },
+        "incomplete paired shear row must fail fast");
+
+    requireAbort(
+        [&]() {
+            tree.writeCatalogRows({valid, "", valid},
+                                  {"101 1", "202 2", "303 3"});
+            tree.combine(0.0f);
+        },
+        "blank paired shear row must fail fast");
+
+    requireAbort(
+        [&]() {
+            tree.writeCatalogRows({valid, valid}, {"101 1", ""});
+            tree.combine(0.0f);
+        },
+        "empty paired external catalog row must fail fast");
+}
+
 }  // namespace
 
 // ==========================================
 // Function: Run Stage-9 output lifecycle regressions
-// Method: Cover stale removal, zero-source cases, lazy output, and Chi2 output.
+// Method: Cover lifecycle, lockstep consumption, schema, and fatal mismatches.
 // ==========================================
 int main() {
     TemporaryCatalogTree tree;
     testNoOutputCases(tree);
     testLiveOutput(tree);
+    testScientificInvalidPairConsumption(tree);
     testSentinelOutput(tree);
+    testFatalPairingCases(tree);
     std::cout << "CatalogCombiner lifecycle tests passed\n";
     return EXIT_SUCCESS;
 }

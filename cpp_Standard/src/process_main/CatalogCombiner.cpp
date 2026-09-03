@@ -1,6 +1,5 @@
 #include "process_main/ProcessMainState.hpp"
 #include "process_main/CatalogCombiner.hpp"
-#include "process_main/CatalogRowCount.hpp"
 #include "process_main/MPIFailure.hpp"
 #include "process_main/OutputFile.hpp"
 #include "general/OutputLayout.hpp"
@@ -8,6 +7,7 @@
 #include "process_main/Universalblock.hpp"
 #include "process_main/UniversalUtils.hpp"
 #include "process_main/ExposureInfo.hpp"
+#include <cstddef>
 #include <iostream>
 #include <vector>
 #include <string>
@@ -31,8 +31,8 @@ static inline std::string trimRight(std::string str) {
 
 // ==========================================
 // Function: Combine one exposure's chip catalogs into the final result catalog
-// Method: Remove stale output, skip Stage-7 header-only sentinels, validate live
-//         external row pairs, and open the final catalog only for shear data.
+// Method: Remove stale output, preserve Stage-7 header-only sentinels, consume
+//         live shear/orig records in lockstep, and lazily open the final catalog.
 // ==========================================
 void combineExpoCatalog(int nchip,
                         const std::vector<std::string>& imageFiles,
@@ -106,12 +106,10 @@ void combineExpoCatalog(int nchip,
 
         std::ifstream fin15;
         std::string cat_list2;
+        std::string filename_orig;
         if (LensingConfig::ext_cat == 1) {
-            std::string filename_orig = OutputLayout::chipPath(
+            filename_orig = OutputLayout::chipPath(
                 dirOutput, "stamps/cat_Orig", prefix, "_orig.cat");
-            Internal::requireMatchingCatalogDataRows(
-                filename_shear, filename_orig);
-
             fin15.open(filename_orig);
             if (!fin15.is_open()) {
                 MPIFailure::abortWorld("read external source catalog", filename_orig);
@@ -145,8 +143,21 @@ void combineExpoCatalog(int nchip,
             output_opened = true;
         }
 
+        std::size_t pair_index = 0;
         do {
-            if (line10.empty()) continue;
+            ++pair_index;
+            if (line10.empty()) {
+                if (LensingConfig::ext_cat == 1) {
+                    std::ostringstream detail;
+                    detail << "empty shear data row prefix=" << prefix
+                           << " pair_index=" << pair_index
+                           << " shear=" << filename_shear
+                           << " orig=" << filename_orig;
+                    MPIFailure::abortWorld(
+                        "parse paired Stage 7 shear row", detail.str());
+                }
+                continue;
+            }
             std::stringstream ss(line10);
             std::vector<float> cat(num_cols);
             bool read_ok = true;
@@ -156,17 +167,45 @@ void combineExpoCatalog(int nchip,
                     break;
                 }
             }
-            if (!read_ok) continue;
+            if (!read_ok) {
+                if (LensingConfig::ext_cat == 1) {
+                    std::ostringstream detail;
+                    detail << "incomplete shear data row prefix=" << prefix
+                           << " pair_index=" << pair_index
+                           << " shear=" << filename_shear
+                           << " orig=" << filename_orig;
+                    MPIFailure::abortWorld(
+                        "parse paired Stage 7 shear row", detail.str());
+                }
+                continue;
+            }
 
             std::string cat_content;
             if (LensingConfig::ext_cat == 1) {
                 if (!std::getline(fin15, cat_content)) {
-                    MPIFailure::abortWorld(
-                        "read paired external catalog row", prefix);
+                    std::ostringstream detail;
+                    detail << "external catalog ended before shear catalog"
+                           << " prefix=" << prefix
+                           << " pair_index=" << pair_index
+                           << " shear=" << filename_shear
+                           << " orig=" << filename_orig;
+                    MPIFailure::abortWorld("combine paired catalog", detail.str());
                 }
                 cat_content = trimRight(cat_content);
+                if (cat_content.empty()) {
+                    std::ostringstream detail;
+                    detail << "empty external catalog data row prefix=" << prefix
+                           << " pair_index=" << pair_index
+                           << " shear=" << filename_shear
+                           << " orig=" << filename_orig;
+                    MPIFailure::abortWorld(
+                        "parse paired external catalog row", detail.str());
+                }
             }
 
+            // A parsed shear row and its original catalog row form one pair.
+            // Consume both before applying scientific rejection so the streams
+            // remain aligned even when the pair is omitted from final output.
             if (cat[LensingConfig::i_imax] >= LensingConfig::ns
                 || cat[LensingConfig::i_jmax] >= LensingConfig::ns) {
                 m++;
@@ -204,6 +243,22 @@ void combineExpoCatalog(int nchip,
 
         if (fin10.bad()) {
             MPIFailure::abortWorld("read Stage 7 shear catalog", filename_shear);
+        }
+        if (LensingConfig::ext_cat == 1) {
+            std::string extra_orig;
+            if (std::getline(fin15, extra_orig)) {
+                std::ostringstream detail;
+                detail << "external catalog contains unpaired trailing row"
+                       << " prefix=" << prefix
+                       << " pair_index=" << (pair_index + 1)
+                       << " shear=" << filename_shear
+                       << " orig=" << filename_orig;
+                MPIFailure::abortWorld("combine paired catalog", detail.str());
+            }
+            if (fin15.bad()) {
+                MPIFailure::abortWorld(
+                    "read external source catalog", filename_orig);
+            }
         }
     }
 
