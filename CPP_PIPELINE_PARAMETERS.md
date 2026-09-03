@@ -22,6 +22,7 @@ unchanged, so existing call sites still use names such as
 | `ExtCatConfig` | `EXTCAT_INPUT_DIRECTORY`, `EXTCAT_OUTPUT_DIRECTORY` | The compiled output default remains `LensingConfig::SOURCE_CAT_DEFAULT`. The runtime catalog directory is shared by `process_extcat` output and `process_main` input. |
 | `InitConfig` | `SCIENCE_ROOT`, `DQ_ROOT`, `OUTPUT_ROOT` | These seed `RuntimeOptions` and have CLI overrides. |
 | `ProcessConfig` | `EXPO_LIST`, `REARR_OUTPUT_DIRECTORY`, `REARR_OUTPUT_BASE_DIRECTORY`, `REARRANGED_EXPO_LIST_FILENAME`, `REARRANGED_EXPO_LIST_DIRECTORY`, `FD_EXPO_LIST`, `FD_OUTPUT_DIRECTORY`, `FD_OUTPUT_BASE_DIRECTORY` | These seed `RuntimeOptions` and have CLI overrides. |
+| `PathConfig` | `ASTROMETRY_TILE_PREFIX`, `SOURCE_CAT_TILE_PREFIX` | Independent compile-time prefixes shared by each one-degree tile producer, consumer, and generated-file recognizer. |
 | `ProcessRearrConfig` | `SKIP_DIRECTORY_NAME`, `SUBCAT_PREFIX`, `SUBCAT_EXTENSION`, `SUMMARY_FILENAME` | No runtime override; edit the selected variant and rebuild. |
 | `OutputLayout` | `NON_CHIP_BASE_DIRECTORIES`, `CHIP_PRODUCT_DIRECTORIES` | No runtime override; these are fixed relative directory contracts used by initialization and processing. |
 
@@ -58,6 +59,18 @@ The `WorkflowOptions`, `PipelineOptions`, `CatalogOptions`, `AstroCatOptions`,
 runtime copies of values listed in this and the next two header tables. Their
 members are parser state, not a second set of user defaults. `help_requested`
 and `external_exposure_list_supplied` are internal parser flags.
+
+## `PathConfig` (`config/pathconfig.hpp`)
+
+Both prefixes exclude the fixed `RA_` token. The complete grammar is
+`<prefix>RA_DDD_DDD_Dec_[pm]DD_[pm]DD.dat`. Changing either value is an
+intentional hard switch: files carrying an older prefix are not consumed,
+deleted, or treated as current generated output.
+
+| Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
+|---|---|---|---|---|---|---|---|---|
+| `ASTROMETRY_TILE_PREFIX` | `std::string_view` | `"astra_"` | same | No | Literal filename prefix excluding `RA_` | Shared by `process_astrocat`, its output lifecycle, and Astrometry Type 2 lookup. | Change when publishing a separately named Type-2 Gaia tile set. | Yes; regenerate or rename tiles |
+| `SOURCE_CAT_TILE_PREFIX` | `std::string_view` | `"extern_"` | same | No | Literal filename prefix excluding `RA_` | Shared by integrated/standalone `process_extcat`, its output lifecycle, and SOURCE_CAT lookup. | Change when publishing a separately named canonical source-catalog tile set. | Yes; regenerate or rename tiles |
 
 ## `InitConfig` (`config/InitConfig.hpp` and `config/pathconfig.hpp`)
 
@@ -96,10 +109,11 @@ The input contract is finite sky coordinates with `0 <= RA <= 360` and
 `-90 <= Dec <= 90`; exactly `RA=360` is stored as zero and exactly `Dec=90`
 belongs to the last Dec tile. Exact and one-ULP duplicates in both coordinates
 are removed, including duplicates across tile boundaries. Output files use
-`des_y6_RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`, always begin with `RA    DEC`,
-and contain round-trip-precision doubles. `overwrite` removes only files that
-match this generated basename contract and preserves unrelated directory
-content.
+`<ASTROMETRY_TILE_PREFIX>RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat` (default
+`astra_`), always begin with `RA    DEC`, and contain round-trip-precision
+doubles. `overwrite` removes only files that match the currently configured
+prefix and generated basename contract, preserving legacy-prefix and unrelated
+directory content.
 
 ## `ExtCatConfig` (`config/ExtCatConfig.hpp` and `config/pathconfig.hpp`)
 

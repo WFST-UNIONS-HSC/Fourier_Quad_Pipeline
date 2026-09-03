@@ -31,7 +31,9 @@ The optional one-time `process_astrocat` phase runs before `process_extcat` and
 publishes deduplicated one-degree Gaia tiles. Its `--astrocat-output` directory
 is independent of `LensingConfig::ASTROMETRY_CAT`; configure the consumer path
 separately and set `LensingConfig::AstroCatType=2` before rebuilding when Stage
-1 should read the generated tiles.
+1 should read the generated tiles. `PathConfig::ASTROMETRY_TILE_PREFIX` defaults
+to `astra_`; `PathConfig::SOURCE_CAT_TILE_PREFIX` defaults to `extern_` and is
+shared by `process_extcat` and external-catalog lookup.
 
 Stage 7 writes 24 fields and Stage 9 appends exposure chi-square. See the
 [C++ guide](../CPP_GUIDE.md) and

@@ -134,6 +134,10 @@ CLI 支持 `--name value` 与 `--name=value`。布尔值支持 `true/false`、`1
   `LensingConfig::SOURCE_CAT_DEFAULT` 初始化的关系。它的运行期副本同时作为
   `process_extcat` 的输出目录
   和 `process_main` 的输入目录，`--extcat-output` 覆盖该副本。
+- `PathConfig::ASTROMETRY_TILE_PREFIX` 与
+  `PathConfig::SOURCE_CAT_TILE_PREFIX` 分别控制 Type-2 Gaia 和外部源星表的一度瓦片。
+  前缀不包含固定的 `RA_`；生产、消费及已有输出识别使用同一配置值。修改前缀后不会
+  继续识别旧前缀文件。
 - `FLAT_PATH` 与 `PSF_PATH` 只存在于 Standard；Lite 已物理删除对应可选分支。
 - `ProcessRearrConfig` 的固定文件名和两组 `OutputLayout` 目录数组没有 CLI 覆盖。
   直接修改它们或 `pathconfig.hpp` 中其他默认值后，必须执行 `make clean && make`。
@@ -150,8 +154,8 @@ CLI 支持 `--name value` 与 `--name=value`。布尔值支持 `true/false`、`1
 | 曝光表与阶段输出 | `EXPO_LIST`、`REARR_OUTPUT_DIRECTORY`、`REARR_OUTPUT_BASE_DIRECTORY`、`REARRANGED_EXPO_LIST_FILENAME`、`REARRANGED_EXPO_LIST_DIRECTORY`、`FD_EXPO_LIST`、`FD_OUTPUT_DIRECTORY`、`FD_OUTPUT_BASE_DIRECTORY` | `config/pathconfig.hpp`；运行时 `--expo-list`、`--rearr-output-dir`、`--rearr-output-base`、`--rearr-list-name`、`--rearr-list-dir`、`--fd-expo-list`、`--fd-output-dir`、`--fd-output-base` | 下游单独运行，或改变重排/FD 输出目录、曝光表位置时修改。 |
 | 固定生成布局 | `SKIP_DIRECTORY_NAME`、`SUBCAT_PREFIX`、`SUBCAT_EXTENSION`、`SUMMARY_FILENAME`、`NON_CHIP_BASE_DIRECTORIES`、`CHIP_PRODUCT_DIRECTORIES` | `config/pathconfig.hpp`，编译时 | 仅在发布星表命名或相对输出目录约定变化时修改；重编译并重新生成受影响产物。 |
 | Gaia 星表分块 | `ASTROCAT_INPUT_DIRECTORY`、`ASTROCAT_OUTPUT_DIRECTORY`、`ASTROCAT_ADD_HEADER=true`、`ASTROCAT_EXISTING_POLICY=fail` | 路径在 `config/pathconfig.hpp`；行为在 `config/AstroCatConfig.hpp`；运行时 `--astrocat-input`、`--astrocat-output`、`--astrocat-add-header`、`--astrocat-existing` | 更换 Gaia 原始星表或重跑策略时修改。输出选项只控制 `process_astrocat`，不与 `ASTROMETRY_CAT` 校验，也不会传播给它。 |
-| Gaia 星表布局 | `AstroCatType=1` | `config/LensingConfig.hpp`，编译时 | `1` 读取旧式大 `gaia_*.cat` 瓦片；`2` 累积读取 `process_astrocat` 生成的一度 `des_y6_*.dat` 瓦片。Stage 1 消费的目录仍应单独写入 `ASTROMETRY_CAT`；修改类型后必须重编译。 |
-| 外部星表发现与解析 | `EXTCAT_INPUT_DIRECTORY`、`EXTCAT_OUTPUT_DIRECTORY` | 路径在 `config/pathconfig.hpp`；解析设置在 `config/ExtCatConfig.hpp`；运行时 `--extcat-input`、`--extcat-output` | 更换外部星表文件组织时修改。输出目录不能等于或位于输入目录内。 |
+| Gaia 星表布局 | `AstroCatType=1`、`ASTROMETRY_TILE_PREFIX="astra_"` | 类型在 `config/LensingConfig.hpp`；前缀在 `config/pathconfig.hpp`，编译时 | `1` 读取旧式大 `gaia_*.cat` 瓦片；`2` 累积读取 `process_astrocat` 生成的一度 `<prefix>RA_*.dat` 瓦片。Stage 1 消费目录仍应单独写入 `ASTROMETRY_CAT`；修改类型或前缀后必须重编译。 |
+| 外部星表发现与解析 | `EXTCAT_INPUT_DIRECTORY`、`EXTCAT_OUTPUT_DIRECTORY`、`SOURCE_CAT_TILE_PREFIX="extern_"` | 路径与前缀在 `config/pathconfig.hpp`；解析设置在 `config/ExtCatConfig.hpp`；运行时 `--extcat-input`、`--extcat-output` | 更换外部星表组织时修改。输出目录不能等于或位于输入目录内；前缀是 `process_extcat` 与 SOURCE_CAT 查找共用的编译时配置。 |
 | 外部星表 schema | `EXTCAT_TOTAL_COLUMNS`、`EXTCAT_INPUT_COLUMNS_ONE_BASED`、`EXTCAT_RA_COLUMN_ONE_BASED`、`EXTCAT_DEC_COLUMN_ONE_BASED`、`EXTCAT_ZP_COLUMN_ONE_BASED` | `config/ExtCatConfig.hpp`；投影和 RA/Dec/ZP 列可用 `--extcat-columns`、`--extcat-ra-column`、`--extcat-dec-column`、`--extcat-zp-column` 运行时修改 | 更换 survey 或列顺序时修改。显式投影必须保留 RA、Dec、ZP 和启用阶段消费的字段；改变总列数还需同步审查重排与 FD 列号。 |
 | Gaia、外部星表与标定路径 | `ASTROMETRY_CAT`、`SOURCE_CAT_DEFAULT`（有效 `SOURCE_CAT`）、`FLAT_PATH`、`PSF_PATH` | `config/pathconfig.hpp`；`--extcat-output` 可在运行时设置有效 `SOURCE_CAT`，其余为编译时 | 更换 Gaia 瓦片、规范化源星表、平场或外部 PSF 数据源时修改；`--astrocat-output` 与 `ASTROMETRY_CAT` 相互独立；容器内路径必须与 bind 目标一致。 |
 | Standard 分支选择 | `ASTROMETRY_trivial=0`、`include_FLAT=0`、`include_Mask=2`、`ext_cat=1`、`ext_PSF=0`、`PSF_type=1`、`PSF_Ms=0` | `config/LensingConfig.hpp`，编译时 | 只有 Standard 可切换这些分支。Lite 已固定为 Gaia、无平场、逐 CCD DQ、外部源星表、帧内 PSF、局域多项式且无 PCA。 |

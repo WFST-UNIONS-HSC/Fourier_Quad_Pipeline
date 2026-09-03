@@ -28,6 +28,14 @@ inline constexpr const char* FD_OUTPUT_BASE_DIRECTORY = "";  // Empty uses datas
 
 }  // namespace ProcessConfig
 
+namespace PathConfig {
+
+// Canonical one-degree tile prefixes; the fixed grammar begins with RA_.
+inline constexpr std::string_view ASTROMETRY_TILE_PREFIX = "astra_";
+inline constexpr std::string_view SOURCE_CAT_TILE_PREFIX = "extern_";
+
+}  // namespace PathConfig
+
 namespace LensingConfig {
 
 // Catalog and calibration inputs originally supplied by para.inc.
@@ -80,14 +88,13 @@ inline constexpr std::string_view SUMMARY_FILENAME = "catalog_summary.txt";  // 
 namespace OutputLayout {
 
 // Complete process_init base-directory contract without per-chip products.
-inline constexpr std::array<const char*, 16> NON_CHIP_BASE_DIRECTORIES = {
+inline constexpr std::array<const char*, 15> NON_CHIP_BASE_DIRECTORIES = {
     "science",
     "dqmask",
     "stamps",
     "result",
     "stamps/dat_StarInfo",
     "stamps/svg_StarLocus",
-    "stamps/svg_Grouping",
     "stamps/fits_StarP",
     "stamps/fits_PsfSrc",
     "stamps/dat_ExpoInfo",

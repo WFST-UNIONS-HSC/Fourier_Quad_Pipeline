@@ -27,6 +27,14 @@ inline constexpr const char* FD_OUTPUT_BASE_DIRECTORY = "";  // Empty uses datas
 
 }  // namespace ProcessConfig
 
+namespace PathConfig {
+
+// Canonical one-degree tile prefixes; the fixed grammar begins with RA_.
+inline constexpr std::string_view ASTROMETRY_TILE_PREFIX = "astra_";
+inline constexpr std::string_view SOURCE_CAT_TILE_PREFIX = "extern_";
+
+}  // namespace PathConfig
+
 namespace LensingConfig {
 
 // Catalog inputs originally supplied by para.inc; optional flat/PSF branches are absent in Lite.

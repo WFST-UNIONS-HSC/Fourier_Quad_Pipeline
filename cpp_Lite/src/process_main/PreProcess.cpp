@@ -2,6 +2,7 @@
 #include "process_main/ProcessMainState.hpp"
 #include "general/OutputLayout.hpp"
 #include "LensingConfig.hpp"
+#include "pathconfig.hpp"
 #include "process_main/UniversalUtils.hpp"
 #include "process_main/FitsIO.hpp"
 #include "process_main/Astrometry.hpp"
@@ -514,7 +515,9 @@ namespace PreProcess {
                 catfile, nx, ny, normap, weight, wcs, astroFilename, proc_error);
         } else {
             std::vector<std::string> catfiles = UniversalUtils::generateGalCatFileNames(
-                LensingConfig::ASTROMETRY_CAT, wcs.crval);
+                LensingConfig::ASTROMETRY_CAT,
+                wcs.crval,
+                PathConfig::ASTROMETRY_TILE_PREFIX);
             Astrometry::genAstrometryDataMulti(
                 catfiles, nx, ny, normap, weight, wcs, astroFilename, proc_error);
         }

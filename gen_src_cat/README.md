@@ -6,9 +6,11 @@ This directory provides two user-facing tools:
 - `query_y6gold_sync_mp_v2.py`: multiprocessing TAP downloader for DES Y6
   GOLD when no local raw catalog is available.
 
-Both produce one-degree tile names such as
-`des_y6_RA_299_300_Dec_m80_m79.dat` for the external-catalog lookup used by the
-pipeline.
+The C++ repartitioner produces canonical one-degree pipeline tiles using
+`PathConfig::SOURCE_CAT_TILE_PREFIX` from `cpp_Standard/config/pathconfig.hpp`.
+Its default basename is `extern_RA_299_300_Dec_m80_m79.dat`; the configured
+prefix excludes the fixed `RA_` token. The downloader writes raw source files,
+which should be passed through `process_extcat` before pipeline use.
 
 ## MPI repartitioner
 
@@ -97,7 +99,11 @@ bdf_mag_y bdf_mag_err_y dnf_z dnf_zsigma
 For C++, either run the integrated `process_extcat` phase with
 `--run-extcat true` or use the standalone tool and pass its destination as
 `--extcat-output`. The integrated option names add the `--extcat-` prefix to
-standalone policies.
+standalone policies. The standalone executable uses the Standard
+`pathconfig.hpp` by default. Build with `make PIPELINE_VARIANT=cpp_Lite` when it
+must follow the Lite configuration instead; the selected producer and
+SOURCE_CAT consumer then share exactly one `SOURCE_CAT_TILE_PREFIX`. Rebuild
+after changing that value.
 
 For Fortran, set `SOURCE_CAT` in `f77/para.inc` or `f77_Lite/para.inc` and
 rebuild. The default pipeline schema expects RA, Dec, and photo-z at one-based

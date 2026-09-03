@@ -140,10 +140,11 @@ be generated from raw flat-directory files by `process_astrocat`.
 
 *For Type 1, to ensure that stars can still be selected for exposures located at the edges of the 10°×10° grid, it is recommended to expand the upper and lower Dec coverage limits of a single star catalog by 2° based on the aforementioned limits, and expand the upper and lower RA limits by 2°, 4°, and 6° within the 0°, 30°, and 60° ranges, respectively.*
 
-Type 2 files are named
-`des_y6_RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`, with three-digit RA bounds and
-signed `p`/`m` two-digit Dec bounds. For example,
-`des_y6_RA_123_124_Dec_m05_m04.dat` covers
+Type 2 files use
+`<ASTROMETRY_TILE_PREFIX>RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`. The default
+prefix in `config/pathconfig.hpp` is `astra_`; it does not include `RA_`.
+RA bounds use three digits and Dec bounds use signed `p`/`m` two-digit values.
+For example, `astra_RA_123_124_Dec_m05_m04.dat` covers
 `123° <= RA < 124°`, `-5° <= Dec < -4°`.
 
 `process_astrocat` reads only direct regular files from `--astrocat-input`,
@@ -169,14 +170,21 @@ positions, names, delimiter, header handling, and projection in
 
 **Filename convention:**
 
-- 1° × 1° tile: `des_y6_RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`.
+- 1° × 1° tile:
+  `<SOURCE_CAT_TILE_PREFIX>RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`.
+- The default `SOURCE_CAT_TILE_PREFIX` in `config/pathconfig.hpp` is `extern_`;
+  the prefix does not include `RA_`.
 - RA boundaries use three digits. Dec boundaries use `p` or `m` plus a two-digit
   absolute value. Each upper boundary is one degree above its lower boundary.
 - Each file must contain one header line.
 
 > Example:
-> `des_y6_RA_123_124_Dec_m05_m04.dat` covers `123° <= RA < 124°` and
+> `extern_RA_123_124_Dec_m05_m04.dat` covers `123° <= RA < 124°` and
 > `-5° <= Dec < -4°`.
+
+Use the C++ `process_extcat` tool to convert raw downloads into these canonical
+pipeline tiles. Raw downloader filenames are source artifacts and are not a
+second C++ naming convention.
 
 ### DQ masks (optional)
 

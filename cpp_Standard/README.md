@@ -26,17 +26,13 @@ layout names are centralized in `config/pathconfig.hpp`; CLI overrides workflow
 paths. Scientific branches and thresholds in `config/LensingConfig.hpp` require
 rebuilding.
 
-With the default `PsfGroupingType=3`, Stage 5 writes one exposure diagnostic to
-`stamps/svg_Grouping/<exposure>.svg`. Its two panels show the pair-chi and
-bad-pair-fraction histograms, adaptive topology and applied cuts, estimator
-status, and final pre-PRESS retention. Fail-open and all-zero outcomes also
-produce a diagnostic panel when Stage 5 reaches the Type 3 grouping path.
-
 The optional one-time `process_astrocat` phase runs before `process_extcat` and
 publishes deduplicated one-degree Gaia tiles. Its `--astrocat-output` directory
 is independent of `LensingConfig::ASTROMETRY_CAT`; configure the consumer path
 separately and set `LensingConfig::AstroCatType=2` before rebuilding when Stage
-1 should read the generated tiles.
+1 should read the generated tiles. `PathConfig::ASTROMETRY_TILE_PREFIX` defaults
+to `astra_`; `PathConfig::SOURCE_CAT_TILE_PREFIX` defaults to `extern_` and is
+shared by `process_extcat` and external-catalog lookup.
 
 Stage 7 writes 24 fields and Stage 9 appends exposure chi-square. See the
 [C++ guide](../CPP_GUIDE.md) and

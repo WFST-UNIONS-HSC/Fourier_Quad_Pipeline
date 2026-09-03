@@ -134,8 +134,10 @@ images 天区，并直接存放在配置的 `ASTROMETRY_CAT` 目录下。每个�
 增减2°，ra上下限在0°/30°/60°范围分别增减2°/4°/6°。*
 
 类型 2 文件名为
-`des_y6_RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`，RA 边界固定三位，Dec 边界使用
-`p`/`m` 加两位绝对值。例如 `des_y6_RA_123_124_Dec_m05_m04.dat` 覆盖
+`<ASTROMETRY_TILE_PREFIX>RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`。
+`config/pathconfig.hpp` 中的默认前缀是 `astra_`，前缀本身不含 `RA_`。RA 边界固定
+三位，Dec 边界使用 `p`/`m` 加两位绝对值。例如
+`astra_RA_123_124_Dec_m05_m04.dat` 覆盖
 `123° <= RA < 124°`、`-5° <= Dec < -4°`。
 
 `process_astrocat` 只读取 `--astrocat-input` 的直接普通文件，生成上述类型 2 瓦片，并
@@ -158,11 +160,15 @@ images 天区，并直接存放在配置的 `ASTROMETRY_CAT` 目录下。每个�
 或其已记录的 CLI 覆盖项配置。
 
 **文件名规范：**
-- 1° × 1° 分片 : `des_y6_RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`
+- 1° × 1° 分片：`<SOURCE_CAT_TILE_PREFIX>RA_<RA0>_<RA1>_Dec_<Dec0>_<Dec1>.dat`
+- `config/pathconfig.hpp` 中的默认 `SOURCE_CAT_TILE_PREFIX` 是 `extern_`，前缀本身不含 `RA_`。
 - RA 边界固定为三位数字；Dec 边界由 `p` 或 `m` 加两位绝对值组成；每个上边界比下边界大 1 度。
 - 单个文件必须包含一行表头
 > 示例：
-> `des_y6_RA_123_124_Dec_m05_m04.dat` 覆盖 `123° <= RA < 124°`、`-5° <= Dec < -4°`。
+> `extern_RA_123_124_Dec_m05_m04.dat` 覆盖 `123° <= RA < 124°`、`-5° <= Dec < -4°`。
+
+原始下载结果应通过 C++ `process_extcat` 转换为上述流水线规范瓦片；下载器自身的原始
+文件名不构成另一套 C++ 命名约定。
 
 ### DQ masks（可选）
 

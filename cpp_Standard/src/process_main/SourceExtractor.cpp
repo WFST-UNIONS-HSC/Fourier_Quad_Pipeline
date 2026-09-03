@@ -3,6 +3,7 @@
 #include "process_main/OutputFile.hpp"
 #include "general/OutputLayout.hpp"
 #include "LensingConfig.hpp"
+#include "pathconfig.hpp"
 #include "process_main/UniversalUtils.hpp"
 #include "process_main/FitsIO.hpp"
 #include "process_main/MPIFailure.hpp"
@@ -1731,7 +1732,8 @@ namespace SourceExtractor {
     }
 
     void generateGalCatFileName(const double cRVAL[2], std::string& filename, std::vector<std::string>& sortfile, int& sortnum) {
-        std::vector<std::string> filenames = UniversalUtils::generateGalCatFileNames(filename, cRVAL);
+        std::vector<std::string> filenames = UniversalUtils::generateGalCatFileNames(
+            filename, cRVAL, PathConfig::SOURCE_CAT_TILE_PREFIX);
         sortnum = static_cast<int>(filenames.size());
         sortfile.resize(filenames.size());
         for (size_t i = 0; i < filenames.size(); ++i) {

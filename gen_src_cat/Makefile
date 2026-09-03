@@ -1,6 +1,7 @@
 CXX = mpicxx
+PIPELINE_VARIANT ?= cpp_Standard
 
-CPPFLAGS = -Iinclude
+CPPFLAGS = -Iinclude -I../$(PIPELINE_VARIANT)/include -I../$(PIPELINE_VARIANT)/config
 CXXFLAGS = -O3 -std=c++17 -Wall -Wextra -Wpedantic -MMD -MP
 LDFLAGS =
 LDLIBS =
