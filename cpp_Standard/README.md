@@ -38,6 +38,21 @@ Stage 7 writes 24 fields and Stage 9 appends exposure chi-square. See the
 [C++ guide](../CPP_GUIDE.md) and
 [parameter reference](../CPP_PIPELINE_PARAMETERS.md).
 
+Stage 9 keeps malformed paired shear rows fatal. On a float-parse failure it
+now reports the failed zero/one-based column, token count and token, raw row
+and hexadecimal tail, file/parser stream states, hostname, file stat metadata,
+and a same-rank fresh-reopen comparison of the target row. The reopen is
+diagnostic only: it never retries, repairs, or resumes the failed row, and the
+pairing, quality cuts, calibration, and output schema are unchanged.
+
+The focused `tests/CatalogCombinerLifecycleTest.cpp` regression covers the
+diagnostic fields and representative finite float spellings. Build the main
+program portably with `make -j4`; compile focused tests explicitly with the
+same C++17 MPI wrapper and link settings. Locally, run the focused test binary
+and `./Fourier_Quad_Pipe --help`. On a Linux cluster, load its MPI-enabled GCC,
+CFITSIO, FFTW3, Eigen3, LAPACK, and BLAS modules, rebuild, and launch production
+runs with the site's standard `srun` or `mpirun` command.
+
 The default Stage-9 row now contains 18 external fields, `EXPO_NUM`, `ccD_NUM`,
 and 25 pipeline fields (45 total). Regenerate Stage-9/rearr/FD products rather
 than reading legacy 44-column catalogs with this build.

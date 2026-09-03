@@ -8,6 +8,7 @@
 #include "process_main/Universalblock.hpp"
 
 #include <cmath>
+#include <cerrno>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -41,17 +42,43 @@ void require(bool condition, const std::string& message) {
 }
 
 // ==========================================
-// Function: Require one production Stage-9 failure to terminate its child
-// Method: Fork the destructive case and accept only a nonzero exit or signal.
+// Function: Require one production Stage-9 failure and return its diagnostic text
+// Method: Redirect child stderr through a pipe, then accept only nonzero exit or signal.
 // ==========================================
 template <typename Operation>
-void requireAbort(Operation operation, const std::string& message) {
+std::string requireAbort(Operation operation, const std::string& message) {
+    int diagnostic_pipe[2] = {-1, -1};
+    require(::pipe(diagnostic_pipe) == 0,
+            "pipe failed for fatal Stage-9 case");
+
     const pid_t child = ::fork();
     require(child >= 0, "fork failed for fatal Stage-9 case");
     if (child == 0) {
+        ::close(diagnostic_pipe[0]);
+        if (::dup2(diagnostic_pipe[1], STDERR_FILENO) < 0) {
+            std::_Exit(EXIT_FAILURE);
+        }
+        ::close(diagnostic_pipe[1]);
         operation();
         std::_Exit(EXIT_SUCCESS);
     }
+
+    ::close(diagnostic_pipe[1]);
+    std::string diagnostics;
+    char buffer[4096];
+    while (true) {
+        const ssize_t count = ::read(diagnostic_pipe[0], buffer, sizeof(buffer));
+        if (count > 0) {
+            diagnostics.append(buffer, static_cast<std::size_t>(count));
+            continue;
+        }
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        require(count == 0, "read failed for fatal Stage-9 diagnostic");
+        break;
+    }
+    ::close(diagnostic_pipe[0]);
 
     int status = 0;
     require(::waitpid(child, &status, 0) == child,
@@ -59,6 +86,7 @@ void requireAbort(Operation operation, const std::string& message) {
     require((WIFEXITED(status) && WEXITSTATUS(status) != EXIT_SUCCESS)
                 || WIFSIGNALED(status),
             message);
+    return diagnostics;
 }
 
 // ==========================================
@@ -326,6 +354,35 @@ void testSentinelOutput(TemporaryCatalogTree& tree) {
 }
 
 // ==========================================
+// Function: Verify representative finite float spellings parse in Stage 9
+// Method: Combine plus-sign, exponent, large, and sentinel-valued tokens in one full row.
+// ==========================================
+void testAcceptedFloatForms(TemporaryCatalogTree& tree) {
+    std::vector<std::string> tokens(LensingConfig::iparity + 1, "0");
+    tokens[0] = "+1";
+    tokens[1] = "1e-30";
+    tokens[2] = "-1e-30";
+    tokens[3] = "3.4028e+30";
+    tokens[4] = "-99999";
+
+    std::ostringstream shear_row;
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        shear_row << (index == 0 ? "" : " ") << tokens[index];
+    }
+
+    tree.writeCatalogRows({shear_row.str()}, {"180 0"});
+    tree.combine(0.0f);
+
+    std::ifstream output(tree.outputFile());
+    std::string header;
+    std::string row;
+    std::string extra;
+    require(std::getline(output, header) && std::getline(output, row)
+                && !std::getline(output, extra),
+            "representative finite float spellings must parse as one row");
+}
+
+// ==========================================
 // Function: Verify structural pairing failures cannot silently desynchronize rows
 // Method: Exercise short/long orig streams and malformed, blank, or empty pairs.
 // ==========================================
@@ -353,6 +410,49 @@ void testFatalPairingCases(TemporaryCatalogTree& tree) {
             tree.combine(0.0f);
         },
         "incomplete paired shear row must fail fast");
+
+    std::ostringstream invalid_token_row;
+    for (int column = 0; column <= LensingConfig::iparity; ++column) {
+        invalid_token_row << (column == 0 ? "" : " ")
+                          << (column == 17 ? "bad_token" : "0");
+    }
+    const std::string diagnostics = requireAbort(
+        [&]() {
+            tree.writeCatalogRows({valid, invalid_token_row.str(), valid},
+                                  {"101 1", "202 2", "303 3"});
+            tree.combine(0.0f);
+        },
+        "non-numeric paired shear token must fail fast");
+    const std::vector<std::string> required_diagnostics = {
+        "expected_columns=24",
+        "failed_column_zero_based=17",
+        "failed_column_one_based=18",
+        "token_count=24",
+        "failed_token=bad_token",
+        "raw_line=[",
+        "raw_tail_hex=",
+        "hostname=",
+        "fin10_good=1",
+        "parser_fail=1",
+        "fresh_reopen_open_ok=1",
+        "fresh_reopen_logical_lines=4",
+        "fresh_reopen_data_rows=3",
+        "fresh_reopen_target_exists=1",
+        "fresh_reopen_target_line_size=",
+        "fresh_reopen_target_token_count=24",
+        "fresh_reopen_target_same_as_original=1",
+        "stat_ok=1",
+        "file_dev=",
+        "file_inode=",
+        "file_size=",
+        "file_mtime_sec=",
+        "file_mtime_nsec=",
+        "shear=",
+        "orig="};
+    for (const std::string& expected : required_diagnostics) {
+        require(diagnostics.find(expected) != std::string::npos,
+                "parse diagnostic must contain " + expected);
+    }
 
     requireAbort(
         [&]() {
@@ -382,6 +482,7 @@ int main() {
     testLiveOutput(tree);
     testScientificInvalidPairConsumption(tree);
     testSentinelOutput(tree);
+    testAcceptedFloatForms(tree);
     testFatalPairingCases(tree);
     std::cout << "CatalogCombiner lifecycle tests passed\n";
     return EXIT_SUCCESS;

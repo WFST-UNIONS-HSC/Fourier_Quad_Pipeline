@@ -19,9 +19,157 @@
 #include <filesystem>
 #include <system_error>
 
+#include <sys/stat.h>
+#include <unistd.h>
+
 
 namespace CatalogCombiner {
 
+// ==========================================
+// Function: Split one catalog row into whitespace-delimited diagnostic tokens
+// Method: Use an independent string stream so production float parsing is untouched.
+// ==========================================
+static std::vector<std::string> tokenize(const std::string& text) {
+    std::istringstream token_stream(text);
+    std::vector<std::string> tokens;
+    std::string token;
+    while (token_stream >> token) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}
+
+// ==========================================
+// Function: Format the final bytes of a catalog row for hidden-character diagnosis
+// Method: Emit at most max_bytes unsigned byte values as two-digit hexadecimal.
+// ==========================================
+static std::string hexTail(const std::string& text,
+                           std::size_t max_bytes = 16) {
+    const std::size_t begin =
+        text.size() > max_bytes ? text.size() - max_bytes : 0;
+    std::ostringstream tail;
+    tail << std::hex << std::setfill('0');
+    for (std::size_t index = begin; index < text.size(); ++index) {
+        if (index != begin) {
+            tail << ' ';
+        }
+        tail << std::setw(2)
+             << static_cast<unsigned int>(
+                    static_cast<unsigned char>(text[index]));
+    }
+    return tail.str();
+}
+
+// ==========================================
+// Function: Build complete diagnostics for one Stage-7 shear parse failure
+// Method: Preserve the failed stream state while tokenizing the raw row, reopening
+//         the same path, locating the paired row, and recording host/file metadata.
+// ==========================================
+static std::string buildShearParseFailureDetail(
+    const std::string& prefix,
+    std::size_t pair_index,
+    int failed_column,
+    int expected_columns,
+    const std::string& line10,
+    const std::string& filename_shear,
+    const std::string& filename_orig,
+    const std::ifstream& fin10,
+    const std::stringstream& parser) {
+    const std::vector<std::string> tokens = tokenize(line10);
+
+    char hostname[256] = {};
+    if (::gethostname(hostname, sizeof(hostname) - 1) != 0) {
+        hostname[0] = '\0';
+    }
+    hostname[sizeof(hostname) - 1] = '\0';
+
+    struct stat file_stat {};
+    const bool stat_ok = ::stat(filename_shear.c_str(), &file_stat) == 0;
+
+    std::ifstream verify(filename_shear);
+    const bool reopen_ok = verify.is_open();
+    std::size_t logical_lines = 0;
+    std::size_t data_rows = 0;
+    bool target_exists = false;
+    std::string target_line;
+    if (reopen_ok) {
+        std::string verify_line;
+        if (std::getline(verify, verify_line)) {
+            ++logical_lines;
+        }
+
+        std::size_t verify_pair = 0;
+        while (std::getline(verify, verify_line)) {
+            ++logical_lines;
+            ++data_rows;
+            ++verify_pair;
+            if (verify_pair == pair_index) {
+                target_exists = true;
+                target_line = verify_line;
+            }
+        }
+    }
+
+    const std::vector<std::string> target_tokens = tokenize(target_line);
+    const bool target_same_as_original = target_exists && target_line == line10;
+    const unsigned long long file_dev =
+        stat_ok ? static_cast<unsigned long long>(file_stat.st_dev) : 0;
+    const unsigned long long file_inode =
+        stat_ok ? static_cast<unsigned long long>(file_stat.st_ino) : 0;
+    const long long file_size =
+        stat_ok ? static_cast<long long>(file_stat.st_size) : 0;
+    const long long file_mtime_sec =
+        stat_ok ? static_cast<long long>(file_stat.st_mtim.tv_sec) : 0;
+    const long long file_mtime_nsec =
+        stat_ok ? static_cast<long long>(file_stat.st_mtim.tv_nsec) : 0;
+
+    std::ostringstream detail;
+    detail << "incomplete shear data row"
+           << " prefix=" << prefix
+           << " pair_index=" << pair_index
+           << " expected_columns=" << expected_columns
+           << " failed_column_zero_based=" << failed_column
+           << " failed_column_one_based=" << (failed_column + 1)
+           << " token_count=" << tokens.size();
+    if (failed_column >= 0
+        && static_cast<std::size_t>(failed_column) < tokens.size()) {
+        detail << " failed_token=" << tokens[failed_column];
+    }
+    detail << " raw_line_size=" << line10.size()
+           << " raw_line=[" << line10 << "]"
+           << " raw_tail_hex=" << hexTail(line10)
+           << " hostname=" << hostname
+           << " fin10_good=" << fin10.good()
+           << " fin10_eof=" << fin10.eof()
+           << " fin10_fail=" << fin10.fail()
+           << " fin10_bad=" << fin10.bad()
+           << " parser_eof=" << parser.eof()
+           << " parser_fail=" << parser.fail()
+           << " parser_bad=" << parser.bad()
+           << " fresh_reopen_open_ok=" << reopen_ok
+           << " fresh_reopen_logical_lines=" << logical_lines
+           << " fresh_reopen_data_rows=" << data_rows
+           << " fresh_reopen_target_exists=" << target_exists
+           << " fresh_reopen_target_line=[" << target_line << "]"
+           << " fresh_reopen_target_line_size=" << target_line.size()
+           << " fresh_reopen_target_token_count=" << target_tokens.size()
+           << " fresh_reopen_target_same_as_original="
+           << target_same_as_original
+           << " stat_ok=" << stat_ok
+           << " file_dev=" << file_dev
+           << " file_inode=" << file_inode
+           << " file_size=" << file_size
+           << " file_mtime_sec=" << file_mtime_sec
+           << " file_mtime_nsec=" << file_mtime_nsec
+           << " shear=" << filename_shear
+           << " orig=" << filename_orig;
+    return detail.str();
+}
+
+// ==========================================
+// Function: Remove trailing ASCII whitespace from one catalog line
+// Method: Pop only the established space, CR, LF, and tab suffix characters.
+// ==========================================
 static inline std::string trimRight(std::string str) {
     while (!str.empty() && (str.back() == ' ' || str.back() == '\r' || str.back() == '\n' || str.back() == '\t')) {
         str.pop_back();
@@ -161,21 +309,21 @@ void combineExpoCatalog(int nchip,
             std::stringstream ss(line10);
             std::vector<float> cat(num_cols);
             bool read_ok = true;
+            int failed_column = -1;
             for (int u = 0; u < num_cols; ++u) {
                 if (!(ss >> cat[u])) {
                     read_ok = false;
+                    failed_column = u;
                     break;
                 }
             }
             if (!read_ok) {
                 if (LensingConfig::ext_cat == 1) {
-                    std::ostringstream detail;
-                    detail << "incomplete shear data row prefix=" << prefix
-                           << " pair_index=" << pair_index
-                           << " shear=" << filename_shear
-                           << " orig=" << filename_orig;
                     MPIFailure::abortWorld(
-                        "parse paired Stage 7 shear row", detail.str());
+                        "parse paired Stage 7 shear row",
+                        buildShearParseFailureDetail(
+                            prefix, pair_index, failed_column, num_cols, line10,
+                            filename_shear, filename_orig, fin10, ss));
                 }
                 continue;
             }
