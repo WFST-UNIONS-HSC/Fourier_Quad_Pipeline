@@ -88,6 +88,7 @@ namespace LensingConfig {
     constexpr int psf_gaia_locus_min_matches = 5;  // Minimum Gaia matches for locus support.
     constexpr double psf_pair_chi_valid_peak_fraction = 0.3678794411714423216;  // exp(-1) pair-chi peak threshold.
     constexpr double psf_bad_fraction_valid_peak_fraction = 0.10;  // Bad-pair-fraction peak threshold.
+    constexpr double psf_type3_elbow_search_height_fraction = 0.10;  // Elbow candidates must lie below this smoothed main-peak fraction.
     constexpr bool psf_press_rejection_enabled = true;  // Enable optional post-fit PRESS cleanup.
     constexpr double psf_press_sigma_cut = 4.0;  // Standardized PRESS rejection sigma.
     constexpr int psf_press_max_removals = 5;  // Maximum PRESS removals permitted per chip.
@@ -117,6 +118,9 @@ namespace LensingConfig {
     static_assert(psf_bad_fraction_valid_peak_fraction > 0.0
                       && psf_bad_fraction_valid_peak_fraction < 1.0,
                   "PSF bad-pair peak fraction must lie in (0,1)");
+    static_assert(psf_type3_elbow_search_height_fraction > 0.0
+                      && psf_type3_elbow_search_height_fraction < 1.0,
+                  "PSF Type-3 elbow search height fraction must lie in (0,1)");
     static_assert(psf_knn_k > 0, "PSF KNN count must be positive");
     static_assert(psf_press_max_removals >= 0,
                   "PSF PRESS removal cap must be non-negative");

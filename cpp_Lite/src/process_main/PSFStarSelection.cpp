@@ -318,12 +318,13 @@ std::vector<int> findUpperElbowPeaks(
 }
 
 // ==========================================
-// Function: Classify peaks and select one right-side positive-curvature elbow
-// Method: Use the rightmost strict-valid peak and stop before its first later
-//         invalid peak; exact curvature ties keep the nearer, lower bin.
+// Function: Classify peaks and select one gated right-side curvature elbow
+// Method: Search below the configured main-peak fraction between the rightmost
+//         valid peak and first invalid peak; ties keep the nearer lower bin.
 // ==========================================
 bool analyzeUpperElbowTopology(
     double valid_peak_fraction,
+    double elbow_search_height_fraction,
     PSFUpperElbowHistogramResult& result) {
     result.valid = false;
     result.main_peak_bin = -1;
@@ -331,9 +332,19 @@ bool analyzeUpperElbowTopology(
     result.first_invalid_peak_bin = -1;
     result.elbow_bin = -1;
     result.cut = 0.0;
+    result.elbow_search_height = 0.0;
+    result.elbow_search_first_bin = -1;
+    result.elbow_search_last_bin = -1;
+    result.elbow_candidate_count = 0;
     result.peaks.clear();
     result.valid_peaks.clear();
     result.invalid_peaks.clear();
+    if (!std::isfinite(elbow_search_height_fraction)
+        || elbow_search_height_fraction <= 0.0
+        || elbow_search_height_fraction >= 1.0) {
+        result.status = PSFUpperElbowStatus::InvalidConfig;
+        return false;
+    }
     result.smoothed_histogram =
         smoothUpperElbowHistogram(result.histogram);
     result.peaks = findUpperElbowPeaks(result.smoothed_histogram);
@@ -376,10 +387,24 @@ bool analyzeUpperElbowTopology(
     const int last_candidate = result.first_invalid_peak_bin >= 0
         ? result.first_invalid_peak_bin - 1
         : static_cast<int>(result.smoothed_histogram.size()) - 2;
+    const double main_peak_height =
+        result.smoothed_histogram[result.main_peak_bin];
+    result.elbow_search_height =
+        main_peak_height * elbow_search_height_fraction;
     double best_curvature = 0.0;
     for (int bin = first_candidate; bin <= last_candidate; ++bin) {
+        const double height = result.smoothed_histogram[bin];
+        if (!std::isfinite(height)
+            || !(height < result.elbow_search_height)) {
+            continue;
+        }
+        if (result.elbow_search_first_bin < 0) {
+            result.elbow_search_first_bin = bin;
+        }
+        result.elbow_search_last_bin = bin;
+        ++result.elbow_candidate_count;
         const double curvature = result.smoothed_histogram[bin - 1]
-            - 2.0 * result.smoothed_histogram[bin]
+            - 2.0 * height
             + result.smoothed_histogram[bin + 1];
         if (std::isfinite(curvature) && curvature > best_curvature) {
             best_curvature = curvature;
@@ -404,8 +429,8 @@ bool analyzeUpperElbowTopology(
 
 // ==========================================
 // Function: Estimate one generic adaptive upper-elbow histogram
-// Method: Filter finite samples, derive an FD grid, collapse peak plateaus, and
-//         find maximum positive curvature right of the rightmost valid peak.
+// Method: Filter samples, derive an FD grid, collapse peaks, then maximize
+//         gated positive curvature right of the rightmost valid peak.
 // ==========================================
 template <typename Sample>
 bool estimatePSFUpperElbowCutImpl(
@@ -415,7 +440,10 @@ bool estimatePSFUpperElbowCutImpl(
     result = {};
     if (!std::isfinite(config.valid_peak_fraction)
         || config.valid_peak_fraction <= 0.0
-        || config.valid_peak_fraction >= 1.0) {
+        || config.valid_peak_fraction >= 1.0
+        || !std::isfinite(config.elbow_search_height_fraction)
+        || config.elbow_search_height_fraction <= 0.0
+        || config.elbow_search_height_fraction >= 1.0) {
         result.status = PSFUpperElbowStatus::InvalidConfig;
         return false;
     }
@@ -527,7 +555,9 @@ bool estimatePSFUpperElbowCutImpl(
             result.histogram[bin] += 1.0;
         }
         return analyzeUpperElbowTopology(
-            config.valid_peak_fraction, result);
+            config.valid_peak_fraction,
+            config.elbow_search_height_fraction,
+            result);
     } catch (const std::bad_alloc&) {
         result = {};
         result.status = PSFUpperElbowStatus::AllocationFailure;
@@ -550,6 +580,7 @@ bool analyzePSFUpperElbowHistogram(
     double bin_origin,
     double bin_width,
     double valid_peak_fraction,
+    double elbow_search_height_fraction,
     PSFUpperElbowHistogramResult& result) {
     result = {};
     if (histogram.empty() || !std::isfinite(bin_origin)
@@ -568,7 +599,10 @@ bool analyzePSFUpperElbowHistogram(
         result.bin_origin = bin_origin;
         result.bin_width = bin_width;
         result.histogram = histogram;
-        return analyzeUpperElbowTopology(valid_peak_fraction, result);
+        return analyzeUpperElbowTopology(
+            valid_peak_fraction,
+            elbow_search_height_fraction,
+            result);
     } catch (const std::bad_alloc&) {
         result = {};
         result.status = PSFUpperElbowStatus::AllocationFailure;

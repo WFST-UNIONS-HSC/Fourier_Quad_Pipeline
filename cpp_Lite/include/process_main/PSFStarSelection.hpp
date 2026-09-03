@@ -281,6 +281,8 @@ struct PSFUpperElbowHistogramConfig {
     bool force_zero_origin = false;
     // Zero uses the actual FD-distribution sample count.
     std::size_t fd_scale_sample_count = 0;
+    // Candidates must be strictly below this smoothed main-peak fraction.
+    double elbow_search_height_fraction = 0.0;
 };
 
 // ==========================================
@@ -297,6 +299,10 @@ struct PSFUpperElbowHistogramResult {
     double bin_origin = 0.0;
     double bin_width = 0.0;
     double cut = 0.0;
+    double elbow_search_height = 0.0;
+    int elbow_search_first_bin = -1;
+    int elbow_search_last_bin = -1;
+    std::size_t elbow_candidate_count = 0;
     int main_peak_bin = -1;
     int rightmost_valid_peak_bin = -1;
     int first_invalid_peak_bin = -1;
@@ -310,20 +316,21 @@ struct PSFUpperElbowHistogramResult {
 
 // ==========================================
 // Function: Analyze one already-binned upper-elbow histogram
-// Method: Expose smoothing, plateau collapse, strict peak classes, and the
-//         right positive-curvature elbow as a deterministic test seam.
+// Method: Expose smoothing, strict peak classes, the outer-tail height gate,
+//         and the right positive-curvature elbow as a deterministic test seam.
 // ==========================================
 bool analyzePSFUpperElbowHistogram(
     const std::vector<double>& histogram,
     double bin_origin,
     double bin_width,
     double valid_peak_fraction,
+    double elbow_search_height_fraction,
     PSFUpperElbowHistogramResult& result);
 
 // ==========================================
 // Function: Estimate an FD-histogram upper elbow from double samples
-// Method: Collapse plateaus, apply strict peak validity, and maximize positive
-//         right-side signed curvature before the first invalid peak.
+// Method: Apply strict peak validity and the candidate-height gate, then
+//         maximize positive curvature before the first invalid peak.
 // ==========================================
 bool estimatePSFUpperElbowCut(
     const std::vector<double>& values,

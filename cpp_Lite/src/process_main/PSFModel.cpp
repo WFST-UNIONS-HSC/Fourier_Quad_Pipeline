@@ -1200,7 +1200,8 @@ namespace PSFModel {
             false,
             false,
             false,
-            active_star_count};
+            active_star_count,
+            LensingConfig::psf_type3_elbow_search_height_fraction};
         if (!Internal::estimatePSFUpperElbowCut(
                 pair_chi, pair_config, pair_result)) {
             logAdaptiveHistogram(
@@ -1296,7 +1297,8 @@ namespace PSFModel {
                 true,
                 true,
                 true,
-                0U};
+                0U,
+                LensingConfig::psf_type3_elbow_search_height_fraction};
             apply_fraction_cut = Internal::estimatePSFUpperElbowCut(
                 fraction_values, fraction_config, fraction_result);
             logAdaptiveHistogram(

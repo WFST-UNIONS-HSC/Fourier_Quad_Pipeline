@@ -591,8 +591,8 @@ namespace PSFModel {
 
     // ==========================================
     // Function: Render one Type-3 adaptive-histogram diagnostic panel
-    // Method: Draw raw and smoothed distributions, topology markers, the applied
-    //         cut, and complete estimator metadata while retaining empty fail-open panels.
+    // Method: Draw the distributions, ten-percent search limit, topology, applied
+    //         cut, and estimator metadata while retaining empty fail-open panels.
     // ==========================================
     static void drawPSFType3HistogramPanel(
         MainIO::OutputFile& output,
@@ -727,6 +727,18 @@ namespace PSFModel {
                     output << mapX(center) << ',' << mapY(count) << ' ';
                 }
                 output << "\"/>\n";
+
+                if (std::isfinite(result.elbow_search_height)
+                    && result.elbow_search_height > 0.0
+                    && result.elbow_search_height <= y_max) {
+                    output << "    <line id=\"" << panel_id
+                           << "-elbow-height-limit\" x1=\"" << layout.left
+                           << "\" y1=\"" << mapY(result.elbow_search_height)
+                           << "\" x2=\"" << layout.right << "\" y2=\""
+                           << mapY(result.elbow_search_height)
+                           << "\" stroke=\"#e15759\" stroke-width=\"2\" "
+                              "stroke-dasharray=\"8,4\"/>\n";
+                }
 
                 const auto drawMarkerLine = [&](int bin,
                                                 const char* suffix,
@@ -883,16 +895,26 @@ namespace PSFModel {
         }
         output << "</text>\n"
                << "      <text x=\"" << details_x << "\" y=\""
-               << layout.top + 225.0 << "\">Main peak bin = "
+               << layout.top + 225.0 << "\">Elbow height limit = "
+               << result.elbow_search_height << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 248.0 << "\">Elbow search bins = "
+               << result.elbow_search_first_bin << ".."
+               << result.elbow_search_last_bin << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 271.0 << "\">Elbow candidates = "
+               << result.elbow_candidate_count << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 294.0 << "\">Main peak bin = "
                << result.main_peak_bin << "</text>\n"
                << "      <text x=\"" << details_x << "\" y=\""
-               << layout.top + 248.0 << "\">Rightmost valid bin = "
+               << layout.top + 317.0 << "\">Rightmost valid bin = "
                << result.rightmost_valid_peak_bin << "</text>\n"
                << "      <text x=\"" << details_x << "\" y=\""
-               << layout.top + 271.0 << "\">First invalid bin = "
+               << layout.top + 340.0 << "\">First invalid bin = "
                << result.first_invalid_peak_bin << "</text>\n"
                << "      <text x=\"" << details_x << "\" y=\""
-               << layout.top + 294.0 << "\">Elbow bin = "
+               << layout.top + 363.0 << "\">Elbow bin = "
                << result.elbow_bin << "</text>\n"
                << "    </g>\n"
                << "  </g>\n"
@@ -1010,6 +1032,10 @@ namespace PSFModel {
                << "    <circle cx=\"410\" cy=\"1352\" r=\"4\" "
                   "fill=\"white\" stroke=\"#9467bd\" stroke-width=\"2\"/>\n"
                << "    <text x=\"422\" y=\"1358\">invalid peak</text>\n"
+               << "    <line x1=\"560\" y1=\"1352\" x2=\"588\" y2=\"1352\" "
+                  "stroke=\"#e15759\" stroke-width=\"2\" "
+                  "stroke-dasharray=\"8,4\"/>\n"
+               << "    <text x=\"596\" y=\"1358\">elbow search &lt; 0.10 Hmain</text>\n"
                << "  </g>\n"
                << "</svg>\n";
     }
@@ -1812,6 +1838,12 @@ namespace PSFModel {
                   << " rightmost_valid="
                   << result.rightmost_valid_peak_bin
                   << " first_invalid=" << result.first_invalid_peak_bin
+                  << " elbow_height_limit=" << result.elbow_search_height
+                  << " elbow_search_first="
+                  << result.elbow_search_first_bin
+                  << " elbow_search_last="
+                  << result.elbow_search_last_bin
+                  << " elbow_candidates=" << result.elbow_candidate_count
                   << " elbow=" << result.elbow_bin
                   << " cut=" << result.cut
                   << " status="
@@ -1933,7 +1965,8 @@ namespace PSFModel {
             false,
             false,
             false,
-            active_star_count};
+            active_star_count,
+            LensingConfig::psf_type3_elbow_search_height_fraction};
         if (!Internal::estimatePSFUpperElbowCut(
                 pair_chi, pair_config, pair_result)) {
             pair_decision = "FAIL_OPEN";
@@ -2058,7 +2091,8 @@ namespace PSFModel {
                 true,
                 true,
                 true,
-                0U};
+                0U,
+                LensingConfig::psf_type3_elbow_search_height_fraction};
             apply_fraction_cut = Internal::estimatePSFUpperElbowCut(
                 fraction_values, fraction_config, fraction_result);
             fraction_decision = apply_fraction_cut ? "APPLY" : "FAIL_OPEN";

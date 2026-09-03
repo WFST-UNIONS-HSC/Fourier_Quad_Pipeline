@@ -404,13 +404,13 @@ void testCountOverlayHistograms() {
 }
 
 // ==========================================
-// Function: Verify adaptive FD grids and upper-elbow topology
-// Method: Cover finite filtering, exact FD width/origin/max bins, plateau
-//         collapse, strict peak classes, invalid-peak bounds, and fail states.
+// Function: Verify adaptive FD grids and gated upper-elbow topology
+// Method: Cover FD geometry, strict peak classes, the ten-percent boundary,
+//         positive curvature, first-invalid bounds, ties, and fail-open states.
 // ==========================================
 void testAdaptiveUpperElbowHistogram() {
     const PSFUpperElbowHistogramConfig pair_config = {
-        std::exp(-1.0), false, false, false, 0U};
+        std::exp(-1.0), false, false, false, 0U, 0.10};
     PSFUpperElbowHistogramResult result;
     const std::vector<double> ordinary = {
         0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0,
@@ -428,6 +428,13 @@ void testAdaptiveUpperElbowHistogram() {
                     == 8.0
                 && result.histogram.back() == 2.0,
             "ordinary FD bins must filter nonfinite input and include the maximum");
+
+    PSFUpperElbowHistogramConfig invalid_gate_config = pair_config;
+    invalid_gate_config.elbow_search_height_fraction = 1.0;
+    require(!estimatePSFUpperElbowCut(
+                ordinary, invalid_gate_config, result)
+                && result.status == PSFUpperElbowStatus::InvalidConfig,
+            "the elbow search fraction must lie strictly between zero and one");
 
     PSFUpperElbowHistogramConfig explicit_scale_config = pair_config;
     explicit_scale_config.fd_scale_sample_count = 4U;
@@ -474,7 +481,7 @@ void testAdaptiveUpperElbowHistogram() {
             "pair-chi zero IQR must fail open without an invented width");
 
     const PSFUpperElbowHistogramConfig fraction_config = {
-        0.10, true, true, true, 0U};
+        0.10, true, true, true, 0U, 0.10};
     require(!estimatePSFUpperElbowCut(
                 std::vector<double>({0.0, 0.0, 0.0}),
                 fraction_config,
@@ -504,43 +511,87 @@ void testAdaptiveUpperElbowHistogram() {
             "an unrepresentable FD grid must take the deterministic fail-open path");
 
     require(!analyzePSFUpperElbowHistogram(
-                {5.0, 5.0, 5.0, 5.0}, 0.0, 1.0, 0.5, result)
+                {5.0, 5.0, 5.0, 5.0}, 0.0, 1.0, 0.5, 0.10, result)
                 && result.peaks == std::vector<int>({1})
                 && result.status == PSFUpperElbowStatus::NoElbow,
             "an even plateau must collapse to its lower middle bin");
     require(analyzePSFUpperElbowHistogram(
                 {0.0, 0.0, 10.0, 0.0, 0.0, 0.0,
                  0.0, 0.0, 5.0, 0.0, 0.0, 0.0},
-                0.0, 1.0, 0.5, result)
+                0.0, 1.0, 0.5, 0.10, result)
                 && result.main_peak_bin == 2
                 && result.valid_peaks == std::vector<int>({2})
                 && result.invalid_peaks == std::vector<int>({8})
                 && result.first_invalid_peak_bin == 8
+                && result.elbow_search_first_bin == 5
+                && result.elbow_search_last_bin == 5
+                && result.elbow_candidate_count == 1
                 && result.elbow_bin == 5
                 && result.cut == 5.5,
-            "strict equality must invalidate the later peak and bound the elbow domain");
-    require(analyzePSFUpperElbowHistogram(
+            "strict peak equality must retain the first-invalid search bound");
+    require(!analyzePSFUpperElbowHistogram(
                 {0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0},
-                0.0, 1.0, 0.5, result)
+                0.0, 1.0, 0.5, 0.10, result)
                 && result.main_peak_bin == 2
-                && result.rightmost_valid_peak_bin == 6,
-            "equal-height main peaks must choose the lower bin deterministically");
+                && result.rightmost_valid_peak_bin == 6
+                && result.elbow_candidate_count == 0
+                && result.status == PSFUpperElbowStatus::NoElbow,
+            "a search domain without bins below ten percent must fail open");
     require(analyzePSFUpperElbowHistogram(
                 {0.0, 0.0, 100.0, 0.0, 0.0, 15.0,
                  0.0, 0.0, 5.0, 0.0, 0.0, 0.0},
-                0.0, 1.0, 0.5, result)
-                && result.elbow_bin == 5
+                0.0, 1.0, 0.5, 0.10, result)
+                && result.elbow_bin == 8
+                && result.elbow_search_first_bin == 7
+                && result.elbow_search_last_bin == 10
+                && result.elbow_candidate_count == 4
+                && result.smoothed_histogram[5]
+                    > result.elbow_search_height
                 && result.smoothed_histogram[result.elbow_bin]
-                    > 0.10 * result.smoothed_histogram[result.main_peak_bin],
-            "Type-3 curvature must not require a prior ten-percent crossing");
+                    < result.elbow_search_height,
+            "the strongest high-count curvature must yield to a gated tail elbow");
     require(analyzePSFUpperElbowHistogram(
-                {2.0, 0.0, 31.0, 0.0, 5.0, 7.0,
+                {0.0, 0.0, 30.0, 7.0, 6.0, 9.0, 3.0,
+                 4.0, 6.0, 2.0, 0.0, 0.0, 1.0, 4.0},
+                0.0, 1.0, 0.5, 0.10, result)
+                && result.first_invalid_peak_bin == 13
+                && result.elbow_search_first_bin == 11
+                && result.elbow_search_last_bin == 11
+                && result.elbow_candidate_count == 1
+                && result.elbow_bin == 11
+                && result.smoothed_histogram[10]
+                    == result.elbow_search_height,
+            "a bin exactly at ten percent must be excluded from the search");
+    require(!analyzePSFUpperElbowHistogram(
+                {0.0, 0.0, 100.0, 19.0, 15.0, 22.0, 12.0, 2.0,
+                 11.0, 21.0, 2.0, 1.0, 9.0, 6.0, 0.0, 0.0},
+                0.0, 1.0, 0.5, 0.10, result)
+                && result.elbow_candidate_count == 1
+                && result.elbow_search_first_bin == 14
+                && result.elbow_search_last_bin == 14
+                && result.status == PSFUpperElbowStatus::NoElbow,
+            "gated bins without positive curvature must not invent an elbow");
+    require(analyzePSFUpperElbowHistogram(
+                {2.0, 0.0, 310.0, 0.0, 5.0, 7.0,
                  6.0, 7.0, 1.0, 0.0, 7.0, 5.0},
-                0.0, 1.0, 0.5, result)
+                0.0, 1.0, 0.05, 0.10, result)
                 && result.rightmost_valid_peak_bin == 6
                 && result.first_invalid_peak_bin == 11
+                && result.elbow_search_first_bin == 7
+                && result.elbow_search_last_bin == 10
+                && result.elbow_candidate_count == 4
                 && result.elbow_bin == 8,
-            "equal maximum curvatures must keep the bin nearest the valid peak");
+            "equal gated curvatures must keep the nearer lower bin");
+    require(analyzePSFUpperElbowHistogram(
+                {0.0, 0.0, 100.0, 0.0, 0.0, 0.0,
+                 0.0, 0.0, 5.0, 0.0, 0.0, 0.0},
+                0.0, 1.0, 0.10, 0.10, result)
+                && result.valid_peaks == std::vector<int>({2})
+                && result.invalid_peaks == std::vector<int>({8})
+                && result.elbow_bin == 5
+                && result.smoothed_histogram[result.elbow_bin]
+                    < result.elbow_search_height,
+            "fraction peak validity and elbow height gates must remain independent");
     require(std::string(psfUpperElbowStatusName(
                 PSFUpperElbowStatus::UnsafeBinCount)) == "UNSAFE_BIN_COUNT",
             "adaptive histogram status labels must remain stable for logs");
