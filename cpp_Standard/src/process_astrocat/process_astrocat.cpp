@@ -128,7 +128,7 @@ bool collectiveSuccess(bool local_success,
 // ==========================================
 bool isGeneratedTileFilename(const std::string& filename) {
     return CatalogTileNaming::isTileFilename(
-        filename, PathConfig::ASTROMETRY_TILE_PREFIX);
+        filename, AstroCatConfig::ASTROMETRY_TILE_PREFIX);
 }
 
 // ==========================================
@@ -894,7 +894,7 @@ std::string tileFilename(std::uint32_t tile_id) {
     const int ra_lower = static_cast<int>(tile_id % kRaTileCount);
     const int dec_lower = static_cast<int>(tile_id / kRaTileCount) - 90;
     return CatalogTileNaming::tileFilename(
-        PathConfig::ASTROMETRY_TILE_PREFIX, ra_lower, dec_lower);
+        AstroCatConfig::ASTROMETRY_TILE_PREFIX, ra_lower, dec_lower);
 }
 
 // ==========================================

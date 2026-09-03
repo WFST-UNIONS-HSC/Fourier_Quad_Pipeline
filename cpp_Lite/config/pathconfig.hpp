@@ -27,14 +27,6 @@ inline constexpr const char* FD_OUTPUT_BASE_DIRECTORY = "";  // Empty uses datas
 
 }  // namespace ProcessConfig
 
-namespace PathConfig {
-
-// Canonical one-degree tile prefixes; the fixed grammar begins with RA_.
-inline constexpr std::string_view ASTROMETRY_TILE_PREFIX = "astra_";
-inline constexpr std::string_view SOURCE_CAT_TILE_PREFIX = "extern_";
-
-}  // namespace PathConfig
-
 namespace LensingConfig {
 
 // Catalog inputs originally supplied by para.inc; optional flat/PSF branches are absent in Lite.
@@ -58,6 +50,7 @@ inline constexpr const char* OUTPUT_ROOT =
 
 namespace AstroCatConfig {
 
+inline constexpr std::string_view ASTROMETRY_TILE_PREFIX = "astra_";
 inline constexpr const char* ASTROCAT_INPUT_DIRECTORY = "";  // Raw two-column Gaia files.
 inline const std::string ASTROCAT_OUTPUT_DIRECTORY =
     LensingConfig::ASTROMETRY_CAT;  // Generated one-degree tiles.
@@ -66,6 +59,7 @@ inline const std::string ASTROCAT_OUTPUT_DIRECTORY =
 
 namespace ExtCatConfig {
 
+inline constexpr std::string_view SOURCE_CAT_TILE_PREFIX = "extern_";
 inline constexpr const char* EXTCAT_INPUT_DIRECTORY = "";  // Raw catalog root.
 inline constexpr const char* EXTCAT_OUTPUT_DIRECTORY =
     LensingConfig::SOURCE_CAT_DEFAULT;  // Tile output and process_main input.

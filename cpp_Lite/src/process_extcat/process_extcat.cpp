@@ -151,7 +151,7 @@ bool matchesFilenameTokens(const std::string& basename,
 // ==========================================
 bool isGeneratedTileName(const std::string& basename) {
     return CatalogTileNaming::isTileFilename(
-        basename, PathConfig::SOURCE_CAT_TILE_PREFIX);
+        basename, ExtCatConfig::SOURCE_CAT_TILE_PREFIX);
 }
 
 // ==========================================
@@ -445,7 +445,7 @@ bool coordinateTile(double ra, double dec, TileKey& tile, std::string& error) {
 // ==========================================
 std::string tileFilename(const TileKey& tile) {
     return CatalogTileNaming::tileFilename(
-        PathConfig::SOURCE_CAT_TILE_PREFIX,
+        ExtCatConfig::SOURCE_CAT_TILE_PREFIX,
         tile.ra_lower,
         tile.dec_lower);
 }

@@ -543,7 +543,7 @@ namespace PreProcess {
             std::vector<std::string> catfiles = UniversalUtils::generateGalCatFileNames(
                 LensingConfig::ASTROMETRY_CAT,
                 wcs.crval,
-                PathConfig::ASTROMETRY_TILE_PREFIX);
+                AstroCatConfig::ASTROMETRY_TILE_PREFIX);
             Astrometry::genAstrometryDataMulti(
                 catfiles, nx, ny, normap, weight, wcs, astroFilename, proc_error);
         }
