@@ -544,6 +544,477 @@ namespace PSFModel {
     }
 
     // ==========================================
+    // Structure: Locate one Type-3 histogram panel on the SVG canvas
+    // Method: Keep the shared plotting geometry explicit for both diagnostic stages.
+    // ==========================================
+    struct Type3HistogramPanelLayout {
+        double left;
+        double right;
+        double top;
+        double bottom;
+    };
+
+    // ==========================================
+    // Function: Test whether an adaptive upper-elbow histogram can be rendered
+    // Method: Require aligned nonempty curves and a finite positive bin geometry.
+    // ==========================================
+    static bool hasDrawableUpperElbowHistogram(
+        const Internal::PSFUpperElbowHistogramResult& result) {
+        return !result.histogram.empty()
+            && result.histogram.size() == result.smoothed_histogram.size()
+            && std::isfinite(result.bin_origin)
+            && std::isfinite(result.bin_width)
+            && result.bin_width > 0.0;
+    }
+
+    // ==========================================
+    // Function: Validate one adaptive-histogram bin index
+    // Method: Keep every optional topology annotation inside the published grid.
+    // ==========================================
+    static bool hasUpperElbowBin(
+        const Internal::PSFUpperElbowHistogramResult& result,
+        int bin) {
+        return bin >= 0
+            && bin < static_cast<int>(result.smoothed_histogram.size());
+    }
+
+    // ==========================================
+    // Function: Return one adaptive-histogram bin center
+    // Method: Apply the estimator's origin plus half-bin coordinate convention.
+    // ==========================================
+    static double upperElbowBinCenter(
+        const Internal::PSFUpperElbowHistogramResult& result,
+        int bin) {
+        return result.bin_origin
+            + (static_cast<double>(bin) + 0.5) * result.bin_width;
+    }
+
+    // ==========================================
+    // Function: Render one Type-3 adaptive-histogram diagnostic panel
+    // Method: Draw raw and smoothed distributions, topology markers, the applied
+    //         cut, and complete estimator metadata while retaining empty fail-open panels.
+    // ==========================================
+    static void drawPSFType3HistogramPanel(
+        MainIO::OutputFile& output,
+        const Type3HistogramPanelLayout& layout,
+        const std::string& panel_id,
+        const std::string& title,
+        const std::string& x_axis_label,
+        const Internal::PSFUpperElbowHistogramResult& result,
+        const std::string& decision,
+        bool fraction_x_axis) {
+        const bool has_histogram = hasDrawableUpperElbowHistogram(result);
+        const bool has_all_zero_histogram = fraction_x_axis
+            && decision == "ALL_ZERO_PASS"
+            && result.finite_value_count > 0U
+            && result.histogram.empty();
+        const double plot_width = layout.right - layout.left;
+        const double plot_height = layout.bottom - layout.top;
+        const double details_x = layout.right + 30.0;
+
+        output << "  <g id=\"" << panel_id << "-panel\">\n"
+               << "    <text x=\"" << layout.left << "\" y=\""
+               << layout.top - 24.0
+               << "\" font-family=\"sans-serif\" font-size=\"20\" "
+                  "font-weight=\"bold\">"
+               << escapeSVGText(title) << "</text>\n";
+
+        double x_min = 0.0;
+        double x_max = 1.0;
+        double y_max = has_all_zero_histogram
+            ? static_cast<double>(result.finite_value_count) : 0.0;
+        if (has_histogram) {
+            if (!fraction_x_axis) {
+                x_min = result.bin_origin;
+                x_max = result.bin_origin
+                    + result.bin_width
+                        * static_cast<double>(result.histogram.size());
+                const double x_padding = std::max(
+                    (x_max - x_min) * 0.02, result.bin_width * 0.1);
+                x_min -= x_padding;
+                x_max += x_padding;
+            }
+            for (const double count : result.histogram) {
+                if (std::isfinite(count)) y_max = std::max(y_max, count);
+            }
+            for (const double count : result.smoothed_histogram) {
+                if (std::isfinite(count)) y_max = std::max(y_max, count);
+            }
+        }
+        y_max = std::max(1.0, y_max * 1.08);
+
+        const auto mapX = [&](double value) {
+            return layout.left
+                + (value - x_min) / (x_max - x_min) * plot_width;
+        };
+        const auto mapY = [&](double value) {
+            return layout.bottom - value / y_max * plot_height;
+        };
+
+        if (has_histogram || has_all_zero_histogram) {
+            for (int tick = 0; tick <= 5; ++tick) {
+                const double fraction = static_cast<double>(tick) / 5.0;
+                const double x_value = x_min + fraction * (x_max - x_min);
+                const double x = mapX(x_value);
+                const double y_value = fraction * y_max;
+                const double y = mapY(y_value);
+                output << "    <line x1=\"" << x << "\" y1=\""
+                       << layout.top << "\" x2=\"" << x << "\" y2=\""
+                       << layout.bottom << "\" stroke=\"#eeeeee\"/>\n"
+                       << "    <text x=\"" << x << "\" y=\""
+                       << layout.bottom + 22.0
+                       << "\" text-anchor=\"middle\" font-family=\"sans-serif\" "
+                          "font-size=\"11\">" << x_value << "</text>\n"
+                       << "    <line x1=\"" << layout.left << "\" y1=\""
+                       << y << "\" x2=\"" << layout.right << "\" y2=\""
+                       << y << "\" stroke=\"#eeeeee\"/>\n"
+                       << "    <text x=\"" << layout.left - 10.0
+                       << "\" y=\"" << y + 4.0
+                       << "\" text-anchor=\"end\" font-family=\"sans-serif\" "
+                          "font-size=\"11\">" << y_value << "</text>\n";
+            }
+
+            output << "    <g id=\"" << panel_id
+                   << "-raw-histogram\" fill=\"#b8bec7\">\n";
+            if (has_histogram) {
+                for (std::size_t bin = 0;
+                     bin < result.histogram.size(); ++bin) {
+                    const double count = result.histogram[bin];
+                    if (!std::isfinite(count) || count < 0.0) continue;
+                    double left_value = result.bin_origin
+                        + static_cast<double>(bin) * result.bin_width;
+                    double right_value = left_value + result.bin_width;
+                    if (fraction_x_axis) {
+                        left_value = std::max(x_min, left_value);
+                        right_value = std::min(x_max, right_value);
+                    }
+                    if (right_value <= x_min || left_value >= x_max
+                        || right_value <= left_value) {
+                        continue;
+                    }
+                    const double left = mapX(std::max(x_min, left_value));
+                    const double right = mapX(std::min(x_max, right_value));
+                    const double top = mapY(count);
+                    output << "      <rect x=\"" << left << "\" y=\""
+                           << top << "\" width=\""
+                           << std::max(0.0, right - left - 0.5)
+                           << "\" height=\"" << layout.bottom - top
+                           << "\"/>\n";
+                }
+            } else {
+                const double bar_width = std::max(10.0, plot_width * 0.015);
+                const double top = mapY(
+                    static_cast<double>(result.finite_value_count));
+                output << "      <rect x=\"" << layout.left << "\" y=\""
+                       << top << "\" width=\"" << bar_width
+                       << "\" height=\"" << layout.bottom - top << "\"/>\n";
+            }
+            output << "    </g>\n";
+
+            if (has_histogram) {
+                output << "    <polyline id=\"" << panel_id
+                       << "-smoothed-histogram\" fill=\"none\" "
+                          "stroke=\"#2468b4\" stroke-width=\"3\" points=\"";
+                for (std::size_t bin = 0;
+                     bin < result.smoothed_histogram.size(); ++bin) {
+                    const double count = result.smoothed_histogram[bin];
+                    const double center = upperElbowBinCenter(
+                        result, static_cast<int>(bin));
+                    if (!std::isfinite(count) || !std::isfinite(center)
+                        || center < x_min || center > x_max) {
+                        continue;
+                    }
+                    output << mapX(center) << ',' << mapY(count) << ' ';
+                }
+                output << "\"/>\n";
+
+                const auto drawMarkerLine = [&](int bin,
+                                                const char* suffix,
+                                                const char* color,
+                                                const char* dash) {
+                    if (!hasUpperElbowBin(result, bin)) return;
+                    const double value = upperElbowBinCenter(result, bin);
+                    if (!std::isfinite(value) || value < x_min || value > x_max) {
+                        return;
+                    }
+                    output << "    <line id=\"" << panel_id << '-' << suffix
+                           << "\" x1=\"" << mapX(value) << "\" y1=\""
+                           << layout.top << "\" x2=\"" << mapX(value)
+                           << "\" y2=\"" << layout.bottom << "\" stroke=\""
+                           << color << "\" stroke-width=\"2\" "
+                           << "stroke-dasharray=\"" << dash << "\"/>\n";
+                };
+                drawMarkerLine(
+                    result.main_peak_bin, "main-peak", "#f28e2b", "5,3");
+                drawMarkerLine(
+                    result.rightmost_valid_peak_bin,
+                    "rightmost-valid-peak", "#2ca02c", "7,3");
+                drawMarkerLine(
+                    result.first_invalid_peak_bin,
+                    "first-invalid-peak", "#9467bd", "3,3");
+
+                for (int bin : result.valid_peaks) {
+                    if (!hasUpperElbowBin(result, bin)) continue;
+                    const double center = upperElbowBinCenter(result, bin);
+                    const double count = result.smoothed_histogram[bin];
+                    if (!std::isfinite(center) || !std::isfinite(count)
+                        || center < x_min || center > x_max) {
+                        continue;
+                    }
+                    output << "    <circle cx=\"" << mapX(center)
+                           << "\" cy=\"" << mapY(count)
+                           << "\" r=\"4\" fill=\"#2ca02c\"/>\n";
+                }
+                for (int bin : result.invalid_peaks) {
+                    if (!hasUpperElbowBin(result, bin)) continue;
+                    const double center = upperElbowBinCenter(result, bin);
+                    const double count = result.smoothed_histogram[bin];
+                    if (!std::isfinite(center) || !std::isfinite(count)
+                        || center < x_min || center > x_max) {
+                        continue;
+                    }
+                    output << "    <circle cx=\"" << mapX(center)
+                           << "\" cy=\"" << mapY(count)
+                           << "\" r=\"4\" fill=\"white\" stroke=\"#9467bd\" "
+                              "stroke-width=\"2\"/>\n";
+                }
+                if (hasUpperElbowBin(result, result.elbow_bin)) {
+                    const double center = upperElbowBinCenter(
+                        result, result.elbow_bin);
+                    const double count =
+                        result.smoothed_histogram[result.elbow_bin];
+                    if (std::isfinite(center) && std::isfinite(count)
+                        && center >= x_min && center <= x_max) {
+                        output << "    <circle id=\"" << panel_id
+                               << "-elbow\" cx=\"" << mapX(center)
+                               << "\" cy=\"" << mapY(count)
+                               << "\" r=\"6\" fill=\"#d62728\"/>\n";
+                    }
+                }
+                if (result.valid && decision == "APPLY"
+                    && std::isfinite(result.cut)
+                    && result.cut >= x_min && result.cut <= x_max) {
+                    output << "    <line id=\"" << panel_id
+                           << "-cut\" x1=\"" << mapX(result.cut)
+                           << "\" y1=\"" << layout.top << "\" x2=\""
+                           << mapX(result.cut) << "\" y2=\"" << layout.bottom
+                           << "\" stroke=\"#d62728\" stroke-width=\"3\"/>\n";
+                }
+            } else {
+                output << "    <text x=\"" << layout.left + 18.0
+                       << "\" y=\"" << layout.top + 30.0
+                       << "\" font-family=\"sans-serif\" font-size=\"14\" "
+                          "fill=\"#555555\">All finite fractions are zero; "
+                          "no cut applied.</text>\n";
+            }
+
+            output << "    <line x1=\"" << layout.left << "\" y1=\""
+                   << layout.bottom << "\" x2=\"" << layout.right
+                   << "\" y2=\"" << layout.bottom
+                   << "\" stroke=\"black\" stroke-width=\"2\"/>\n"
+                   << "    <line x1=\"" << layout.left << "\" y1=\""
+                   << layout.top << "\" x2=\"" << layout.left << "\" y2=\""
+                   << layout.bottom
+                   << "\" stroke=\"black\" stroke-width=\"2\"/>\n"
+                   << "    <text x=\"" << (layout.left + layout.right) / 2.0
+                   << "\" y=\"" << layout.bottom + 47.0
+                   << "\" text-anchor=\"middle\" font-family=\"sans-serif\" "
+                      "font-size=\"14\">" << escapeSVGText(x_axis_label)
+                   << "</text>\n"
+                   << "    <text x=\"" << layout.left - 58.0 << "\" y=\""
+                   << (layout.top + layout.bottom) / 2.0
+                   << "\" text-anchor=\"middle\" transform=\"rotate(-90 "
+                   << layout.left - 58.0 << ' '
+                   << (layout.top + layout.bottom) / 2.0
+                   << ")\" font-family=\"sans-serif\" font-size=\"14\">Count</text>\n";
+        } else {
+            output << "    <rect x=\"" << layout.left << "\" y=\""
+                   << layout.top << "\" width=\"" << plot_width
+                   << "\" height=\"" << plot_height
+                   << "\" fill=\"#fafafa\" stroke=\"#888888\" "
+                      "stroke-width=\"2\"/>\n"
+                   << "    <text x=\"" << (layout.left + layout.right) / 2.0
+                   << "\" y=\"" << (layout.top + layout.bottom) / 2.0 - 10.0
+                   << "\" text-anchor=\"middle\" font-family=\"sans-serif\" "
+                      "font-size=\"20\" fill=\"#555555\">Histogram unavailable</text>\n"
+                   << "    <text x=\"" << (layout.left + layout.right) / 2.0
+                   << "\" y=\"" << (layout.top + layout.bottom) / 2.0 + 22.0
+                   << "\" text-anchor=\"middle\" font-family=\"sans-serif\" "
+                      "font-size=\"15\" fill=\"#555555\">status = "
+                   << Internal::psfUpperElbowStatusName(result.status)
+                   << "; decision = " << escapeSVGText(decision)
+                   << "</text>\n";
+        }
+
+        output << std::setprecision(8)
+               << "    <g font-family=\"sans-serif\" font-size=\"13\" "
+                  "fill=\"#222222\">\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 18.0 << "\">Finite values = "
+               << result.finite_value_count << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 41.0 << "\">FD samples = "
+               << result.fd_sample_count << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 64.0 << "\">FD scale samples = "
+               << result.fd_scale_sample_count << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 87.0 << "\">IQR = " << result.fd_iqr
+               << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 110.0 << "\">Bin width = "
+               << result.bin_width << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 133.0 << "\">Bins = "
+               << result.histogram.size() << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 156.0 << "\">Status = "
+               << Internal::psfUpperElbowStatusName(result.status)
+               << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 179.0 << "\">Decision = "
+               << escapeSVGText(decision) << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 202.0 << "\">Cut = ";
+        if (result.valid && decision == "APPLY" && std::isfinite(result.cut)) {
+            output << result.cut;
+        } else {
+            output << "not applied";
+        }
+        output << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 225.0 << "\">Main peak bin = "
+               << result.main_peak_bin << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 248.0 << "\">Rightmost valid bin = "
+               << result.rightmost_valid_peak_bin << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 271.0 << "\">First invalid bin = "
+               << result.first_invalid_peak_bin << "</text>\n"
+               << "      <text x=\"" << details_x << "\" y=\""
+               << layout.top + 294.0 << "\">Elbow bin = "
+               << result.elbow_bin << "</text>\n"
+               << "    </g>\n"
+               << "  </g>\n"
+               << std::setprecision(6);
+    }
+
+    // ==========================================
+    // Function: Write one exposure-level Type-3 grouping SVG diagnostic
+    // Method: Stack pair-chi and bad-pair-fraction panels with final pre-PRESS
+    //         retention, stage decisions, and a shared topology legend.
+    // ==========================================
+    static void writePSFType3GroupingSVG(
+        const std::string& dirOutput,
+        const std::string& exposure,
+        const Internal::PSFUpperElbowHistogramResult& pair_result,
+        const std::string& pair_decision,
+        const Internal::PSFUpperElbowHistogramResult& fraction_result,
+        const std::string& fraction_decision,
+        std::size_t minchi_survivor_count,
+        std::size_t prepress_selected_count) {
+        constexpr double canvas_width = 1200.0;
+        constexpr double canvas_height = 1400.0;
+        const Type3HistogramPanelLayout pair_layout = {
+            90.0, 820.0, 190.0, 630.0};
+        const Type3HistogramPanelLayout fraction_layout = {
+            90.0, 820.0, 770.0, 1210.0};
+        const std::string filename = dirOutput + "/stamps/svg_Grouping/"
+            + exposure + ".svg";
+        MainIO::OutputFile output(filename);
+        output << std::fixed << std::setprecision(6);
+        output << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+               << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\""
+               << canvas_width << "\" height=\"" << canvas_height
+               << "\" viewBox=\"0 0 " << canvas_width << ' ' << canvas_height
+               << "\">\n"
+               << "  <rect width=\"100%\" height=\"100%\" fill=\"white\"/>\n"
+               << "  <text x=\"600\" y=\"36\" text-anchor=\"middle\" "
+                  "font-family=\"sans-serif\" font-size=\"24\" "
+                  "font-weight=\"bold\">PSF Type-3 Grouping Diagnostics</text>\n"
+               << "  <text x=\"600\" y=\"66\" text-anchor=\"middle\" "
+                  "font-family=\"sans-serif\" font-size=\"16\">Exposure: "
+               << escapeSVGText(exposure) << "</text>\n"
+               << "  <text x=\"600\" y=\"96\" text-anchor=\"middle\" "
+                  "font-family=\"sans-serif\" font-size=\"15\">MinChi survivors: "
+               << minchi_survivor_count << "   Pre-PRESS selected: "
+               << prepress_selected_count << "   Retention: ";
+        if (minchi_survivor_count > 0U) {
+            output << 100.0 * static_cast<double>(prepress_selected_count)
+                    / static_cast<double>(minchi_survivor_count)
+                   << "%";
+        } else {
+            output << "n/a";
+        }
+        output << "</text>\n"
+               << "  <text x=\"600\" y=\"121\" text-anchor=\"middle\" "
+                  "font-family=\"sans-serif\" font-size=\"15\">Pair decision: "
+               << escapeSVGText(pair_decision)
+               << "   Fraction decision: "
+               << escapeSVGText(fraction_decision) << "</text>\n"
+               << "  <text x=\"600\" y=\"146\" text-anchor=\"middle\" "
+                  "font-family=\"sans-serif\" font-size=\"15\">Pair status: "
+               << Internal::psfUpperElbowStatusName(pair_result.status)
+               << "   Fraction status: "
+               << Internal::psfUpperElbowStatusName(fraction_result.status)
+               << "</text>\n";
+
+        drawPSFType3HistogramPanel(
+            output,
+            pair_layout,
+            "pair",
+            "Stage 1: Pair chi histogram",
+            "Pair chi",
+            pair_result,
+            pair_decision,
+            false);
+        drawPSFType3HistogramPanel(
+            output,
+            fraction_layout,
+            "fraction",
+            "Stage 2: Bad-pair fraction histogram",
+            "Bad-pair fraction",
+            fraction_result,
+            fraction_decision,
+            true);
+
+        output << "  <g font-family=\"sans-serif\" font-size=\"13\" "
+                  "fill=\"#222222\">\n"
+               << "    <rect x=\"90\" y=\"1304\" width=\"18\" height=\"13\" "
+                  "fill=\"#b8bec7\"/>\n"
+               << "    <text x=\"116\" y=\"1316\">raw histogram</text>\n"
+               << "    <line x1=\"250\" y1=\"1310\" x2=\"278\" y2=\"1310\" "
+                  "stroke=\"#2468b4\" stroke-width=\"3\"/>\n"
+               << "    <text x=\"286\" y=\"1316\">smoothed</text>\n"
+               << "    <line x1=\"410\" y1=\"1310\" x2=\"438\" y2=\"1310\" "
+                  "stroke=\"#f28e2b\" stroke-width=\"2\" "
+                  "stroke-dasharray=\"5,3\"/>\n"
+               << "    <text x=\"446\" y=\"1316\">main peak</text>\n"
+               << "    <line x1=\"560\" y1=\"1310\" x2=\"588\" y2=\"1310\" "
+                  "stroke=\"#2ca02c\" stroke-width=\"2\" "
+                  "stroke-dasharray=\"7,3\"/>\n"
+               << "    <text x=\"596\" y=\"1316\">rightmost valid</text>\n"
+               << "    <line x1=\"760\" y1=\"1310\" x2=\"788\" y2=\"1310\" "
+                  "stroke=\"#9467bd\" stroke-width=\"2\" "
+                  "stroke-dasharray=\"3,3\"/>\n"
+               << "    <text x=\"796\" y=\"1316\">first invalid</text>\n"
+               << "    <circle cx=\"946\" cy=\"1310\" r=\"5\" "
+                  "fill=\"#d62728\"/>\n"
+               << "    <text x=\"958\" y=\"1316\">elbow</text>\n"
+               << "    <line x1=\"90\" y1=\"1352\" x2=\"118\" y2=\"1352\" "
+                  "stroke=\"#d62728\" stroke-width=\"3\"/>\n"
+               << "    <text x=\"126\" y=\"1358\">applied cut</text>\n"
+               << "    <circle cx=\"270\" cy=\"1352\" r=\"4\" "
+                  "fill=\"#2ca02c\"/>\n"
+               << "    <text x=\"282\" y=\"1358\">valid peak</text>\n"
+               << "    <circle cx=\"410\" cy=\"1352\" r=\"4\" "
+                  "fill=\"white\" stroke=\"#9467bd\" stroke-width=\"2\"/>\n"
+               << "    <text x=\"422\" y=\"1358\">invalid peak</text>\n"
+               << "  </g>\n"
+               << "</svg>\n";
+    }
+
+    // ==========================================
     // Function: Load and broadcast all PCA PSF components
     // Method: Let rank zero read required files, abort the MPI world on loss,
     //         and broadcast aligned fixed-configuration arrays.
@@ -1321,8 +1792,8 @@ namespace PSFModel {
 
     // ==========================================
     // Function: Log one Type-3 adaptive histogram decision
-    // Method: Publish FD sample/grid/topology fields for reproducible fail-open
-    //         diagnosis without requiring a new rendered diagnostic product.
+    // Method: Publish FD sample/grid/topology fields alongside the rendered
+    //         exposure diagnostic for reproducible fail-open diagnosis.
     // ==========================================
     static void logAdaptiveHistogram(
         const char* label,
@@ -1349,38 +1820,75 @@ namespace PSFModel {
     }
 
     // ==========================================
+    // Function: Count the final exposure-wide Type-3 pre-PRESS survivors
+    // Method: Sum committed selected-group flags across all live chip states.
+    // ==========================================
+    static std::size_t countSelectedGroupStars(
+        int nchip,
+        const ExposurePSFState& state) {
+        std::size_t selected_count = 0U;
+        for (int chip_index = 0; chip_index < nchip; ++chip_index) {
+            for (const Internal::StarSelectionState& selection
+                 : state.chips[chip_index].selection) {
+                if (selection.selected_group) ++selected_count;
+            }
+        }
+        return selected_count;
+    }
+
+    // ==========================================
     // Function: Select minChi survivors with adaptive pair/fraction elbows
     // Method: Estimate an exposure pair-chi cut, recompute same-chip finite
-    //         pairs into per-star bad fractions, then commit a direct pre-PRESS gate.
+    //         pairs into per-star bad fractions, then commit and render every outcome.
     // ==========================================
     static void applyAdaptivePairFractionSelection(
         int nchip,
         ExposurePSFState& state,
-        const ActiveIndicesByChip& active_indices) {
+        const ActiveIndicesByChip& active_indices,
+        const std::string& dirOutput,
+        const std::string& exposure) {
         for (ChipPSFState& chip : state.chips) {
             for (Internal::StarSelectionState& selection : chip.selection) {
                 selection.bad_pair_fraction = 0.0;
             }
         }
 
+        Internal::PSFUpperElbowHistogramResult pair_result;
+        Internal::PSFUpperElbowHistogramResult fraction_result;
+        std::string pair_decision = "NOT_RUN";
+        std::string fraction_decision = "NOT_RUN";
+        std::size_t active_star_count = 0U;
+        const auto commitAndWriteDiagnostics = [&](
+            const ActiveIndicesByChip& proposed_indices) {
+            commitAdaptivePairSelection(nchip, proposed_indices, state);
+            writePSFType3GroupingSVG(
+                dirOutput,
+                exposure,
+                pair_result,
+                pair_decision,
+                fraction_result,
+                fraction_decision,
+                active_star_count,
+                countSelectedGroupStars(nchip, state));
+        };
+
         // ==========================================
         // Function: Derive the Type-3 Stage-1 FD scale count
         // Method: Sum minChi survivors with checked size_t addition; a
         //         representational overflow preserves the fail-open selection.
         // ==========================================
-        std::size_t active_star_count = 0U;
         for (int chip_index = 0; chip_index < nchip; ++chip_index) {
             const std::size_t chip_active_count =
                 active_indices[chip_index].size();
             if (chip_active_count
                 > std::numeric_limits<std::size_t>::max()
                     - active_star_count) {
-                Internal::PSFUpperElbowHistogramResult count_failure;
-                count_failure.status =
+                pair_result.status =
                     Internal::PSFUpperElbowStatus::InvalidInput;
+                pair_decision = "FAIL_OPEN";
                 logAdaptiveHistogram(
-                    "PSF_TYPE3_PAIR", count_failure, "FAIL_OPEN");
-                commitAdaptivePairSelection(nchip, active_indices, state);
+                    "PSF_TYPE3_PAIR", pair_result, pair_decision.c_str());
+                commitAndWriteDiagnostics(active_indices);
                 return;
             }
             active_star_count += chip_active_count;
@@ -1403,24 +1911,23 @@ namespace PSFModel {
                 }
             }
         } catch (const std::bad_alloc&) {
-            Internal::PSFUpperElbowHistogramResult allocation_failure;
-            allocation_failure.status =
+            pair_result.status =
                 Internal::PSFUpperElbowStatus::AllocationFailure;
+            pair_decision = "FAIL_OPEN";
             logAdaptiveHistogram(
-                "PSF_TYPE3_PAIR", allocation_failure, "FAIL_OPEN");
-            commitAdaptivePairSelection(nchip, active_indices, state);
+                "PSF_TYPE3_PAIR", pair_result, pair_decision.c_str());
+            commitAndWriteDiagnostics(active_indices);
             return;
         } catch (const std::length_error&) {
-            Internal::PSFUpperElbowHistogramResult allocation_failure;
-            allocation_failure.status =
+            pair_result.status =
                 Internal::PSFUpperElbowStatus::AllocationFailure;
+            pair_decision = "FAIL_OPEN";
             logAdaptiveHistogram(
-                "PSF_TYPE3_PAIR", allocation_failure, "FAIL_OPEN");
-            commitAdaptivePairSelection(nchip, active_indices, state);
+                "PSF_TYPE3_PAIR", pair_result, pair_decision.c_str());
+            commitAndWriteDiagnostics(active_indices);
             return;
         }
 
-        Internal::PSFUpperElbowHistogramResult pair_result;
         const Internal::PSFUpperElbowHistogramConfig pair_config = {
             LensingConfig::psf_pair_chi_valid_peak_fraction,
             false,
@@ -1429,12 +1936,15 @@ namespace PSFModel {
             active_star_count};
         if (!Internal::estimatePSFUpperElbowCut(
                 pair_chi, pair_config, pair_result)) {
+            pair_decision = "FAIL_OPEN";
             logAdaptiveHistogram(
-                "PSF_TYPE3_PAIR", pair_result, "FAIL_OPEN");
-            commitAdaptivePairSelection(nchip, active_indices, state);
+                "PSF_TYPE3_PAIR", pair_result, pair_decision.c_str());
+            commitAndWriteDiagnostics(active_indices);
             return;
         }
-        logAdaptiveHistogram("PSF_TYPE3_PAIR", pair_result, "APPLY");
+        pair_decision = "APPLY";
+        logAdaptiveHistogram(
+            "PSF_TYPE3_PAIR", pair_result, pair_decision.c_str());
         std::vector<float>().swap(pair_chi);
 
         std::vector<std::vector<std::size_t>> total_pairs;
@@ -1470,52 +1980,78 @@ namespace PSFModel {
                 }
             }
         } catch (const std::bad_alloc&) {
-            Internal::PSFUpperElbowHistogramResult allocation_failure;
-            allocation_failure.status =
+            fraction_result.status =
                 Internal::PSFUpperElbowStatus::AllocationFailure;
+            fraction_decision = "FAIL_OPEN";
             logAdaptiveHistogram(
-                "PSF_TYPE3_FRACTION", allocation_failure, "FAIL_OPEN");
-            commitAdaptivePairSelection(nchip, active_indices, state);
+                "PSF_TYPE3_FRACTION",
+                fraction_result,
+                fraction_decision.c_str());
+            commitAndWriteDiagnostics(active_indices);
             return;
         } catch (const std::length_error&) {
-            Internal::PSFUpperElbowHistogramResult allocation_failure;
-            allocation_failure.status =
+            fraction_result.status =
                 Internal::PSFUpperElbowStatus::AllocationFailure;
+            fraction_decision = "FAIL_OPEN";
             logAdaptiveHistogram(
-                "PSF_TYPE3_FRACTION", allocation_failure, "FAIL_OPEN");
-            commitAdaptivePairSelection(nchip, active_indices, state);
+                "PSF_TYPE3_FRACTION",
+                fraction_result,
+                fraction_decision.c_str());
+            commitAndWriteDiagnostics(active_indices);
             return;
         }
 
         std::vector<double> fraction_values;
         std::size_t positive_fraction_count = 0;
-        for (int chip_index = 0; chip_index < nchip; ++chip_index) {
-            ChipPSFState& chip = state.chips[chip_index];
-            for (int star_index : active_indices[chip_index]) {
-                const std::size_t denominator =
-                    total_pairs[chip_index][star_index];
-                if (denominator == 0U) continue;
-                const double fraction = static_cast<double>(
-                    bad_pairs[chip_index][star_index])
-                    / static_cast<double>(denominator);
-                chip.selection[star_index].bad_pair_fraction = fraction;
-                fraction_values.push_back(fraction);
-                if (fraction > 0.0) positive_fraction_count++;
+        try {
+            fraction_values.reserve(active_star_count);
+            for (int chip_index = 0; chip_index < nchip; ++chip_index) {
+                ChipPSFState& chip = state.chips[chip_index];
+                for (int star_index : active_indices[chip_index]) {
+                    const std::size_t denominator =
+                        total_pairs[chip_index][star_index];
+                    if (denominator == 0U) continue;
+                    const double fraction = static_cast<double>(
+                        bad_pairs[chip_index][star_index])
+                        / static_cast<double>(denominator);
+                    chip.selection[star_index].bad_pair_fraction = fraction;
+                    fraction_values.push_back(fraction);
+                    if (fraction > 0.0) positive_fraction_count++;
+                }
             }
+        } catch (const std::bad_alloc&) {
+            fraction_result.status =
+                Internal::PSFUpperElbowStatus::AllocationFailure;
+            fraction_decision = "FAIL_OPEN";
+            logAdaptiveHistogram(
+                "PSF_TYPE3_FRACTION",
+                fraction_result,
+                fraction_decision.c_str());
+            commitAndWriteDiagnostics(active_indices);
+            return;
+        } catch (const std::length_error&) {
+            fraction_result.status =
+                Internal::PSFUpperElbowStatus::AllocationFailure;
+            fraction_decision = "FAIL_OPEN";
+            logAdaptiveHistogram(
+                "PSF_TYPE3_FRACTION",
+                fraction_result,
+                fraction_decision.c_str());
+            commitAndWriteDiagnostics(active_indices);
+            return;
         }
 
         bool apply_fraction_cut = false;
-        Internal::PSFUpperElbowHistogramResult fraction_result;
         if (positive_fraction_count == 0U) {
             fraction_result.finite_value_count = fraction_values.size();
             fraction_result.status =
                 Internal::PSFUpperElbowStatus::NoFDSamples;
+            fraction_decision = fraction_values.empty()
+                ? "NO_DENOMINATORS" : "ALL_ZERO_PASS";
             logAdaptiveHistogram(
                 "PSF_TYPE3_FRACTION",
                 fraction_result,
-                fraction_values.empty()
-                    ? "NO_DENOMINATORS"
-                    : "ALL_ZERO_PASS");
+                fraction_decision.c_str());
         } else {
             const Internal::PSFUpperElbowHistogramConfig fraction_config = {
                 LensingConfig::psf_bad_fraction_valid_peak_fraction,
@@ -1525,10 +2061,11 @@ namespace PSFModel {
                 0U};
             apply_fraction_cut = Internal::estimatePSFUpperElbowCut(
                 fraction_values, fraction_config, fraction_result);
+            fraction_decision = apply_fraction_cut ? "APPLY" : "FAIL_OPEN";
             logAdaptiveHistogram(
                 "PSF_TYPE3_FRACTION",
                 fraction_result,
-                apply_fraction_cut ? "APPLY" : "FAIL_OPEN");
+                fraction_decision.c_str());
         }
 
         ActiveIndicesByChip proposed_indices(static_cast<std::size_t>(nchip));
@@ -1587,7 +2124,7 @@ namespace PSFModel {
                                      : "KEEP"))
                       << std::endl;
         }
-        commitAdaptivePairSelection(nchip, proposed_indices, state);
+        commitAndWriteDiagnostics(proposed_indices);
     }
 
     // ==========================================
@@ -1712,7 +2249,7 @@ namespace PSFModel {
             minchi_survivor_star_areas, locus_diagnostics);
         if constexpr (LensingConfig::PsfGroupingType == 3) {
             applyAdaptivePairFractionSelection(
-                nchip, state, active_indices);
+                nchip, state, active_indices, dirOutput, prefix_e);
         } else {
             ExposureGroups groups_by_chip;
             if constexpr (LensingConfig::PsfGroupingType == 1) {
