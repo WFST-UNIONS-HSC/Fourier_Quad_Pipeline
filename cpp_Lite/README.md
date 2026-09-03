@@ -17,7 +17,7 @@ locations. The current Makefile exposes only `all` and `clean`; focused test
 sources under `tests/` are compiled explicitly when needed.
 
 Local focused verification uses the MPI C++ wrapper from GCC 15.2.0, with
-CFITSIO 4.6.3 and FFTW3 3.3.10 available. The local full build uses Eigen3 from
+CFITSIO 4.6.4 and FFTW3 3.3.11 available. The local full build uses Eigen3 from
 `/usr/include/eigen3`; other sites must provide equivalent C++17 MPI, Eigen3,
 LAPACK, and BLAS dependencies.
 
@@ -38,6 +38,17 @@ shared by `process_extcat` and external-catalog lookup.
 Stage 7 writes 24 fields and Stage 9 appends exposure chi-square. See the
 [C++ guide](../CPP_GUIDE.md) and
 [parameter reference](../CPP_PIPELINE_PARAMETERS.md).
+
+Stage 9 counts every physical shear/orig line with independent `getline`
+streams before opening the production readers. A first mismatch triggers one
+fresh full recount; a persistent mismatch is fatal, while a one-line shear
+catalog remains the legal header-only sentinel. Matched files are consumed for
+exactly the preflighted data-row count, with both members of each pair read
+before row validation or science cuts. Shear rows retain the fast
+stream-extraction parser, must provide all 24 floating fields, and are not
+tokenized for separate NaN/Inf classification. The focused
+`tests/CatalogCombinerLifecycleTest.cpp` regression covers both preflight
+attempts, fixed pairing, and incomplete rows.
 
 The default Stage-9 row now contains 18 external fields, `EXPO_NUM`, `ccD_NUM`,
 and 25 pipeline fields (45 total). Regenerate Stage-9/rearr/FD products rather

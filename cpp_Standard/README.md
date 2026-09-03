@@ -16,7 +16,7 @@ locations. The current Makefile exposes only `all` and `clean`; focused test
 sources under `tests/` are compiled explicitly when needed.
 
 Local focused verification uses the MPI C++ wrapper from GCC 15.2.0, with
-CFITSIO 4.6.3 and FFTW3 3.3.10 available. The local full build uses Eigen3 from
+CFITSIO 4.6.4 and FFTW3 3.3.11 available. The local full build uses Eigen3 from
 `/usr/include/eigen3`; other sites must provide equivalent C++17 MPI, Eigen3,
 LAPACK, and BLAS dependencies.
 
@@ -38,18 +38,21 @@ Stage 7 writes 24 fields and Stage 9 appends exposure chi-square. See the
 [C++ guide](../CPP_GUIDE.md) and
 [parameter reference](../CPP_PIPELINE_PARAMETERS.md).
 
-Stage 9 keeps malformed paired shear rows fatal. On a float-parse failure it
-now reports the failed zero/one-based column, token count and token, raw row
-and hexadecimal tail, file/parser stream states, hostname, file stat metadata,
-and a same-rank fresh-reopen comparison of the target row. The reopen is
-diagnostic only: it never retries, repairs, or resumes the failed row, and the
-pairing, quality cuts, calibration, and output schema are unchanged.
+In the external-catalog path, Stage 9 counts every physical shear/orig line
+with independent `getline` streams before opening the production readers. A
+first mismatch triggers one fresh full recount; a persistent mismatch is
+fatal, while a one-line shear catalog remains the legal header-only sentinel.
+Matched files are then consumed for exactly the preflighted data-row count,
+with both members of each pair read before row validation or science cuts.
 
-The focused `tests/CatalogCombinerLifecycleTest.cpp` regression covers the
-diagnostic fields and representative finite float spellings. Build the main
-program portably with `make -j4`; compile focused tests explicitly with the
-same C++17 MPI wrapper and link settings. Locally, run the focused test binary
-and `./Fourier_Quad_Pipe --help`. On a Linux cluster, load its MPI-enabled GCC,
+Shear rows retain the fast stream-extraction parser and must provide all 24
+floating fields. Stage 9 does not tokenize fields or add NaN/Inf
+classification. The focused `tests/CatalogCombinerLifecycleTest.cpp`
+regression covers both preflight attempts, fixed pairing, incomplete rows, and
+representative finite float spellings. Build the main program portably with
+`make -j4`; compile focused tests explicitly with the same C++17 MPI wrapper
+and link settings. Locally, run the focused test binary and
+`./Fourier_Quad_Pipe --help`. On a Linux cluster, load its MPI-enabled GCC,
 CFITSIO, FFTW3, Eigen3, LAPACK, and BLAS modules, rebuild, and launch production
 runs with the site's standard `srun` or `mpirun` command.
 

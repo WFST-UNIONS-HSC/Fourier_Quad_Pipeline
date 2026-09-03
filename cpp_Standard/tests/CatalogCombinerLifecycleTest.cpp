@@ -180,6 +180,16 @@ public:
     }
 
     // ==========================================
+    // Function: Replace the shear catalog with a zero-line invalid file
+    // Method: Truncate only the shear path so preflight must reject the missing header.
+    // ==========================================
+    void writeEmptyShearCatalog() const {
+        std::ofstream shear(shear_file_, std::ios::trunc);
+        require(static_cast<bool>(shear),
+                "empty synthetic shear catalog must open");
+    }
+
+    // ==========================================
     // Function: Write the common zero-or-one-row lifecycle fixtures
     // Method: Adapt the legacy test inputs to the explicit row writer.
     // ==========================================
@@ -384,24 +394,38 @@ void testAcceptedFloatForms(TemporaryCatalogTree& tree) {
 
 // ==========================================
 // Function: Verify structural pairing failures cannot silently desynchronize rows
-// Method: Exercise short/long orig streams and malformed, blank, or empty pairs.
+// Method: Verify two preflight attempts plus incomplete, blank, and empty row failures.
 // ==========================================
 void testFatalPairingCases(TemporaryCatalogTree& tree) {
     const std::string valid = TemporaryCatalogTree::shearRow();
 
-    requireAbort(
+    const std::string short_orig_diagnostics = requireAbort(
         [&]() {
             tree.writeCatalogRows({valid, valid}, {"101 1"});
             tree.combine(0.0f);
         },
         "external catalog ending before shear must fail fast");
+    for (const char* expected : {
+             "attempt1_shear_lines=3", "attempt1_orig_lines=2",
+             "attempt2_shear_lines=3", "attempt2_orig_lines=2"}) {
+        require(short_orig_diagnostics.find(expected) != std::string::npos,
+                std::string("short-orig preflight diagnostic must contain ")
+                    + expected);
+    }
 
-    requireAbort(
+    const std::string long_orig_diagnostics = requireAbort(
         [&]() {
             tree.writeCatalogRows({valid}, {"101 1", "202 2"});
             tree.combine(0.0f);
         },
         "unpaired trailing external catalog row must fail fast");
+    for (const char* expected : {
+             "attempt1_shear_lines=2", "attempt1_orig_lines=3",
+             "attempt2_shear_lines=2", "attempt2_orig_lines=3"}) {
+        require(long_orig_diagnostics.find(expected) != std::string::npos,
+                std::string("long-orig preflight diagnostic must contain ")
+                    + expected);
+    }
 
     requireAbort(
         [&]() {
@@ -427,26 +451,6 @@ void testFatalPairingCases(TemporaryCatalogTree& tree) {
         "expected_columns=24",
         "failed_column_zero_based=17",
         "failed_column_one_based=18",
-        "token_count=24",
-        "failed_token=bad_token",
-        "raw_line=[",
-        "raw_tail_hex=",
-        "hostname=",
-        "fin10_good=1",
-        "parser_fail=1",
-        "fresh_reopen_open_ok=1",
-        "fresh_reopen_logical_lines=4",
-        "fresh_reopen_data_rows=3",
-        "fresh_reopen_target_exists=1",
-        "fresh_reopen_target_line_size=",
-        "fresh_reopen_target_token_count=24",
-        "fresh_reopen_target_same_as_original=1",
-        "stat_ok=1",
-        "file_dev=",
-        "file_inode=",
-        "file_size=",
-        "file_mtime_sec=",
-        "file_mtime_nsec=",
         "shear=",
         "orig="};
     for (const std::string& expected : required_diagnostics) {
@@ -468,6 +472,13 @@ void testFatalPairingCases(TemporaryCatalogTree& tree) {
             tree.combine(0.0f);
         },
         "empty paired external catalog row must fail fast");
+
+    requireAbort(
+        [&]() {
+            tree.writeEmptyShearCatalog();
+            tree.combine(0.0f);
+        },
+        "zero-line shear catalog must fail before row subtraction");
 }
 
 }  // namespace

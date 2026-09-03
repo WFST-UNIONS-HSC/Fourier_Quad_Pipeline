@@ -8,6 +8,7 @@
 #include "process_main/Universalblock.hpp"
 
 #include <cmath>
+#include <cerrno>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -41,17 +42,43 @@ void require(bool condition, const std::string& message) {
 }
 
 // ==========================================
-// Function: Require one production Stage-9 failure to terminate its child
-// Method: Fork the destructive case and accept only a nonzero exit or signal.
+// Function: Require one production Stage-9 failure and return its diagnostic text
+// Method: Redirect child stderr through a pipe, then accept only nonzero exit or signal.
 // ==========================================
 template <typename Operation>
-void requireAbort(Operation operation, const std::string& message) {
+std::string requireAbort(Operation operation, const std::string& message) {
+    int diagnostic_pipe[2] = {-1, -1};
+    require(::pipe(diagnostic_pipe) == 0,
+            "pipe failed for fatal Stage-9 case");
+
     const pid_t child = ::fork();
     require(child >= 0, "fork failed for fatal Stage-9 case");
     if (child == 0) {
+        ::close(diagnostic_pipe[0]);
+        if (::dup2(diagnostic_pipe[1], STDERR_FILENO) < 0) {
+            std::_Exit(EXIT_FAILURE);
+        }
+        ::close(diagnostic_pipe[1]);
         operation();
         std::_Exit(EXIT_SUCCESS);
     }
+
+    ::close(diagnostic_pipe[1]);
+    std::string diagnostics;
+    char buffer[4096];
+    while (true) {
+        const ssize_t count = ::read(diagnostic_pipe[0], buffer, sizeof(buffer));
+        if (count > 0) {
+            diagnostics.append(buffer, static_cast<std::size_t>(count));
+            continue;
+        }
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        require(count == 0, "read failed for fatal Stage-9 diagnostic");
+        break;
+    }
+    ::close(diagnostic_pipe[0]);
 
     int status = 0;
     require(::waitpid(child, &status, 0) == child,
@@ -59,6 +86,7 @@ void requireAbort(Operation operation, const std::string& message) {
     require((WIFEXITED(status) && WEXITSTATUS(status) != EXIT_SUCCESS)
                 || WIFSIGNALED(status),
             message);
+    return diagnostics;
 }
 
 // ==========================================
@@ -149,6 +177,16 @@ public:
         for (const std::string& row : original_rows) {
             orig << row << '\n';
         }
+    }
+
+    // ==========================================
+    // Function: Replace the shear catalog with a zero-line invalid file
+    // Method: Truncate only the shear path so preflight must reject the missing header.
+    // ==========================================
+    void writeEmptyShearCatalog() const {
+        std::ofstream shear(shear_file_, std::ios::trunc);
+        require(static_cast<bool>(shear),
+                "empty synthetic shear catalog must open");
     }
 
     // ==========================================
@@ -327,24 +365,38 @@ void testSentinelOutput(TemporaryCatalogTree& tree) {
 
 // ==========================================
 // Function: Verify structural pairing failures cannot silently desynchronize rows
-// Method: Exercise short/long orig streams and malformed, blank, or empty pairs.
+// Method: Verify two preflight attempts plus incomplete, blank, and empty row failures.
 // ==========================================
 void testFatalPairingCases(TemporaryCatalogTree& tree) {
     const std::string valid = TemporaryCatalogTree::shearRow();
 
-    requireAbort(
+    const std::string short_orig_diagnostics = requireAbort(
         [&]() {
             tree.writeCatalogRows({valid, valid}, {"101 1"});
             tree.combine(0.0f);
         },
         "external catalog ending before shear must fail fast");
+    for (const char* expected : {
+             "attempt1_shear_lines=3", "attempt1_orig_lines=2",
+             "attempt2_shear_lines=3", "attempt2_orig_lines=2"}) {
+        require(short_orig_diagnostics.find(expected) != std::string::npos,
+                std::string("short-orig preflight diagnostic must contain ")
+                    + expected);
+    }
 
-    requireAbort(
+    const std::string long_orig_diagnostics = requireAbort(
         [&]() {
             tree.writeCatalogRows({valid}, {"101 1", "202 2"});
             tree.combine(0.0f);
         },
         "unpaired trailing external catalog row must fail fast");
+    for (const char* expected : {
+             "attempt1_shear_lines=2", "attempt1_orig_lines=3",
+             "attempt2_shear_lines=2", "attempt2_orig_lines=3"}) {
+        require(long_orig_diagnostics.find(expected) != std::string::npos,
+                std::string("long-orig preflight diagnostic must contain ")
+                    + expected);
+    }
 
     requireAbort(
         [&]() {
@@ -368,6 +420,13 @@ void testFatalPairingCases(TemporaryCatalogTree& tree) {
             tree.combine(0.0f);
         },
         "empty paired external catalog row must fail fast");
+
+    requireAbort(
+        [&]() {
+            tree.writeEmptyShearCatalog();
+            tree.combine(0.0f);
+        },
+        "zero-line shear catalog must fail before row subtraction");
 }
 
 }  // namespace
