@@ -33,7 +33,7 @@ bool loadExposureList(const std::string& path, std::vector<std::string>& files,
         std::string error;
         if (!ExposureList::loadPathList(
                 path, files,
-                static_cast<std::size_t>(LensingConfig::NMAX_EXPO), error)) {
+                0, error)) {
             std::cerr << "EXPO_LIST error: " << error << std::endl;
             return false;
         }

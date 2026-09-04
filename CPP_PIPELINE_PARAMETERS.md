@@ -142,8 +142,6 @@ directory content.
 |---|---|---|---|---|---|---|---|---|
 | `pi` | `double` | `3.14159265358979323846` | same | No | Mathematical constant | Supplies angle conversions. | Derived parameter — do not edit directly. | Yes |
 | `arc_convert` | `double` | `pi / 180` | same | No | Radians per degree | Converts degrees to radians. | Derived parameter — do not edit directly. | Yes |
-| `npx` | `int` | `3000` | same | No | Positive pixels | Nominal CCD image width. | Change only for another detector contract. | Yes |
-| `npy` | `int` | `5000` | same | No | Positive pixels | Nominal CCD image height. | Change only for another detector contract. | Yes |
 | `ASTROMETRY_trivial` | `int` | `0` | `N/A — removed in Lite` | No | `0` Gaia, `1` identity | Selects Standard astrometry branch. | Debug or deliberately bypass Gaia only. | Yes |
 | `AstroCatType` | `int` | `1` | same | No | `1` = legacy large Gaia tiles; `2` = one-degree Type-2 tiles | Selects the Stage-1 Gaia filename/read layout without changing the two-column row schema. | Set to `2` when `ASTROMETRY_CAT` points to `process_astrocat` output. | Yes |
 | `PROCESS_stage` | `int` | `223092870` | same | No | Product of stage primes `2,3,5,7,11,13,17,19,23`; 23 requires 19 | Enables numerical stages by divisibility. | Change for staged/restart runs. | Yes |
@@ -300,13 +298,12 @@ directory content.
 | `isin2` | `int` | `22` | same | No | Derived zero-based index | Spin-2 sine column. | Derived schema — do not edit directly. | Yes |
 | `iparity` | `int` | `23` | same | No | Derived zero-based index | WCS parity column. | Derived schema — do not edit directly. | Yes |
 | `ichi2` | `int` | `24` | same | No | Derived zero-based index | Exposure `chi2` column. | Derived schema — do not edit directly. | Yes |
-| `NMAX_EXPO` | `int` | `25000` | same | No | Positive exposure count | Maximum exposures accepted per run. | Change only for larger validated workloads. | Yes |
-| `NMAX_CHIP` | `int` | `62` | same | No | Positive chip count | Maximum CCDs per exposure. | Change only for another camera/layout. | Yes |
+| `N_CCD` | `int` | `62` | same | No | Positive chip count | Physical CCD count used by initialization and Standard PCA storage. | Change only for another camera/layout. | Yes |
 | `g1_c` | `double` | `-0.001` | same | No | Additive calibration | Field-distortion `g1` correction. | Recalibrate for another dataset/band. | Yes |
 | `g2_c` | `double` | `-0.0003` | same | No | Additive calibration | Field-distortion `g2` correction. | Recalibrate for another dataset/band. | Yes |
 | `chi2_thresh` | `double` | `0.01` | same | No | Non-negative threshold | Maximum exposure PSF `chi2`. | Adjust scientific quality selection. | Yes |
-| `chipnx` | `int` | `2046` | same | No | Positive pixels | Science CCD width used for PSF coordinates. | Change only for another detector. | Yes |
-| `chipny` | `int` | `4094` | same | No | Positive pixels | Science CCD height used for PSF coordinates. | Change only for another detector. | Yes |
+| `chipnx` | `int` | `2046` | same | No | Positive pixels | Physical CCD width used by Standard Hybrid PSF maps and FD edge bounds. Stage 1 reads each science image's actual NAXIS. | Change only for another detector. | Yes |
+| `chipny` | `int` | `4094` | same | No | Positive pixels | Physical CCD height used by Standard Hybrid PSF maps and FD edge bounds. Stage 1 reads each science image's actual NAXIS. | Change only for another detector. | Yes |
 | `rescale_size` | `double` | `1.2` | `N/A — removed in Lite` | No | Positive target size | Standard PCA PSF residual rescaling size. | Change only for `PSF_Ms=1`. | Yes |
 | `procs_pn` | `int` | `40` | `N/A — removed in Lite` | No | Positive rank count | MPI ranks per PCA scheduling group. | Tune Standard PCA scheduling. | Yes |
 | `work_pn` | `int` | `10` | `N/A — removed in Lite` | No | Positive worker count | Concurrent PCA workers per group. | Tune Standard PCA scheduling. | Yes |
@@ -453,12 +450,9 @@ exposure and chip paths from these centralized arrays.
 | `col_parity` | `int` | `43` | same | No | Derived absolute index | WCS parity column. | Derived schema — do not edit directly. | Yes |
 | `col_chi2` | `int` | `44` | same | No | Derived absolute index | Exposure `chi2` column. | Derived schema — do not edit directly. | Yes |
 | `ICHI2` | `int` | `45` | same | No | Derived complete row width | Total default catalog columns. | Derived parameter — do not edit directly. | Yes |
-| `bad_ccds` | `int[]` | `{2, 31, 53, 61}` | same | No | Detector-specific CCD IDs | DES CCDs excluded from FD analysis. | Change for another detector/quality list. | Yes |
-| `n_bad_ccds` | `int` | `4` | same | No | Derived array length | Number of excluded CCDs. | Derived parameter — keep synchronized with `bad_ccds`. | Yes |
-| `chip_xmin` | `int` | `50` | same | No | Pixel lower bound | Minimum accepted chip x. | Change for detector/edge-mask policy. | Yes |
-| `chip_xmax` | `int` | `1990` | same | No | Pixel upper bound | Maximum accepted chip x. | Change for detector/edge-mask policy. | Yes |
-| `chip_ymin` | `int` | `100` | same | No | Pixel lower bound | Minimum accepted chip y. | Change for detector/edge-mask policy. | Yes |
-| `chip_ymax` | `int` | `3990` | same | No | Pixel upper bound | Maximum accepted chip y. | Change for detector/edge-mask policy. | Yes |
+| `bad_ccds` | `int[]` | `{}` | same | No | Detector-specific CCD IDs | CCDs excluded from FD analysis. | Change for another detector/quality list. | Yes |
+| `n_bad_ccds` | `int` | `0` | same | No | Derived array length | Number of excluded CCDs. | Derived parameter — keep synchronized with `bad_ccds`. | Yes |
+| `chip_mask_edge` | `int` | `50` | same | No | Non-negative pixels | Symmetric FD chip-edge mask; accepted inclusive bounds are `[edge, chipnx-edge]` and `[edge, chipny-edge]`. | Change for detector/edge-mask policy. | Yes |
 
 The default complete row is 18 External source catalog fields, one original
 exposure number, one CCD number, and 25 pipeline fields: 45 columns total.
@@ -467,3 +461,7 @@ external prefix width used by `process_rearr`; the current FD column constants
 remain tied to the default 18-field schema, so schema changes require coordinated
 review of `ExtCatConfig`, `ExternalCatalogReader`, `ProcessRearrConfig`, and the FD
 reader before rebuilding.
+
+Production exposure-list readers pass zero to the generic parser, meaning no
+configured entry cap. Per-exposure FD statistics are sized from the observed
+MPI-global maximum serialized exposure ID rather than a fixed legacy maximum.

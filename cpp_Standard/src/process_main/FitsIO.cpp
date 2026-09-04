@@ -54,12 +54,12 @@ namespace FitsIO {
 
     // ==========================================
     // Function: Mark image read failure
-    // Method: Match F77 readimage/readimage_para by placing -99999 in the first pixel.
+    // Method: Return one compact -99999 sentinel without retaining failed dimensions.
     // ==========================================
     static void markReadFailure(int nx, int ny, std::vector<float>& data) {
-        size_t n = (nx > 0 && ny > 0) ? static_cast<size_t>(nx) * static_cast<size_t>(ny) : 1u;
-        data.assign(n, 0.0f);
-        data[0] = -99999.0f;
+        (void)nx;
+        (void)ny;
+        data.assign(1, -99999.0f);
     }
 
     // ==========================================
@@ -225,6 +225,10 @@ namespace FitsIO {
         return (status == 0);
     }
 
+    // ==========================================
+    // Function: Read image pixels
+    // Method: Return one compact failure sentinel for every FITS read error.
+    // ==========================================
     bool readImage(const std::string& filename, int& nx, int& ny, std::vector<float>& data) {
         fitsfile* fptr = nullptr;
         int status = 0;
@@ -232,6 +236,7 @@ namespace FitsIO {
         if (status != 0) {
             std::cerr << "Error opening file: " << filename << std::endl;
             printError(status);
+            markReadFailure(nx, ny, data);
             return false;
         }
         long naxes[2] = {0, 0};
@@ -239,7 +244,8 @@ namespace FitsIO {
         fits_read_keys_lng(fptr, "NAXIS", 1, 2, naxes, &nfound, &status);
         if (status != 0 || nfound != 2) {
             std::cerr << "Failed to read NAXIS keywords of: " << filename << std::endl;
-            fits_close_file(fptr, &status);
+            markReadFailure(nx, ny, data);
+            closeAfterFailure(fptr);
             return false;
         }
         nx = static_cast<int>(naxes[0]);
@@ -250,9 +256,16 @@ namespace FitsIO {
         float nullval = 0.0f;
         int anynull = 0;
         fits_read_pix(fptr, TFLOAT, fpixel, nx * ny, &nullval, data.data(), &anynull, &status);
+        if (status != 0) {
+            printError(status);
+            markReadFailure(nx, ny, data);
+            closeAfterFailure(fptr);
+            return false;
+        }
         fits_close_file(fptr, &status);
         if (status != 0) {
             printError(status);
+            markReadFailure(nx, ny, data);
             return false;
         }
         return true;
@@ -485,6 +498,12 @@ namespace FitsIO {
         float nullval = 0.0f;
         int anynull = 0;
         fits_read_pix(fptr, TFLOAT, fpixel, nx * ny, &nullval, data.data(), &anynull, &status);
+        if (status != 0) {
+            printError(status);
+            markReadFailure(nx, ny, data);
+            closeAfterFailure(fptr);
+            return false;
+        }
         fits_close_file(fptr, &status);
         if (status != 0) {
             printError(status);

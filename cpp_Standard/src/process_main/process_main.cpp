@@ -42,7 +42,7 @@ bool loadExposureList(const std::string& exposure_list, std::string& error) {
     std::vector<ExposureList::Entry> entries;
     if (!ExposureList::loadPipelineList(
             exposure_list, entries,
-            static_cast<std::size_t>(LensingConfig::NMAX_EXPO), error)) {
+            0, error)) {
         return false;
     }
 

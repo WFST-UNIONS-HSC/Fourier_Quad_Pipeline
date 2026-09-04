@@ -4,39 +4,35 @@
 #include "pathconfig.hpp"
 
 #include <cmath>
-
+// ==========================================
+// cpp_lite: the following build-time branch selectors of the full pipeline are FROZEN and
+// their unused branches have been deleted from the sources.  They no longer exist as
+// constants; the code implements exactly one behaviour each:
+//   ASTROMETRY_trivial = 0  -> Gaia-based astrometry only
+//   include_FLAT       = 0  -> no super-flat multiplication
+//   include_Mask       = 2  -> per-chip DQ mask from dirOutput/dqmask
+//   ext_cat            = 1  -> configured external source catalogue
+//   ext_PSF            = 0  -> PSF measured from the stars of the frame
+//   deblending         = 1  -> de-blending always applied
+//   PSF_type           = 1  -> local polynomial PSF fit
+//   PSF_Ms             = 0  -> no multi-scale / PCA PSF reconstruction
+// Still selectable: AstroCatType, PROCESS_stage, CCD_split, gal_smooth, star_smooth, NstampType.
+// ==========================================
 namespace LensingConfig {
-    // Mathematical constants
-    constexpr double pi = 3.14159265358979323846;  // Mathematical pi.
-    constexpr double arc_convert = pi / 180.0;  // Degrees-to-radians conversion factor.
-
+    // Camera geometry
+    constexpr int N_CCD = 62;  // Number of CCD chips per exposure.
+    // CCD configuration
+    constexpr double pixel_size = 0.2628;  // DECam pixel scale in arcseconds.
+    constexpr double saturation_thresh = 25000.0;  // Saturated pixel threshold.
     // Image/CCD size parameters
-    constexpr int npx = 3000;  // Nominal CCD image width in pixels.
-    constexpr int npy = 5000;  // Nominal CCD image height in pixels.
-
-    // ==========================================
-    // cpp_lite: the following build-time branch selectors of the full pipeline are FROZEN and
-    // their unused branches have been deleted from the sources.  They no longer exist as
-    // constants; the code implements exactly one behaviour each:
-    //   ASTROMETRY_trivial = 0  -> Gaia-based astrometry only
-    //   include_FLAT       = 0  -> no super-flat multiplication
-    //   include_Mask       = 2  -> per-chip DQ mask from dirOutput/dqmask
-    //   ext_cat            = 1  -> configured external source catalogue
-    //   ext_PSF            = 0  -> PSF measured from the stars of the frame
-    //   deblending         = 1  -> de-blending always applied
-    //   PSF_type           = 1  -> local polynomial PSF fit
-    //   PSF_Ms             = 0  -> no multi-scale / PCA PSF reconstruction
-    // Still selectable: AstroCatType, PROCESS_stage, CCD_split, gal_smooth, star_smooth, NstampType.
-    // ==========================================
+    constexpr int chipnx = 2046;  // Science CCD width used for PSF coordinates.
+    constexpr int chipny = 4094;  // Science CCD height used for PSF coordinates.
 
     // ==========================================
     // Configuration: Astrometric reference catalog layout
     // Method: Select legacy large Gaia tiles (1) or repartitioned 1-degree tiles (2).
     // ==========================================
     constexpr int AstroCatType = 1;
-    static_assert(AstroCatType == 1 || AstroCatType == 2,
-                  "AstroCatType must be 1 or 2");
-
     // Stage control parameters
     constexpr int PROCESS_stage =          // Prime-product stage selector.
                                 2 *        // Pre-Process
@@ -70,6 +66,8 @@ namespace LensingConfig {
     // Method: Preserve Lite's frozen local-PSF/Gaia branches while keeping the
     //         common selection topology and rejection thresholds explicit.
     // ==========================================
+    constexpr int PsfGroupingType = 3;  // 1 threshold graph; 2 mutual KNN; 3 adaptive pair fractions.
+    // ---
     constexpr int psf_exposure_min_candidates = 60;  // Minimum exposure-wide PSF candidates.
     constexpr double psf_count_pilot_clip_sigma = 3.0;  // Robust star-area pilot clipping multiplier.
     constexpr int psf_count_pilot_clip_iterations = 3;  // Robust star-area pilot clipping passes.
@@ -77,11 +75,10 @@ namespace LensingConfig {
     constexpr double psf_count_hist_range_sigma = 5.0;  // Local star-area histogram half-range in pilot widths.
     constexpr double psf_count_locus_sigma = 4.0;  // Exposure star-area locus sigma window.
     constexpr int psf_count_locus_min_samples = 30;  // Minimum star-area locus samples.
-    constexpr int PsfGroupingType = 3;  // 1 threshold graph; 2 mutual KNN; 3 adaptive pair fractions.
     constexpr double psf_minchi_reference_fraction = 1.0 / 3.0;  // Exposure top-size reference fraction.
     constexpr int psf_minchi_reference_max_per_chip = 5;  // Reference-star cap per chip.
     constexpr double psf_minchi_sigma_cut = 4.0;  // Minimum-chi rejection sigma.
-    constexpr int psf_knn_k = 8;  // Neighbors retained by the PSF KNN graph.
+    constexpr int psf_knn_k = 20;  // Neighbors retained by the PSF KNN graph.
     constexpr double psf_group_merge_ratio = 0.30;  // Secondary-group relative-size threshold.
     constexpr int psf_group_merge_min_gaia = 1;  // Minimum Gaia matches in a merged group.
     constexpr double psf_gaia_match_radius_pix = 2.0;  // Gaia match radius in pixels.
@@ -93,39 +90,7 @@ namespace LensingConfig {
     constexpr double psf_press_sigma_cut = 4.0;  // Standardized PRESS rejection sigma.
     constexpr int psf_press_max_removals = 5;  // Maximum PRESS removals permitted per chip.
     constexpr double psf_loo_min_denom = 1.0e-6;  // Minimum leave-one-out denominator.
-    static_assert(PsfGroupingType == 1 || PsfGroupingType == 2
-                      || PsfGroupingType == 3,
-                  "PsfGroupingType must be 1, 2, or 3");
-    static_assert(psf_exposure_min_candidates > 0,
-                  "PSF exposure minimum must be positive");
-    static_assert(psf_minchi_reference_fraction > 0.0
-                      && psf_minchi_reference_fraction <= 1.0,
-                  "PSF minChi reference fraction must lie in (0,1]");
-    static_assert(psf_minchi_reference_max_per_chip > 0,
-                  "PSF minChi reference cap must be positive");
-    static_assert(psf_count_pilot_clip_sigma > 0.0,
-                  "PSF star-area pilot clipping sigma must be positive");
-    static_assert(psf_count_pilot_clip_iterations > 0,
-                  "PSF star-area pilot clipping iterations must be positive");
-    static_assert(psf_count_zero_mad_quantile >= 0.0
-                      && psf_count_zero_mad_quantile < 0.5,
-                  "PSF star-area zero-MAD quantile must lie in [0,0.5)");
-    static_assert(psf_count_hist_range_sigma > 0.0,
-                  "PSF star-area histogram range sigma must be positive");
-    static_assert(psf_pair_chi_valid_peak_fraction > 0.0
-                      && psf_pair_chi_valid_peak_fraction < 1.0,
-                  "PSF pair-chi peak fraction must lie in (0,1)");
-    static_assert(psf_bad_fraction_valid_peak_fraction > 0.0
-                      && psf_bad_fraction_valid_peak_fraction < 1.0,
-                  "PSF bad-pair peak fraction must lie in (0,1)");
-    static_assert(psf_type3_elbow_search_height_fraction > 0.0
-                      && psf_type3_elbow_search_height_fraction < 1.0,
-                  "PSF Type-3 elbow search height fraction must lie in (0,1)");
-    static_assert(psf_knn_k > 0, "PSF KNN count must be positive");
-    static_assert(psf_press_max_removals >= 0,
-                  "PSF PRESS removal cap must be non-negative");
-    static_assert(psf_loo_min_denom > 0.0 && psf_loo_min_denom < 1.0,
-                  "PSF LOO denominator floor must lie in (0,1)");
+    // ==========================================
 
     // Stamp dimensions
     constexpr int ns = 64;  // Science stamp and Fourier-grid side length.
@@ -145,9 +110,8 @@ namespace LensingConfig {
     // Maximum number of flux-ranked image detections passed to astrometric pattern matching.
     // This is a scientific selection limit, not a catalog-storage capacity limit.
     constexpr int n_user_max = 200;  // Bright detections used for astrometric matching.
-    static_assert(n_user_max > 0, "n_user_max must be positive");
-    constexpr int ngal_max = 4000;  // Initial galaxy-vector reservation hint.
-    constexpr int nstar_max = 2000;  // Initial star-vector reservation hint.
+    constexpr int ngal_max = 2000;  // Initial galaxy-vector reservation hint.
+    constexpr int nstar_max = 1000;  // Initial star-vector reservation hint.
     constexpr int npara = 25;  // Per-source Stage-7 catalog field count.
     constexpr int len_sam = 50;  // PSF sample metadata row length.
 
@@ -158,7 +122,6 @@ namespace LensingConfig {
     constexpr int bg_rough_grid_y = 32;  // Rough background grid rows.
     constexpr int bg_min_block_pixels = 1000;  // Minimum pixels in a background block.
     constexpr int bg_min_clipped_pixels = 200;  // Minimum pixels after block clipping.
-    static_assert(bg_min_clipped_pixels > 0, "bg_min_clipped_pixels must be positive");
     constexpr double bg_min_valid_frac = 0.25;  // Minimum valid fraction per background block.
     constexpr double bg_clip_low = 4.0;  // Lower background clipping sigma.
     constexpr double bg_clip_high = 2.5;  // Upper background clipping sigma.
@@ -175,9 +138,6 @@ namespace LensingConfig {
     // Method: Select a physical blank-noise stamp (1) or local covariance noise power (2).
     // ==========================================
     constexpr int NstampType = 1;  // One uses blank stamps; two uses covariance power.
-    static_assert(NstampType == 1 || NstampType == 2,
-                  "NstampType must be 1 or 2");
-
     // ==========================================
     // Configuration: Stage-3 blank-noise-stamp quality gates
     // Method: Retain the main-branch fixed candidate QC before random selection.
@@ -201,34 +161,13 @@ namespace LensingConfig {
     constexpr double noise_cov_padding_factor = 2.0;  // Covariance FFT padding multiplier.
     constexpr int noise_cov_fft_size = static_cast<int>(
         noise_region_size * noise_cov_padding_factor + 0.999999);  // Padded covariance FFT side.
-    constexpr int noise_cov_max_lag = 8;  // Maximum retained signed covariance lag.
+    constexpr int noise_cov_max_lag = 63;  // Maximum retained signed covariance lag.
     constexpr int noise_cov_min_valid_pixels = 4096;  // Minimum covariance-mask pixels.
     constexpr double noise_cov_min_pair_fraction = 0.50;  // Minimum lag pair-count fraction.
     constexpr double noise_cov_sigma_ratio_min = 0.80;  // Minimum covariance sigma ratio.
     constexpr double noise_cov_sigma_ratio_max = 1.25;  // Maximum covariance sigma ratio.
     constexpr double noise_cov_max_negative_fraction = 0.25;  // Maximum negative power fraction.
     constexpr double noise_cov_imag_tolerance = 1.0e-10;  // Imaginary FFT residual tolerance.
-    static_assert(noise_region_size > noise_inner_size,
-                  "noise region must exceed the central exclusion");
-    static_assert(noise_inner_size >= nl,
-                  "noise inner exclusion must cover the full source extraction region");
-    static_assert(noise_region_size % 2 == 0 && noise_inner_size % 2 == 0,
-                  "noise region and exclusion sizes must be even");
-    static_assert((noise_region_size - noise_inner_size) % 2 == 0,
-                  "noise inner exclusion must be centered on the local noise region");
-    static_assert(noise_plane_min_valid_fraction > 0.0
-                      && noise_plane_min_valid_fraction <= 1.0,
-                  "noise plane minimum valid fraction must lie in (0,1]");
-    static_assert(noise_cov_padding_factor > 0.0,
-                  "noise covariance padding factor must be positive");
-    static_assert(noise_cov_fft_size >= 2 * noise_region_size - 1,
-                  "noise covariance FFT padding is too small");
-    static_assert(noise_cov_max_lag >= 0,
-                  "noise covariance max lag must be non-negative");
-    static_assert(noise_cov_max_lag < noise_region_size,
-                  "noise covariance max lag must fit inside the local covariance region");
-    static_assert(noise_cov_min_valid_pixels > 0,
-                  "noise covariance requires valid outer pixels");
 
     // ==========================================
     // Configuration: numerical_fix F6 mode-bar noise-plane estimator
@@ -268,12 +207,7 @@ namespace LensingConfig {
 
     constexpr int gal_smooth = 0;  // Galaxy-stamp smoothing type.
     constexpr int star_smooth = 2;  // Star-stamp smoothing type.
-
     constexpr double SNR_PSF = 100.0;  // Minimum PSF-star signal-to-noise ratio.
-    constexpr double saturation_thresh = 25000.0;  // Saturated pixel threshold.
-
-    // Scale conversion
-    constexpr double pixel_size = 0.2628;  // DECam pixel scale in arcseconds.
 
     // Catalogue column indices (shifted to 0-based for C++)
     constexpr int iid = 1 - 1;  // PSF polynomial chi-square field index.
@@ -302,24 +236,75 @@ namespace LensingConfig {
     constexpr int isin2 = 23 - 1;  // Spin-2 sine field index.
     constexpr int iparity = 24 - 1;  // WCS parity field index.
     constexpr int ichi2 = 25 - 1;  // Exposure chi-square field index.
-    
-    // Max counts
-    constexpr int NMAX_EXPO = 25000;  // Maximum exposures accepted per run.
-    constexpr int NMAX_CHIP = 62;  // Maximum CCD chips per exposure.
 
     // Band correction parameters
-    constexpr double g1_c = -0.001;  // Additive field-distortion g1 correction.
-    constexpr double g2_c = -0.0003;  // Additive field-distortion g2 correction.
+    constexpr double g1_c = 0.0;  // Additive field-distortion g1 correction.
+    constexpr double g2_c = 0.0;  // Additive field-distortion g2 correction.
+    constexpr double chi2_thresh = 0.1;  // Maximum exposure PSF chi-square.
 
-    constexpr double chi2_thresh = 0.01;  // Maximum exposure PSF chi-square.
+    // Mathematical constants
+    constexpr double pi = 3.14159265358979323846;  // Mathematical pi.
+    constexpr double arc_convert = pi / 180.0;  // Degrees-to-radians conversion factor.
 
-    // ==================== From cust_para.inc ===============================
-    constexpr int chipnx = 2046;  // Science CCD width used for PSF coordinates.
-    constexpr int chipny = 4094;  // Science CCD height used for PSF coordinates.
-
-    // cpp_lite: the PCA-decomposition parameters (rescale_size, procs_pn, work_pn, nblocks,
-    // n_pcs, npp6th, pca_negative_eigenvalue_threshold, nmax_star_pchip) belonged exclusively
-    // to the PSF_Ms=1 multi-scale PSF reconstruction, which is gone.
+    // ==========================================
+    static_assert(AstroCatType == 1 || AstroCatType == 2,
+                  "AstroCatType must be 1 or 2");
+    static_assert(NstampType == 1 || NstampType == 2,
+                  "NstampType must be 1 or 2");
+    static_assert(PsfGroupingType == 1 || PsfGroupingType == 2
+                      || PsfGroupingType == 3,
+                  "PsfGroupingType must be 1, 2, or 3");
+    static_assert(psf_exposure_min_candidates > 0,
+                  "PSF exposure minimum must be positive");
+    static_assert(psf_minchi_reference_fraction > 0.0
+                      && psf_minchi_reference_fraction <= 1.0,
+                  "PSF minChi reference fraction must lie in (0,1]");
+    static_assert(psf_minchi_reference_max_per_chip > 0,
+                  "PSF minChi reference cap must be positive");
+    static_assert(psf_count_pilot_clip_sigma > 0.0,
+                  "PSF star-area pilot clipping sigma must be positive");
+    static_assert(psf_count_pilot_clip_iterations > 0,
+                  "PSF star-area pilot clipping iterations must be positive");
+    static_assert(psf_count_zero_mad_quantile >= 0.0
+                      && psf_count_zero_mad_quantile < 0.5,
+                  "PSF star-area zero-MAD quantile must lie in [0,0.5)");
+    static_assert(psf_count_hist_range_sigma > 0.0,
+                  "PSF star-area histogram range sigma must be positive");
+    static_assert(psf_pair_chi_valid_peak_fraction > 0.0
+                      && psf_pair_chi_valid_peak_fraction < 1.0,
+                  "PSF pair-chi peak fraction must lie in (0,1)");
+    static_assert(psf_bad_fraction_valid_peak_fraction > 0.0
+                      && psf_bad_fraction_valid_peak_fraction < 1.0,
+                  "PSF bad-pair peak fraction must lie in (0,1)");
+    static_assert(psf_type3_elbow_search_height_fraction > 0.0
+                      && psf_type3_elbow_search_height_fraction < 1.0,
+                  "PSF Type-3 elbow search height fraction must lie in (0,1)");
+    static_assert(psf_knn_k > 0, "PSF KNN count must be positive");
+    static_assert(psf_press_max_removals >= 0,
+                  "PSF PRESS removal cap must be non-negative");
+    static_assert(psf_loo_min_denom > 0.0 && psf_loo_min_denom < 1.0,
+                  "PSF LOO denominator floor must lie in (0,1)");
+    static_assert(noise_region_size > noise_inner_size,
+                  "noise region must exceed the central exclusion");
+    static_assert(noise_inner_size >= nl,
+                  "noise inner exclusion must cover the full source extraction region");
+    static_assert(noise_region_size % 2 == 0 && noise_inner_size % 2 == 0,
+                  "noise region and exclusion sizes must be even");
+    static_assert((noise_region_size - noise_inner_size) % 2 == 0,
+                  "noise inner exclusion must be centered on the local noise region");
+    static_assert(noise_plane_min_valid_fraction > 0.0
+                      && noise_plane_min_valid_fraction <= 1.0,
+                  "noise plane minimum valid fraction must lie in (0,1]");
+    static_assert(noise_cov_padding_factor > 0.0,
+                  "noise covariance padding factor must be positive");
+    static_assert(noise_cov_fft_size >= 2 * noise_region_size - 1,
+                  "noise covariance FFT padding is too small");
+    static_assert(noise_cov_max_lag >= 0,
+                  "noise covariance max lag must be non-negative");
+    static_assert(noise_cov_max_lag < noise_region_size,
+                  "noise covariance max lag must fit inside the local covariance region");
+    static_assert(noise_cov_min_valid_pixels > 0,
+                  "noise covariance requires valid outer pixels");
 }
 
 #endif // LENSING_CONFIG_HPP

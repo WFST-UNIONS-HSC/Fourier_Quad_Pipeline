@@ -5,12 +5,12 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <sstream>
 #include <vector>
 
 namespace fc = FDConfig;
-namespace lc = LensingConfig;
 
 // ==========================================
 // Function: readExposure
@@ -26,6 +26,15 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
             std::cerr << "Invalid exposure index: " << iexpo << std::endl;
         return;
     }
+
+    // ==========================================
+    // Logic: Derive the accepted catalog footprint from the configured CCD geometry
+    // Method: Apply one symmetric edge width instead of fixed survey-specific maxima.
+    // ==========================================
+    const int chip_xmin = fc::chip_mask_edge;
+    const int chip_xmax = LensingConfig::chipnx - fc::chip_mask_edge;
+    const int chip_ymin = fc::chip_mask_edge;
+    const int chip_ymax = LensingConfig::chipny - fc::chip_mask_edge;
 
     const std::string& filename = expo_files[iexpo - 1];
     std::ifstream file(filename);
@@ -92,8 +101,8 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
                     }
                 }
                 if (bad_ccd) continue;
-                if (ix < fc::chip_xmin || ix > fc::chip_xmax ||
-                    iy < fc::chip_ymin || iy > fc::chip_ymax) continue;
+                if (ix < chip_xmin || ix > chip_xmax ||
+                    iy < chip_ymin || iy > chip_ymax) continue;
                 if (fc::ft_cut >= 0.0 &&
                     std::fabs(row[fc::col_flags_ft] - fc::ft_cut) > 1e-3) continue;
                 if (fc::fg_cut >= 0.0 &&
@@ -134,12 +143,13 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
                 // ==========================================
                 int source_expo = 0;
                 if (fc::FD_PER_EXPOSURE_STAR_BAR) {
-                    source_expo = static_cast<int>(
-                        std::lround(row[fc::col_expo]));
-                    if (source_expo < 1
-                        || source_expo > lc::NMAX_EXPO) {
+                    const double exposure_value = row[fc::col_expo];
+                    if (!std::isfinite(exposure_value)
+                        || exposure_value < 1.0
+                        || exposure_value > static_cast<double>(std::numeric_limits<int>::max())) {
                         continue;
                     }
+                    source_expo = static_cast<int>(std::lround(exposure_value));
                 }
 
                 int idx = data.ng;
@@ -226,8 +236,8 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
                 }
             }
             if (bad_ccd) continue;
-            if (ix < fc::chip_xmin || ix > fc::chip_xmax ||
-                iy < fc::chip_ymin || iy > fc::chip_ymax) continue;
+            if (ix < chip_xmin || ix > chip_xmax ||
+                iy < chip_ymin || iy > chip_ymax) continue;
             if (fc::ft_cut >= 0.0 &&
                 std::fabs(row[fc::col_flags_ft] - fc::ft_cut) > 1e-3) continue;
             if (fc::fg_cut >= 0.0 &&
@@ -268,12 +278,13 @@ void ShearCatalogReader::readExposure(int iexpo, FDData& data,
             // ==========================================
             int source_expo = 0;
             if (fc::FD_PER_EXPOSURE_STAR_BAR) {
-                source_expo = static_cast<int>(
-                    std::lround(row[fc::col_expo]));
-                if (source_expo < 1
-                    || source_expo > lc::NMAX_EXPO) {
+                const double exposure_value = row[fc::col_expo];
+                if (!std::isfinite(exposure_value)
+                    || exposure_value < 1.0
+                    || exposure_value > static_cast<double>(std::numeric_limits<int>::max())) {
                     continue;
                 }
+                source_expo = static_cast<int>(std::lround(exposure_value));
             }
 
             int idx = data.ng;

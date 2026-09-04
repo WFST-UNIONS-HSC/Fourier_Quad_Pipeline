@@ -181,7 +181,7 @@ namespace PSFRecons {
         MPIScheduler::forcecov(
             LensingConfig::procs_pn,
             LensingConfig::work_pn,
-            LensingConfig::NMAX_CHIP,
+            LensingConfig::N_CCD,
             [](int ichip, int nexpo_inner) {
                 chipResPCAFit(ichip, nexpo_inner);
             },

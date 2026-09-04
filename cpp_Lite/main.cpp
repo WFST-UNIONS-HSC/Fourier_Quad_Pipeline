@@ -745,7 +745,7 @@ std::string deriveDatasetRootFromExpoList(const std::string& exposure_list) {
     std::string exposure_error;
     if (!ExposureList::loadPipelineList(
             exposure_list, entries,
-            static_cast<std::size_t>(LensingConfig::NMAX_EXPO), exposure_error)) {
+            0, exposure_error)) {
         return "";
     }
     for (const ExposureList::Entry& entry : entries) {

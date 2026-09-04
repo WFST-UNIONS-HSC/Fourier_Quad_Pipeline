@@ -68,7 +68,9 @@ namespace PSFModel {
         std::vector<double>* leverage);
     void getPSFModel(int ns, int npp, const std::vector<double>& PSF_coe, double xx, double yy, std::vector<float>& modelp, std::vector<float>& model0);
    void getPSFModelVeryLocal(const std::vector<float>& psfmap, double x, double y, std::vector<float>& model, double& dmax, int stride);
-    void genPSFFits(std::vector<float>& psfmap, int nums, int nx, int ny, const std::vector<float>& star, const std::vector<std::array<double, 2>>& posi);
+    void genPSFFits(std::vector<float>& psfmap, int nums,
+                    const std::vector<float>& star,
+                    const std::vector<std::array<double, 2>>& posi);
 
     void getPowerArea(int nx, int ny, const std::vector<float>& power, int& area, float thresh_ratio);
     void getPowerE(int nx, int ny, const std::vector<float>& power, std::array<double, 2>& e, float thresh_ratio);
@@ -555,14 +557,14 @@ namespace PSFModel {
             std::cout << "Allocating memory on all ranks..." << std::endl;
         }
 
-        pca_cache.components.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * LensingConfig::nsns * LensingConfig::n_pcs, 0.0);
-        pca_cache.mean_psf.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * LensingConfig::nsns, 0.0);
-        pca_cache.poly_coefs.assign(static_cast<size_t>(LensingConfig::NMAX_CHIP) * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th, 0.0f);
+        pca_cache.components.assign(static_cast<size_t>(LensingConfig::N_CCD) * LensingConfig::nsns * LensingConfig::n_pcs, 0.0);
+        pca_cache.mean_psf.assign(static_cast<size_t>(LensingConfig::N_CCD) * LensingConfig::nsns, 0.0);
+        pca_cache.poly_coefs.assign(static_cast<size_t>(LensingConfig::N_CCD) * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th, 0.0f);
 
         if (MPIScheduler::state.rank == 0) {
             std::cout << "Rank 0 is reading files from disk..." << std::endl;
 
-            for (int i_ccd = 1; i_ccd <= LensingConfig::NMAX_CHIP; ++i_ccd) {
+            for (int i_ccd = 1; i_ccd <= LensingConfig::N_CCD; ++i_ccd) {
                 if (i_ccd == 2 || i_ccd == 61) continue;
 
                 std::ostringstream ss_ccd;
@@ -616,15 +618,15 @@ namespace PSFModel {
             std::cout << "Rank 0 finished reading. Starting Broadcast..." << std::endl;
         }
 
-        int total_count = LensingConfig::NMAX_CHIP * LensingConfig::nsns * LensingConfig::n_pcs;
+        int total_count = LensingConfig::N_CCD * LensingConfig::nsns * LensingConfig::n_pcs;
         MPI_Bcast(pca_cache.components.data(), total_count, MPI_DOUBLE, 0,
                   MPIScheduler::state.communicator);
 
-        total_count = LensingConfig::NMAX_CHIP * LensingConfig::nsns;
+        total_count = LensingConfig::N_CCD * LensingConfig::nsns;
         MPI_Bcast(pca_cache.mean_psf.data(), total_count, MPI_DOUBLE, 0,
                   MPIScheduler::state.communicator);
 
-        total_count = LensingConfig::NMAX_CHIP * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th;
+        total_count = LensingConfig::N_CCD * 2 * 2 * LensingConfig::n_pcs * LensingConfig::npp6th;
         MPI_Bcast(pca_cache.poly_coefs.data(), total_count, MPI_FLOAT, 0,
                   MPIScheduler::state.communicator);
 
@@ -2624,15 +2626,16 @@ namespace PSFModel {
     }
 
     // ==========================================
-    // Function: Fit and serialize hybrid PSF models.
-    // Method: Preserve F77 model layout with 17-digit double serialization.
+    // Function: Fit and serialize hybrid PSF models
+    // Method: Build every successful map on the configured physical CCD
+    //         geometry and retain a compact marker map for invalid chips.
     // ==========================================
     void makePSFHybrid(int nchip, const std::vector<std::string>& imageFiles, const std::string& dirOutput, ExposurePSFState& state) {
         int ns = LensingConfig::ns;
         int len_s = LensingConfig::len_s;
         int npl = LensingConfig::npl;
-        int npx = LensingConfig::npx;
-        int npy = LensingConfig::npy;
+        const int chipnx = LensingConfig::chipnx;
+        const int chipny = LensingConfig::chipny;
         int step_psf = LensingConfig::step_psf;
 
         std::string prefix_e = UniversalUtils::getPrefixExpo(imageFiles[0]);
@@ -2697,7 +2700,8 @@ namespace PSFModel {
                     star_local.push_back(star[star_offset + idx]);
                 }
             }
-            std::vector<float> psfmap(static_cast<size_t>(npx) * npy, 0.0f);
+            std::vector<float> psfmap(
+                static_cast<size_t>(chipnx) * chipny, 0.0f);
 
             std::vector<double> PSF_coe_l = cached_fit.coefficients;
             LinearSolve::SolveDiagnostics fit_diagnostics;
@@ -2730,15 +2734,10 @@ namespace PSFModel {
                     }
                 }
 
-                int nx = 0, ny = 0;
-                if (!FitsIO::readPara(imageFiles[k], nx, ny)) {
-                    MPIFailure::abortWorld(
-                        "read hybrid-fit image dimensions", imageFiles[k]);
-                }
-                genPSFFits(psfmap, nums, nx, ny, star_residual, posi);
+                genPSFFits(psfmap, nums, star_residual, posi);
 
-                int ixt = nx / step_psf + 1;
-                int iyt = ny / step_psf + 1;
+                const int ixt = (chipnx - ns - 1) / step_psf + 1;
+                const int iyt = (chipny - ns) / step_psf + 1;
 
                 for (int ix = 1; ix <= ixt; ++ix) {
                     int xs = (ix - 1) * step_psf;
@@ -2750,24 +2749,15 @@ namespace PSFModel {
                         getPSFModel(ns, npl, PSF_coe_l, xx, yy, model, model0);
                         for (int v = 0; v < ns; ++v) {
                             for (int u = 0; u < ns; ++u) {
-                                psfmap[(ys + v) * npx + (xs + u)] += model[v * ns + u];
+                                psfmap[(ys + v) * chipnx + (xs + u)] += model[v * ns + u];
                             }
                         }
                     }
                 }
 
-                nx = (nx / step_psf + 1) * step_psf;
-                ny = (ny / step_psf + 1) * step_psf;
-
                 std::string out_fits = OutputLayout::chipPath(
                     dirOutput, "stamps/fits_PsfLocal", prefix, "_PSF_local.fits");
-                std::vector<float> sub_psfmap(static_cast<size_t>(nx) * ny);
-                for (int y = 0; y < ny; ++y) {
-                    for (int x = 0; x < nx; ++x) {
-                        sub_psfmap[y * nx + x] = psfmap[y * npx + x];
-                    }
-                }
-                FitsIO::writeImage(out_fits, nx, ny, sub_psfmap);
+                FitsIO::writeImage(out_fits, chipnx, chipny, psfmap);
 
                 file90 << (k + 1) << " " << nums << " 1\n";
                 for (int i = 0; i < nums; ++i) {
@@ -2775,7 +2765,8 @@ namespace PSFModel {
                     float py = static_cast<float>(posi[i][1]);
                     std::vector<float> model;
                     double dmax = 0.0;
-                    getPSFModelVeryLocal(psfmap, px, py, model, dmax);
+                    getPSFModelVeryLocal(
+                        psfmap, px, py, model, dmax, chipnx);
 
                     std::array<double, 2> ee = {0.0, 0.0};
                     double size = 0.0;
@@ -2806,24 +2797,18 @@ namespace PSFModel {
                             " removed_samples=" + std::to_string(removed_non_finite) +
                             " action=MARK_CHIP_INVALID");
                 }
-                for (int i = 0; i < npx; ++i) {
-                    for (int j = 0; j < npy; ++j) {
-                        psfmap[j * npx + i] = 0.0f;
-                    }
-                }
-                psfmap[(step_psf - 1) * npx + (step_psf - 1)] = -100.0f;
-                int nx = 3 * step_psf;
-                int ny = 3 * step_psf;
+                const int failure_nx = std::min(chipnx, 3 * step_psf);
+                const int failure_ny = std::min(chipny, 3 * step_psf);
+                psfmap.assign(
+                    static_cast<size_t>(failure_nx) * failure_ny, 0.0f);
+                psfmap[(step_psf - 1) * failure_nx + (step_psf - 1)] = -100.0f;
+                psfmap[(step_psf - 2) * failure_nx + (step_psf - 2)] =
+                    static_cast<float>(nums);
 
                 std::string out_fits = OutputLayout::chipPath(
                     dirOutput, "stamps/fits_PsfLocal", prefix, "_PSF_local.fits");
-                std::vector<float> sub_psfmap(static_cast<size_t>(nx) * ny);
-                for (int y = 0; y < ny; ++y) {
-                    for (int x = 0; x < nx; ++x) {
-                        sub_psfmap[y * nx + x] = psfmap[y * npx + x];
-                    }
-                }
-                FitsIO::writeImage(out_fits, nx, ny, sub_psfmap);
+                FitsIO::writeImage(
+                    out_fits, failure_nx, failure_ny, psfmap);
 
                 file10 << nums << " -1\n";
                 file90 << (k + 1) << " " << nums << " -1\n";
@@ -3006,12 +2991,37 @@ namespace PSFModel {
         }
     }
 
-    void getPSFModelVeryLocal(const std::vector<float>& psfmap, double x, double y, std::vector<float>& model, double& dmax, int stride) {
+    // ==========================================
+    // Function: Extract one local hybrid PSF stamp
+    // Method: Derive map height from the explicit stride and clamp the grid
+    //         origin so both the stamp and dmax metadata stay in bounds.
+    // ==========================================
+    void getPSFModelVeryLocal(const std::vector<float>& psfmap, double x, double y,
+                              std::vector<float>& model, double& dmax,
+                              int stride) {
         int ns = LensingConfig::ns;
         int step_psf = LensingConfig::step_psf;
 
-        int ixs = static_cast<int>(x / step_psf) * step_psf;
-        int iys = static_cast<int>(y / step_psf) * step_psf;
+        if (stride <= ns || psfmap.empty() ||
+            psfmap.size() % static_cast<std::size_t>(stride) != 0) {
+            MPIFailure::abortWorld(
+                "sample hybrid PSF map", "invalid map stride or storage size");
+        }
+        const int height = static_cast<int>(
+            psfmap.size() / static_cast<std::size_t>(stride));
+        if (height < ns) {
+            MPIFailure::abortWorld(
+                "sample hybrid PSF map", "map height is smaller than PSF stamp");
+        }
+
+        const int max_x_origin = ((stride - ns - 1) / step_psf) * step_psf;
+        const int max_y_origin = ((height - ns) / step_psf) * step_psf;
+        const int requested_x =
+            static_cast<int>(std::max(0.0, x) / step_psf) * step_psf;
+        const int requested_y =
+            static_cast<int>(std::max(0.0, y) / step_psf) * step_psf;
+        const int ixs = std::min(requested_x, max_x_origin);
+        const int iys = std::min(requested_y, max_y_origin);
 
         model.assign(static_cast<size_t>(ns) * ns, 0.0f);
         for (int v = 0; v < ns; ++v) {
@@ -3022,25 +3032,38 @@ namespace PSFModel {
         dmax = psfmap[iys * stride + (ixs + ns)];
     }
 
-    void genPSFFits(std::vector<float>& psfmap, int nums, int nx, int ny, const std::vector<float>& star, const std::vector<std::array<double, 2>>& posi) {
-        int npx = LensingConfig::npx;
-        int npy = LensingConfig::npy;
+    // ==========================================
+    // Function: Build the local residual layer on the configured detector map
+    // Method: Visit only grid origins whose PSF stamp and dmax cell fit within
+    //         the fixed physical CCD geometry.
+    // ==========================================
+    void genPSFFits(std::vector<float>& psfmap, int nums,
+                    const std::vector<float>& star,
+                    const std::vector<std::array<double, 2>>& posi) {
+        const int chipnx = LensingConfig::chipnx;
+        const int chipny = LensingConfig::chipny;
         int ns = LensingConfig::ns;
         int step_psf = LensingConfig::step_psf;
 
-        psfmap.assign(static_cast<size_t>(npx) * npy, 0.0f);
+        if (chipnx <= ns || chipny < ns ||
+            chipnx < step_psf || chipny < step_psf) {
+            MPIFailure::abortWorld(
+                "build hybrid PSF map",
+                "configured geometry cannot contain the PSF grid");
+        }
+        psfmap.assign(static_cast<size_t>(chipnx) * chipny, 0.0f);
 
-        int ixt = nx / step_psf + 1;
-        int iyt = ny / step_psf + 1;
+        const int ixt = (chipnx - ns - 1) / step_psf + 1;
+        const int iyt = (chipny - ns) / step_psf + 1;
 
         if (nums < LensingConfig::nstar_min_local) {
-            psfmap[(step_psf - 1) * npx + (step_psf - 1)] = -100.0f;
-            psfmap[(step_psf - 2) * npx + (step_psf - 2)] = static_cast<float>(nums);
+            psfmap[(step_psf - 1) * chipnx + (step_psf - 1)] = -100.0f;
+            psfmap[(step_psf - 2) * chipnx + (step_psf - 2)] = static_cast<float>(nums);
             return;
         }
 
-        psfmap[(step_psf - 1) * npx + (step_psf - 1)] = 1.0f;
-        psfmap[(step_psf - 2) * npx + (step_psf - 2)] = static_cast<float>(nums);
+        psfmap[(step_psf - 1) * chipnx + (step_psf - 1)] = 1.0f;
+        psfmap[(step_psf - 2) * chipnx + (step_psf - 2)] = static_cast<float>(nums);
 
         double d2min = std::pow(step_psf / 4.0, 2); // 625.0
 
@@ -3077,10 +3100,10 @@ namespace PSFModel {
 
                 for (int v = 0; v < ns; ++v) {
                     for (int u = 0; u < ns; ++u) {
-                        psfmap[(ys + v) * npx + (xs + u)] = model[v * ns + u] / static_cast<float>(norm);
+                        psfmap[(ys + v) * chipnx + (xs + u)] = model[v * ns + u] / static_cast<float>(norm);
                     }
                 }
-                psfmap[ys * npx + (xs + ns)] = static_cast<float>(dmax);
+                psfmap[ys * chipnx + (xs + ns)] = static_cast<float>(dmax);
             }
         }
     }

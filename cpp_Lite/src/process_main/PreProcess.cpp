@@ -400,18 +400,15 @@ namespace PreProcess {
         WCSParams wcs;
         std::string prefix = UniversalUtils::getPrefix(imageFile);
 
-        bool image_read_ok = FitsIO::readImagePara(imageFile, nx, ny, array, wcs);
-        if (!image_read_ok || (!array.empty() && array[0] < -99990.0f)) {
+        const bool image_read_ok = FitsIO::readImagePara(imageFile, nx, ny, array, wcs);
+        const bool source_image_unreadable =
+            !image_read_ok || (!array.empty() && array[0] < -99990.0f);
+        if (source_image_unreadable) {
             std::cerr << "Error reading image parameters of: " << imageFile << std::endl;
             proc_error = 1;
-            if (nx <= 0 || ny <= 0 || array.empty()) {
-                nx = LensingConfig::npx;
-                ny = LensingConfig::npy;
-                array.assign(static_cast<size_t>(nx) * static_cast<size_t>(ny), -99999.0f);
-            } else if (array.size() < static_cast<size_t>(nx) * static_cast<size_t>(ny)) {
-                array.assign(static_cast<size_t>(nx) * static_cast<size_t>(ny), -99999.0f);
-            }
-            array[0] = -99999.0f;
+            nx = 1;
+            ny = 1;
+            array.assign(1, -99999.0f);
         }
 
         // ==========================================
@@ -508,7 +505,10 @@ namespace PreProcess {
         // Method: Preserve Lite's unconditional Gaia branch while selecting the legacy
         //         large tile or accumulated 1-degree candidates rooted at ASTROMETRY_CAT.
         // ==========================================
-        if (LensingConfig::AstroCatType == 1) {
+        if (proc_error != 0) {
+            Astrometry::genAstrometryData(
+                "", nx, ny, normap, weight, wcs, astroFilename, proc_error);
+        } else if (LensingConfig::AstroCatType == 1) {
             std::string catfile = UniversalUtils::generateGaiaFileName(
                 LensingConfig::ASTROMETRY_CAT, wcs.crval, proc_error);
             Astrometry::genAstrometryData(
@@ -543,9 +543,12 @@ namespace PreProcess {
 
         std::string normFilename = OutputLayout::chipPath(
             dirOutput, "stamps/Norm", prefix, "_norm.fits");
-        if (!FitsIO::writeNormHDU(imageFile, normFilename, nx, ny, normap,
-                                  bg_coeffs, sig_coeffs, LensingConfig::CCD_split,
-                                  LensingConfig::nct)) {
+        const bool norm_write_ok = source_image_unreadable
+            ? FitsIO::writeImage(normFilename, 1, 1, std::vector<float>{1.0f})
+            : FitsIO::writeNormHDU(imageFile, normFilename, nx, ny, normap,
+                                   bg_coeffs, sig_coeffs, LensingConfig::CCD_split,
+                                   LensingConfig::nct);
+        if (!norm_write_ok) {
             std::cerr << "Error writing normalized image: " << normFilename << std::endl;
             proc_error = 1;
         }
@@ -1268,8 +1271,14 @@ namespace PreProcess {
         applySigPlane(x_start, x_end, y_start, y_end, nx, image, stored_plane);
     }
 
+    // ==========================================
+    // Function: Locate detector defects in one preprocessed CCD
+    // Method: Stop before margin indexing whenever an earlier Stage-1 error is active.
+    // ==========================================
     void locateDefects(int nx, int ny, const std::vector<float>& array, std::vector<float>& normap,
                        std::vector<int>& weight, int area_max, int area_thresh, int& ierror) {
+        if (ierror != 0) return;
+
         constexpr int margin = 10;
         constexpr double defect_halo_thresh = 1.0;
         constexpr int y_smooth = 200;
@@ -1298,8 +1307,6 @@ namespace PreProcess {
                 weight[y * nx + x] = 0;
             }
         }
-
-       if (ierror == 1) return;
 
        std::vector<float> map(nx * ny);
 

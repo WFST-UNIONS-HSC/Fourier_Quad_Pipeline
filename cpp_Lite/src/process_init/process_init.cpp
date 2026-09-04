@@ -29,7 +29,7 @@ int process_init(const ProcessConfig::RuntimeOptions& options,
     config.filename_prefix = dataset.prefix;
     config.filename_tokens = options.init.contains;
     config.f77_max_path = options.init.f77_max_path;
-    config.max_chip = LensingConfig::NMAX_CHIP;
+    config.max_chip = LensingConfig::N_CCD;
 
     if (options.init.existing == "fail") {
         config.existing_policy = fqinit::ExistingPolicy::Fail;
