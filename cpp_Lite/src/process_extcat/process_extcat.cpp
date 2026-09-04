@@ -1259,7 +1259,7 @@ ProcessExtcat::Config buildIntegratedConfig(const ProcessConfig::RuntimeOptions&
 
     ProcessExtcat::Config config;
     config.input_directory = options.extcat.input_directory;
-    config.output_directory = options.catalog.directory;
+    config.output_directory = options.extcat.output_directory;
     config.filename_tokens = options.extcat.filename_tokens;
     config.recursive = options.extcat.recursive;
     config.delimiter = configuredDelimiter(options.extcat.delimiter);

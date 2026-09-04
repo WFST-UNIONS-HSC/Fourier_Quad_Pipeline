@@ -8,6 +8,8 @@
 //         derived relationships consumed throughout the pipeline.
 // ==========================================
 
+#include "Initialize.hpp"
+
 #include <array>
 #include <string>
 #include <string_view>
@@ -15,7 +17,7 @@
 namespace ProcessConfig {
 
 // Workflow path defaults copied into RuntimeOptions before CLI overrides.
-inline constexpr const char* EXPO_LIST = "";  // Top-level exposure-list path.
+inline constexpr const char* EXPO_LIST = Initialize::EXPO_LIST;  // Top-level exposure-list path.
 inline constexpr const char* REARR_OUTPUT_DIRECTORY = "baked";  // Rearranged catalogs.
 inline constexpr const char* REARR_OUTPUT_BASE_DIRECTORY = "";  // Empty uses dataset root.
 inline constexpr const char* REARRANGED_EXPO_LIST_FILENAME =
@@ -31,38 +33,36 @@ namespace LensingConfig {
 
 // Catalog inputs originally supplied by para.inc; optional flat/PSF branches are absent in Lite.
 inline const std::string ASTROMETRY_CAT =
-    "/lustre/home/acct-phyzj/phyzj/jzhang/gaia/gaia_cat_sorted";  // Gaia tiles.
+    Initialize::ASTROMETRY_CAT;  // Gaia tiles.
 inline constexpr const char* SOURCE_CAT_DEFAULT =
-    "/lustre/home/acct-phyzj/share/DES/testy/des_y6_cat";  // External source tiles.
+    Initialize::SOURCE_CAT_DEFAULT;  // External source tiles.
 
 }  // namespace LensingConfig
 
 namespace InitConfig {
 
 inline constexpr const char* SCIENCE_ROOT =
-    "/lustre/home/acct-phyzj/share/DES/g";  // Science archive root.
+    Initialize::SCIENCE_ROOT;  // Science archive root.
 inline constexpr const char* DQ_ROOT =
-    "/lustre/home/acct-phyzj/share/DES/mask_v1/g_mask";  // DQ archive root.
+    Initialize::DQ_ROOT;  // DQ archive root.
 inline constexpr const char* OUTPUT_ROOT =
-    "/lustre/home/acct-phyzj/share/DES/g_band_v1";  // Pipeline output root.
+    Initialize::OUTPUT_ROOT;  // Pipeline output root.
 
 }  // namespace InitConfig
 
 namespace AstroCatConfig {
 
-inline constexpr std::string_view ASTROMETRY_TILE_PREFIX = "astra_";
-inline constexpr const char* ASTROCAT_INPUT_DIRECTORY = "";  // Raw two-column Gaia files.
-inline const std::string ASTROCAT_OUTPUT_DIRECTORY =
-    LensingConfig::ASTROMETRY_CAT;  // Generated one-degree tiles.
+inline constexpr std::string_view ASTROMETRY_TILE_PREFIX = Initialize::ASTROMETRY_TILE_PREFIX;
+inline constexpr const char* ASTROCAT_INPUT_DIRECTORY = Initialize::ASTROCAT_INPUT_DIRECTORY;
+inline constexpr const char* ASTROCAT_OUTPUT_DIRECTORY = "";  // Advanced producer output.
 
 }  // namespace AstroCatConfig
 
 namespace ExtCatConfig {
 
-inline constexpr std::string_view SOURCE_CAT_TILE_PREFIX = "extern_";
-inline constexpr const char* EXTCAT_INPUT_DIRECTORY = "";  // Raw catalog root.
-inline constexpr const char* EXTCAT_OUTPUT_DIRECTORY =
-    LensingConfig::SOURCE_CAT_DEFAULT;  // Tile output and process_main input.
+inline constexpr std::string_view SOURCE_CAT_TILE_PREFIX = Initialize::SOURCE_CAT_TILE_PREFIX;
+inline constexpr const char* EXTCAT_INPUT_DIRECTORY = Initialize::EXTCAT_INPUT_DIRECTORY;
+inline constexpr const char* EXTCAT_OUTPUT_DIRECTORY = "";  // Advanced producer output.
 
 }  // namespace ExtCatConfig
 

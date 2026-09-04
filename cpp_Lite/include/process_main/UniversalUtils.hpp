@@ -49,8 +49,6 @@ namespace UniversalUtils {
                                          LinearSolve::SolveDiagnostics* diagnostics = nullptr);
 
     // Path & Filename processing
-    std::string generateGaiaFileName(const std::string& baseDir, const double cRVAL[2], int& proc_error);
-    std::string generateGaiaFileName(const std::string& baseDir, const double cRVAL[2]);
     std::vector<std::string> generateGalCatFileNames(
         const std::string& baseDir,
         const double cRVAL[2],

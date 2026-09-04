@@ -13,6 +13,7 @@
 //       in the projection list; their output positions follow the projection order.
 // ==========================================
 
+#include "Initialize.hpp"
 #include "LensingConfig.hpp"
 #include "pathconfig.hpp"
 
@@ -30,15 +31,15 @@ inline constexpr const char* EXTCAT_HEADER_MODE = "auto";  // Input header handl
 inline constexpr const char* EXTCAT_MALFORMED_POLICY = "fail";  // Malformed-row handling policy.
 inline constexpr const char* EXTCAT_EXISTING_POLICY = "fail";  // Existing-tile handling policy.
 inline constexpr std::uint64_t EXTCAT_CHUNK_MIB = 64;  // MPI byte-range task size in MiB.
-inline constexpr std::size_t EXTCAT_TOTAL_COLUMNS = 18;  // Canonical external catalog width.
+inline constexpr std::size_t EXTCAT_TOTAL_COLUMNS = Initialize::EXTCAT_TOTAL_COLUMNS;  // Canonical external catalog width.
 inline constexpr bool EXTCAT_USE_EXPLICIT_COLUMNS = false;  // Enable ordered column projection.
 inline const std::vector<std::size_t> EXTCAT_INPUT_COLUMNS_ONE_BASED = {
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 };  // Raw one-based columns emitted in output order.
 inline constexpr bool EXTCAT_USE_EXPLICIT_COORDINATE_COLUMNS = false;  // Override RA/Dec discovery.
-inline constexpr std::size_t EXTCAT_RA_COLUMN_ONE_BASED = 5;  // Raw one-based RA column.
-inline constexpr std::size_t EXTCAT_DEC_COLUMN_ONE_BASED = 6;  // Raw one-based Dec column.
-inline constexpr std::size_t EXTCAT_ZP_COLUMN_ONE_BASED = 17;  // Raw one-based photo-z column.
+inline constexpr std::size_t EXTCAT_RA_COLUMN_ONE_BASED = Initialize::EXTCAT_RA_COLUMN_ONE_BASED;  // Raw one-based RA column.
+inline constexpr std::size_t EXTCAT_DEC_COLUMN_ONE_BASED = Initialize::EXTCAT_DEC_COLUMN_ONE_BASED;  // Raw one-based Dec column.
+inline constexpr std::size_t EXTCAT_ZP_COLUMN_ONE_BASED = Initialize::EXTCAT_ZP_COLUMN_ONE_BASED;  // Raw one-based photo-z column.
 
 }  // namespace ExtCatConfig
 

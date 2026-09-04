@@ -1,6 +1,7 @@
 #ifndef LENSING_CONFIG_HPP
 #define LENSING_CONFIG_HPP
 
+#include "Initialize.hpp"
 #include "pathconfig.hpp"
 
 #include <cmath>
@@ -16,39 +17,22 @@
 //   deblending         = 1  -> de-blending always applied
 //   PSF_type           = 1  -> local polynomial PSF fit
 //   PSF_Ms             = 0  -> no multi-scale / PCA PSF reconstruction
-// Still selectable: AstroCatType, PROCESS_stage, CCD_split, gal_smooth, star_smooth, NstampType.
+// Still selectable: PROCESS_stage, CCD_split, gal_smooth, and star_smooth.
 // ==========================================
 namespace LensingConfig {
     // Camera geometry
-    constexpr int N_CCD = 62;  // Number of CCD chips per exposure.
+    inline constexpr int N_CCD = Initialize::N_CCD;  // Number of CCD chips per exposure.
     // CCD configuration
-    constexpr double pixel_size = 0.2628;  // DECam pixel scale in arcseconds.
-    constexpr double saturation_thresh = 25000.0;  // Saturated pixel threshold.
+    inline constexpr double pixel_size = Initialize::pixel_size;  // Pixel scale in arcseconds.
+    inline constexpr double saturation_thresh = Initialize::saturation_thresh;  // Saturated pixel threshold.
     // Image/CCD size parameters
-    constexpr int chipnx = 2046;  // Science CCD width used for PSF coordinates.
-    constexpr int chipny = 4094;  // Science CCD height used for PSF coordinates.
-
-    // ==========================================
-    // Configuration: Astrometric reference catalog layout
-    // Method: Select legacy large Gaia tiles (1) or repartitioned 1-degree tiles (2).
-    // ==========================================
-    constexpr int AstroCatType = 1;
+    inline constexpr int chipnx = Initialize::chipnx;  // Science CCD width used for PSF coordinates.
+    inline constexpr int chipny = Initialize::chipny;  // Science CCD height used for PSF coordinates.
     // Stage control parameters
-    constexpr int PROCESS_stage =          // Prime-product stage selector.
-                                2 *        // Pre-Process
-                                3 *        // Astrometry
-                                5 *        // Source extractor
-                                7 *        // FFT for star candidate
-                                11 *       // Star selection
-                                13 *       // FFT for source
-                                17 *       // Shear measurement
-                                19 *       // Exposure info
-                                23 *       // Catalog Combiners
-                                1;
-    constexpr int include_BGsub = 1;  // Subtract the fitted science-image background.
+    inline constexpr int PROCESS_stage = Initialize::PROCESS_stage;  // Prime-product stage selector.
 
     // Split parameters
-    constexpr int CCD_split = 2;  // Split each CCD into one or two amplifier regions.
+    inline constexpr int CCD_split = Initialize::CCD_split;  // Split each CCD into amplifier regions.
     constexpr int nct = 12;  // Number of background rectangles.
     constexpr int ncx = 3;  // Number of background rectangles along x.
 
@@ -66,8 +50,6 @@ namespace LensingConfig {
     // Method: Preserve Lite's frozen local-PSF/Gaia branches while keeping the
     //         common selection topology and rejection thresholds explicit.
     // ==========================================
-    constexpr int PsfGroupingType = 3;  // 1 threshold graph; 2 mutual KNN; 3 adaptive pair fractions.
-    // ---
     constexpr int psf_exposure_min_candidates = 60;  // Minimum exposure-wide PSF candidates.
     constexpr double psf_count_pilot_clip_sigma = 3.0;  // Robust star-area pilot clipping multiplier.
     constexpr int psf_count_pilot_clip_iterations = 3;  // Robust star-area pilot clipping passes.
@@ -78,9 +60,6 @@ namespace LensingConfig {
     constexpr double psf_minchi_reference_fraction = 1.0 / 3.0;  // Exposure top-size reference fraction.
     constexpr int psf_minchi_reference_max_per_chip = 5;  // Reference-star cap per chip.
     constexpr double psf_minchi_sigma_cut = 4.0;  // Minimum-chi rejection sigma.
-    constexpr int psf_knn_k = 20;  // Neighbors retained by the PSF KNN graph.
-    constexpr double psf_group_merge_ratio = 0.30;  // Secondary-group relative-size threshold.
-    constexpr int psf_group_merge_min_gaia = 1;  // Minimum Gaia matches in a merged group.
     constexpr double psf_gaia_match_radius_pix = 2.0;  // Gaia match radius in pixels.
     constexpr int psf_gaia_locus_min_matches = 5;  // Minimum Gaia matches for locus support.
     constexpr double psf_pair_chi_valid_peak_fraction = 0.3678794411714423216;  // exp(-1) pair-chi peak threshold.
@@ -134,11 +113,6 @@ namespace LensingConfig {
     constexpr double core_thresh = 4.0;  // Source-core detection threshold.
 
     // ==========================================
-    // Configuration: Stage-3 noise-product construction method
-    // Method: Select a physical blank-noise stamp (1) or local covariance noise power (2).
-    // ==========================================
-    constexpr int NstampType = 1;  // One uses blank stamps; two uses covariance power.
-    // ==========================================
     // Configuration: Stage-3 blank-noise-stamp quality gates
     // Method: Retain the main-branch fixed candidate QC before random selection.
     // ==========================================
@@ -151,23 +125,13 @@ namespace LensingConfig {
     constexpr double noise_max_mask_fraction = 0.02;  // Maximum blank-stamp masked fraction.
 
     // ==========================================
-    // Configuration: Stage-3 local masked-covariance noise-power estimator
-    // Method: Fit one plane on the same-amplifier outer square shell, exclude the central
-    //         source/neighbor region, retain short lags, and reject unstable estimates.
+    // Configuration: Retained local noise-plane fitting utility
+    // Method: Define the square shell and minimum valid fraction exercised by
+    //         the standalone NoisePlaneFit regression.
     // ==========================================
     constexpr int noise_region_size = 192;  // Outer local-noise square side length.
     constexpr int noise_inner_size = 96;  // Central exclusion square side length.
     constexpr double noise_plane_min_valid_fraction = 0.30;  // Minimum plane-fit shell fraction.
-    constexpr double noise_cov_padding_factor = 2.0;  // Covariance FFT padding multiplier.
-    constexpr int noise_cov_fft_size = static_cast<int>(
-        noise_region_size * noise_cov_padding_factor + 0.999999);  // Padded covariance FFT side.
-    constexpr int noise_cov_max_lag = 63;  // Maximum retained signed covariance lag.
-    constexpr int noise_cov_min_valid_pixels = 4096;  // Minimum covariance-mask pixels.
-    constexpr double noise_cov_min_pair_fraction = 0.50;  // Minimum lag pair-count fraction.
-    constexpr double noise_cov_sigma_ratio_min = 0.80;  // Minimum covariance sigma ratio.
-    constexpr double noise_cov_sigma_ratio_max = 1.25;  // Maximum covariance sigma ratio.
-    constexpr double noise_cov_max_negative_fraction = 0.25;  // Maximum negative power fraction.
-    constexpr double noise_cov_imag_tolerance = 1.0e-10;  // Imaginary FFT residual tolerance.
 
     // ==========================================
     // Configuration: numerical_fix F6 mode-bar noise-plane estimator
@@ -247,13 +211,6 @@ namespace LensingConfig {
     constexpr double arc_convert = pi / 180.0;  // Degrees-to-radians conversion factor.
 
     // ==========================================
-    static_assert(AstroCatType == 1 || AstroCatType == 2,
-                  "AstroCatType must be 1 or 2");
-    static_assert(NstampType == 1 || NstampType == 2,
-                  "NstampType must be 1 or 2");
-    static_assert(PsfGroupingType == 1 || PsfGroupingType == 2
-                      || PsfGroupingType == 3,
-                  "PsfGroupingType must be 1, 2, or 3");
     static_assert(psf_exposure_min_candidates > 0,
                   "PSF exposure minimum must be positive");
     static_assert(psf_minchi_reference_fraction > 0.0
@@ -279,7 +236,6 @@ namespace LensingConfig {
     static_assert(psf_type3_elbow_search_height_fraction > 0.0
                       && psf_type3_elbow_search_height_fraction < 1.0,
                   "PSF Type-3 elbow search height fraction must lie in (0,1)");
-    static_assert(psf_knn_k > 0, "PSF KNN count must be positive");
     static_assert(psf_press_max_removals >= 0,
                   "PSF PRESS removal cap must be non-negative");
     static_assert(psf_loo_min_denom > 0.0 && psf_loo_min_denom < 1.0,
@@ -295,16 +251,6 @@ namespace LensingConfig {
     static_assert(noise_plane_min_valid_fraction > 0.0
                       && noise_plane_min_valid_fraction <= 1.0,
                   "noise plane minimum valid fraction must lie in (0,1]");
-    static_assert(noise_cov_padding_factor > 0.0,
-                  "noise covariance padding factor must be positive");
-    static_assert(noise_cov_fft_size >= 2 * noise_region_size - 1,
-                  "noise covariance FFT padding is too small");
-    static_assert(noise_cov_max_lag >= 0,
-                  "noise covariance max lag must be non-negative");
-    static_assert(noise_cov_max_lag < noise_region_size,
-                  "noise covariance max lag must fit inside the local covariance region");
-    static_assert(noise_cov_min_valid_pixels > 0,
-                  "noise covariance requires valid outer pixels");
 }
 
 #endif // LENSING_CONFIG_HPP

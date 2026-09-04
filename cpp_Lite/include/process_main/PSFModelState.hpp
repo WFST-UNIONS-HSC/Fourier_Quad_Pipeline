@@ -14,7 +14,7 @@ namespace Internal {
 
 // ==========================================
 // Structure: Store one candidate's explicit star-selection metadata
-// Method: Keep scientific flags, cached Fourier window, nearest neighbours,
+// Method: Keep scientific flags, cached Fourier window, adaptive-pair state,
 //         and PRESS diagnostics outside the legacy StarRow column layout.
 // ==========================================
 struct StarSelectionState {
@@ -30,7 +30,6 @@ struct StarSelectionState {
     double press_standardized_score = 0.0;
     double leverage = 0.0;
     std::vector<float> chi_window;
-    std::vector<NeighborEdge> knn;
 };
 
 // ==========================================

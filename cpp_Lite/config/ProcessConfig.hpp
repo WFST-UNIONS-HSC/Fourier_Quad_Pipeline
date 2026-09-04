@@ -1,6 +1,7 @@
 #ifndef PROCESS_CONFIG_HPP
 #define PROCESS_CONFIG_HPP
 
+#include "Initialize.hpp"
 #include "AstroCatConfig.hpp"
 #include "ExtCatConfig.hpp"
 #include "InitConfig.hpp"
@@ -13,12 +14,12 @@
 
 namespace ProcessConfig {
 
-inline constexpr bool RUN_PROCESS_ASTROCAT = false;  // Run Gaia-catalog tiling by default.
-inline constexpr bool RUN_PROCESS_EXTCAT = false;  // Run external-catalog tiling by default.
-inline constexpr bool RUN_PROCESS_INIT = true;     // Run archive initialization by default.
-inline constexpr bool RUN_PROCESS_MAIN = true;     // Run the nine-stage pipeline by default.
-inline constexpr bool RUN_PROCESS_REARR = false;   // Skip catalog rearrangement by default.
-inline constexpr bool RUN_PROCESS_FD = false;      // Skip the field-distortion test by default.
+inline constexpr bool RUN_PROCESS_ASTROCAT = Initialize::RUN_PROCESS_ASTROCAT;
+inline constexpr bool RUN_PROCESS_EXTCAT = Initialize::RUN_PROCESS_EXTCAT;
+inline constexpr bool RUN_PROCESS_INIT = Initialize::RUN_PROCESS_INIT;
+inline constexpr bool RUN_PROCESS_MAIN = Initialize::RUN_PROCESS_MAIN;
+inline constexpr bool RUN_PROCESS_REARR = Initialize::RUN_PROCESS_REARR;
+inline constexpr bool RUN_PROCESS_FD = Initialize::RUN_PROCESS_FD;
 
 // ==========================================
 // Configuration: Runtime workflow options
@@ -51,14 +52,14 @@ struct AstroCatOptions {
 };
 
 struct PipelineOptions {
-    std::string output_root = InitConfig::OUTPUT_ROOT;  // Shared dataset output root.
-    std::vector<InitConfig::DatasetSpec> datasets = InitConfig::DATASETS;  // Sequential datasets.
-    std::string exposure_list = EXPO_LIST;  // Downstream top-level exposure list.
+    std::string output_root = Initialize::OUTPUT_ROOT;  // Shared dataset output root.
+    std::vector<InitConfig::DatasetSpec> datasets = Initialize::DATASETS;  // Sequential datasets.
+    std::string exposure_list = Initialize::EXPO_LIST;  // Downstream top-level exposure list.
     bool external_exposure_list_supplied = false;  // Track an explicit list override.
 };
 
 struct CatalogOptions {
-    std::string directory = ExtCatConfig::EXTCAT_OUTPUT_DIRECTORY;  // Tile output and main input.
+    std::string directory = Initialize::SOURCE_CAT_DEFAULT;  // process_main tile input.
     bool use_explicit_columns = ExtCatConfig::EXTCAT_USE_EXPLICIT_COLUMNS;  // Enable projection.
     std::vector<std::size_t> input_columns_one_based =
         ExtCatConfig::EXTCAT_INPUT_COLUMNS_ONE_BASED;  // Ordered raw-column projection.
@@ -71,6 +72,7 @@ struct CatalogOptions {
 
 struct ExtCatOptions {
     std::string input_directory = ExtCatConfig::EXTCAT_INPUT_DIRECTORY;  // Raw catalog root.
+    std::string output_directory = ExtCatConfig::EXTCAT_OUTPUT_DIRECTORY;  // Generated tiles.
     std::vector<std::string> filename_tokens = ExtCatConfig::EXTCAT_FILENAME_TOKENS;  // OR filters.
     bool recursive = ExtCatConfig::EXTCAT_RECURSIVE;  // Recurse below the raw catalog root.
     std::string delimiter = ExtCatConfig::EXTCAT_DELIMITER;  // Input delimiter mode.

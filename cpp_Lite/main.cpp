@@ -234,6 +234,8 @@ bool applyNamedOption(const std::string& name,
     } else if (name == "--extcat-input") {
         options.extcat.input_directory = value;
     } else if (name == "--extcat-output") {
+        options.extcat.output_directory = value;
+    } else if (name == "--source-cat") {
         options.catalog.directory = value;
     } else if (name == "--extcat-contains") {
         if (value.empty()) {
@@ -431,13 +433,16 @@ bool validateOptions(const ProcessConfig::RuntimeOptions& options, std::string& 
         error = "astrometry-catalog existing policy must be fail or overwrite";
         return false;
     }
-    if ((options.workflow.run_extcat || options.workflow.run_main)
-        && options.catalog.directory.empty()) {
-        error = "external source-catalog output directory must not be empty";
+    if (options.workflow.run_main && options.catalog.directory.empty()) {
+        error = "external source-catalog input directory must not be empty";
         return false;
     }
     if (options.workflow.run_extcat && options.extcat.input_directory.empty()) {
         error = "external source-catalog input directory must not be empty";
+        return false;
+    }
+    if (options.workflow.run_extcat && options.extcat.output_directory.empty()) {
+        error = "external source-catalog output directory must not be empty";
         return false;
     }
     if ((options.workflow.run_init || options.workflow.run_main || options.workflow.run_fd
@@ -676,7 +681,9 @@ void printUsage(const char* program_name) {
         << "  --run-fd BOOL         Run FD (field-distortion) shear test; follows process_main (default: "
         << (ProcessConfig::RUN_PROCESS_FD ? "true" : "false") << ")\n"
         << "  --extcat-input PATH   Directory containing raw external catalogs\n"
-        << "  --extcat-output PATH  External-catalog tile directory used by process_main\n"
+        << "  --extcat-output PATH  process_extcat producer output directory\n"
+        << "  --source-cat PATH     process_main external-catalog tile input (default: "
+        << LensingConfig::SOURCE_CAT_DEFAULT << ")\n"
         << "  --extcat-contains T   Repeatable raw basename token, matched with OR (default: "
         << configuredExtcatContainsText() << ")\n"
         << "  --extcat-recursive B  Recurse below extcat input (default: "

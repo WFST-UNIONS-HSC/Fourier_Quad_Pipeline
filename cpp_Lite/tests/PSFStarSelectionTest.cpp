@@ -670,81 +670,6 @@ void testGaiaParsingAndMatching() {
 }
 
 // ==========================================
-// Function: Verify streaming top-K, mutual edges, and shared group selection
-// Method: Compare deterministic top-K order, build mutual components, and
-//         exercise the secondary size-and-Gaia conjunction.
-// ==========================================
-void testGrouping() {
-    std::vector<NeighborEdge> top_k;
-    updateTopK(top_k, 3, 3.0f, 2);
-    updateTopK(top_k, 1, 1.0f, 2);
-    updateTopK(top_k, 2, 2.0f, 2);
-    require(top_k.size() == 2 && top_k[0].star_index == 1
-                && top_k[1].star_index == 2,
-            "streaming top-K must match sorted full-distance reference");
-
-    std::vector<std::vector<NeighborEdge>> neighbours(4);
-    neighbours[0] = {{1, 1.0f}, {2, 2.0f}};
-    neighbours[1] = {{0, 1.0f}, {2, 1.5f}};
-    neighbours[2] = {{1, 1.5f}, {0, 2.0f}};
-    neighbours[3] = {{2, 0.5f}};
-    const std::vector<int> active = {0, 1, 2, 3};
-    const std::vector<GraphEdge> mutual = buildMutualKNNEdges(active, neighbours);
-    const std::vector<bool> gaia = {false, true, false, true};
-    const std::vector<StarGroup> connected =
-        buildConnectedGroups(active, mutual, gaia);
-    require(connected.size() == 2,
-            "mutual-KNN fixture must form one triple and one singleton");
-
-    const std::vector<StarGroup> groups = {
-        {{0, 1, 2, 3}, 0},
-        {{4, 5}, 2},
-        {{6, 7}, 1},
-        {{8}, 3}
-    };
-    const std::vector<int> selected =
-        selectMainAndSecondaryGroups(groups, 0.40, 2);
-    require(selected == std::vector<int>({0, 1, 2, 3, 4, 5}),
-            "secondary groups must pass both relative size and Gaia count");
-}
-
-// ==========================================
-// Structure: Provide the minimal cached fields required by active-KNN rebuilds
-// Method: Mirror production chi-window and neighbour storage without PSF I/O.
-// ==========================================
-struct SyntheticKNNSelectionState {
-    std::vector<float> chi_window;
-    std::vector<NeighborEdge> knn;
-};
-
-// ==========================================
-// Function: Verify KNN slots are refilled after the minChi survivor cut
-// Method: Build an initial top-2 containing rejected close stars, rebuild on
-//         survivors only, and require the next two valid neighbours to replace them.
-// ==========================================
-void testKNNRebuiltAfterMinChiCut() {
-    std::vector<SyntheticKNNSelectionState> candidates(5);
-    for (int index = 0; index < static_cast<int>(candidates.size()); ++index) {
-        candidates[index].chi_window = {
-            1.0f + static_cast<float>(index) * 0.1f};
-    }
-
-    rebuildActiveKNN(std::vector<int>({0, 1, 2, 3, 4}), candidates, 2);
-    require(candidates[0].knn.size() == 2
-                && candidates[0].knn[0].star_index == 1
-                && candidates[0].knn[1].star_index == 2,
-            "pre-cut top-K fixture must be occupied by the closest rejected stars");
-
-    rebuildActiveKNN(std::vector<int>({0, 3, 4}), candidates, 2);
-    require(candidates[0].knn.size() == 2
-                && candidates[0].knn[0].star_index == 3
-                && candidates[0].knn[1].star_index == 4,
-            "survivor-only rebuild must refill every vacated top-K slot");
-    require(candidates[1].knn.empty() && candidates[2].knn.empty(),
-            "minChi-rejected candidates must retain no stale neighbour state");
-}
-
-// ==========================================
 // Function: Verify capped reference selection and one-pass minChi semantics
 // Method: Exercise exposure top-fraction ranking, per-chip caps, deterministic
 //         ties, non-reference nearest pairs, and unordered-pair deduplication.
@@ -990,7 +915,7 @@ void testAnalyticLOO() {
 
 // ==========================================
 // Function: Run the focused PSF star-selection regression suite
-// Method: Execute quality-independent locus, Gaia, grouping, and LOO cases.
+// Method: Execute quality-independent locus, Gaia, adaptive-pair, and LOO cases.
 // ==========================================
 int main() {
     testChiWindowAndDistance();
@@ -1003,8 +928,6 @@ int main() {
     testAdaptiveUpperElbowHistogram();
     testType3FractionSelection();
     testGaiaParsingAndMatching();
-    testGrouping();
-    testKNNRebuiltAfterMinChiCut();
     testMinChiReferencesAndPairs();
     testAnalyticLOO();
     testPressStandardizationAndDecision();

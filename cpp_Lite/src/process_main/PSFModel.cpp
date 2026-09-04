@@ -750,7 +750,6 @@ namespace PSFModel {
                 selection.selected_press = false;
                 selection.bad_pair_fraction = 0.0;
                 std::vector<float>().swap(selection.chi_window);
-                std::vector<Internal::NeighborEdge>().swap(selection.knn);
             }
         }
     }
@@ -817,12 +816,6 @@ namespace PSFModel {
     // Method: Address candidates by their original per-chip indices.
     // ==========================================
     using ActiveIndicesByChip = std::vector<std::vector<int>>;
-
-    // ==========================================
-    // Structure: Store one connected-group collection for every exposure chip
-    // Method: Give legacy and KNN grouping one identical dispatch result type.
-    // ==========================================
-    using ExposureGroups = std::vector<std::vector<Internal::StarGroup>>;
 
     // ==========================================
     // Function: Build exposure-thresholded same-chip minChi survivor lists
@@ -915,141 +908,6 @@ namespace PSFModel {
     }
 
     // ==========================================
-    // Function: Construct legacy threshold groups for every exposure chip
-    // Method: Preserve the existing all-size-locus-pair threshold sample exactly,
-    //         then apply its threshold graph only to shared minChi survivors.
-    // ==========================================
-    [[maybe_unused]] static ExposureGroups groupStarsLegacy(
-        int nchip,
-        ExposurePSFState& state,
-        const ActiveIndicesByChip& active_indices) {
-        std::vector<float> legacy_pair_chi;
-        for (int chip_index = 0; chip_index < nchip; ++chip_index) {
-            const ChipPSFState& chip = state.chips[chip_index];
-            for (int first = 0; first < state.getNStar(chip_index) - 1; ++first) {
-                if (!chip.selection[first].in_size_locus) continue;
-                for (int second = first + 1;
-                     second < state.getNStar(chip_index); ++second) {
-                    if (!chip.selection[second].in_size_locus) continue;
-                    const float chi = Internal::normalizedChiDistance(
-                        chip.selection[first].chi_window,
-                        chip.selection[second].chi_window);
-                    if (std::isfinite(chi)) legacy_pair_chi.push_back(chi);
-                }
-            }
-        }
-        const float legacy_chi_threshold = estimateUpperTailThreshold(
-            legacy_pair_chi, 4.0);
-
-        ExposureGroups groups_by_chip(static_cast<std::size_t>(nchip));
-        for (int chip_index = 0; chip_index < nchip; ++chip_index) {
-            const ChipPSFState& chip = state.chips[chip_index];
-            const std::vector<int>& active = active_indices[chip_index];
-            std::vector<Internal::GraphEdge> graph_edges;
-            for (std::size_t first = 0; first + 1 < active.size(); ++first) {
-                for (std::size_t second = first + 1;
-                     second < active.size(); ++second) {
-                    const int first_index = active[first];
-                    const int second_index = active[second];
-                    const float chi = Internal::normalizedChiDistance(
-                        chip.selection[first_index].chi_window,
-                        chip.selection[second_index].chi_window);
-                    if (std::isfinite(chi) && chi <= legacy_chi_threshold) {
-                        graph_edges.push_back({first_index, second_index});
-                    }
-                }
-            }
-            std::vector<bool> gaia_matched(
-                static_cast<std::size_t>(state.getNStar(chip_index)), false);
-            for (int star_index = 0;
-                 star_index < state.getNStar(chip_index); ++star_index) {
-                gaia_matched[star_index] =
-                    chip.selection[star_index].gaia_matched;
-            }
-            groups_by_chip[chip_index] = Internal::buildConnectedGroups(
-                active, graph_edges, gaia_matched);
-        }
-        return groups_by_chip;
-    }
-
-    // ==========================================
-    // Function: Construct exact survivor-only mutual-KNN groups per chip
-    // Method: Rebuild top-K after the shared minChi cut, then form mutual edges
-    //         and connected components without any legacy chi threshold.
-    // ==========================================
-    [[maybe_unused]] static ExposureGroups groupStarsKNN(
-        int nchip,
-        ExposurePSFState& state,
-        const ActiveIndicesByChip& active_indices) {
-        ExposureGroups groups_by_chip(static_cast<std::size_t>(nchip));
-        for (int chip_index = 0; chip_index < nchip; ++chip_index) {
-            ChipPSFState& chip = state.chips[chip_index];
-            const std::vector<int>& active = active_indices[chip_index];
-            Internal::rebuildActiveKNN(
-                active, chip.selection, LensingConfig::psf_knn_k);
-
-            std::vector<std::vector<Internal::NeighborEdge>> neighbours(
-                static_cast<std::size_t>(state.getNStar(chip_index)));
-            std::vector<bool> gaia_matched(
-                static_cast<std::size_t>(state.getNStar(chip_index)), false);
-            for (int star_index = 0;
-                 star_index < state.getNStar(chip_index); ++star_index) {
-                neighbours[star_index] = chip.selection[star_index].knn;
-                gaia_matched[star_index] =
-                    chip.selection[star_index].gaia_matched;
-            }
-            const std::vector<Internal::GraphEdge> graph_edges =
-                Internal::buildMutualKNNEdges(active, neighbours);
-            groups_by_chip[chip_index] = Internal::buildConnectedGroups(
-                active, graph_edges, gaia_matched);
-        }
-        return groups_by_chip;
-    }
-
-    // ==========================================
-    // Function: Apply the shared main/secondary group policy to every chip
-    // Method: Reject all candidates first, retain selected components only when
-    //         the local minimum passes, and release temporary grouping caches.
-    // ==========================================
-    [[maybe_unused]] static void applySharedGroupSelection(
-        int nchip,
-        const ExposureGroups& groups_by_chip,
-        ExposurePSFState& state) {
-        for (int chip_index = 0; chip_index < nchip; ++chip_index) {
-            ChipPSFState& chip = state.chips[chip_index];
-            for (int star_index = 0;
-                 star_index < state.getNStar(chip_index); ++star_index) {
-                chip.selection[star_index].selected_group = false;
-                state.getStarPara(chip_index, star_index, 4) = -1.0;
-            }
-
-            std::vector<int> selected =
-                Internal::selectMainAndSecondaryGroups(
-                    groups_by_chip[chip_index],
-                    LensingConfig::psf_group_merge_ratio,
-                    LensingConfig::psf_group_merge_min_gaia);
-            if (static_cast<int>(selected.size())
-                < LensingConfig::nstar_min_local) {
-                selected.clear();
-            }
-            for (int star_index : selected) {
-                if (star_index < 0
-                    || star_index >= state.getNStar(chip_index)) {
-                    continue;
-                }
-                chip.selection[star_index].selected_group = true;
-                state.getStarPara(chip_index, star_index, 4) = 1.0;
-            }
-            for (Internal::StarSelectionState& selection : chip.selection) {
-                std::vector<Internal::NeighborEdge>().swap(selection.knn);
-                if (!selection.selected_group) {
-                    std::vector<float>().swap(selection.chi_window);
-                }
-            }
-        }
-    }
-
-    // ==========================================
     // Function: Commit one direct Type-3 pre-PRESS survivor collection
     // Method: Validate original indices, enforce the chip minimum atomically,
     //         update legacy flags, and release every rejected temporary cache.
@@ -1079,7 +937,6 @@ namespace PSFModel {
                 selection.selected_group = keep_chip && proposed[star_index];
                 state.getStarPara(chip_index, star_index, 4) =
                     selection.selected_group ? 1.0 : -1.0;
-                std::vector<Internal::NeighborEdge>().swap(selection.knn);
                 if (!selection.selected_group) {
                     std::vector<float>().swap(selection.chi_window);
                 }
@@ -1441,7 +1298,6 @@ namespace PSFModel {
                 Internal::StarSelectionState& selection = chip.selection[star_index];
                 selection.selected_group = false;
                 selection.selected_press = false;
-                selection.knn.clear();
                 selection.min_chi = std::numeric_limits<float>::infinity();
                 selection.bad_pair_fraction = 0.0;
                 if (state.getStarPara(chip_index, star_index, 4) <= 0.0) continue;
@@ -1486,20 +1342,7 @@ namespace PSFModel {
         }
         Internal::populateMinChiSurvivorCountHistogram(
             minchi_survivor_star_areas, locus_diagnostics);
-        if constexpr (LensingConfig::PsfGroupingType == 3) {
-            applyAdaptivePairFractionSelection(
-                nchip, state, active_indices);
-        } else {
-            ExposureGroups groups_by_chip;
-            if constexpr (LensingConfig::PsfGroupingType == 1) {
-                groups_by_chip = groupStarsLegacy(
-                    nchip, state, active_indices);
-            } else {
-                groups_by_chip = groupStarsKNN(
-                    nchip, state, active_indices);
-            }
-            applySharedGroupSelection(nchip, groups_by_chip, state);
-        }
+        applyAdaptivePairFractionSelection(nchip, state, active_indices);
 
         std::vector<int> selected_group_star_areas;
         for (int chip_index = 0; chip_index < nchip; ++chip_index) {

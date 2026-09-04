@@ -1,5 +1,6 @@
 #include "process_main/FitsIO.hpp"
 #include "process_main/OutputFile.hpp"
+#include "InitConfig.hpp"
 #include <fitsio.h>
 #include <iostream>
 #include <cstdio>
@@ -188,7 +189,8 @@ namespace FitsIO {
             printError(status);
             return false;
         }
-        fits_read_key(fptr, TINT, "CCDNUM", &ccdNum, nullptr, &status);
+        fits_read_key(fptr, TINT, InitConfig::CCDNUM_KEYWORD,
+                      &ccdNum, nullptr, &status);
         if (status != 0) {
             printError(status);
             closeAfterFailure(fptr);

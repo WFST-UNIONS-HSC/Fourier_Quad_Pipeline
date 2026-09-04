@@ -494,38 +494,6 @@ namespace UniversalUtils {
         return LinearSolve::SolveStatus::Normal;
     }
 
-    std::string generateGaiaFileName(const std::string& baseDir, const double cRVAL[2], int& proc_error) {
-        if (proc_error == 1) return "";
-        if (cRVAL[0] < 0) {
-            proc_error = 1;
-            return "";
-        }
-        double ra_val = cRVAL[0];
-        double dec_val = cRVAL[1];
-        int dec = std::min(static_cast<int>(std::abs(dec_val) / 10.0) + 1, 9);
-        int ra = std::min(static_cast<int>(ra_val / 10.0), 35);
-
-        std::ostringstream oss;
-        oss << baseDir;
-        if (dec_val >= 0.0) {
-            oss << "/gaia_p";
-        } else {
-            oss << "/gaia_m";
-        }
-        oss << dec;
-        if (dec == 9) {
-            oss << ".cat";
-        } else {
-            oss << "_" << std::setw(2) << std::setfill('0') << ra << ".cat";
-        }
-        return oss.str();
-    }
-
-    std::string generateGaiaFileName(const std::string& baseDir, const double cRVAL[2]) {
-        int dummy_proc_error = 0;
-        return generateGaiaFileName(baseDir, cRVAL, dummy_proc_error);
-    }
-
     // ==========================================
     // Function: Build nearby one-degree catalog tile paths
     // Method: Apply the caller-selected catalog prefix through the shared basename grammar.

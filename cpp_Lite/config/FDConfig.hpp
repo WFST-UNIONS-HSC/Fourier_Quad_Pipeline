@@ -57,13 +57,13 @@ inline constexpr int Km_iter = 100;        // k-means iterations
 inline constexpr float snrfcut = 4.0;  // Minimum Fourier signal-to-noise ratio.
 inline constexpr float snrlow = 0.0;  // Optional lower source-SNR bound; zero disables it.
 inline constexpr float snrhigh = 0.0;  // Optional upper source-SNR bound; zero disables it.
-inline constexpr float starcut = 20.0;  // Point-source size cut.
+inline constexpr float starcut = 16.0;  // Point-source size cut.
 inline constexpr float chi2_thresh = 0.01;  // Maximum exposure chi-square.
 inline constexpr float flagcut = 0.0;  // Maximum accepted source quality flag.
 inline constexpr float imaxcut = 64.0;  // Maximum source peak x coordinate.
 inline constexpr float jmaxcut = 64.0;  // Maximum source peak y coordinate.
 inline constexpr float zplow = 0.0;  // Minimum photometric redshift.
-inline constexpr float zphigh = 3.0;  // Maximum photometric redshift.
+inline constexpr float zphigh = 5.0;  // Maximum photometric redshift.
 inline constexpr float r_half_thresh = 0.0;  // Optional half-light-radius threshold.
 inline constexpr float star_bar_mltp = 3.0;  // Stellar-locus sigma multiplier.
 inline constexpr float psf_chi2_mltp = 3.0;  // PSF chi-square sigma multiplier.
@@ -156,7 +156,7 @@ static_assert(col_chi2 + 1 == ICHI2,
               "Chi2 must be the final catalog column");
 
 // ==================== Bad CCD list (DES) ====================
-inline constexpr int bad_ccds[] = {};  // DES CCD numbers excluded from analysis.
+inline constexpr int bad_ccds[] = {-1};  // DES CCD numbers excluded from analysis.
 inline constexpr int n_bad_ccds = 0;  // Number of excluded CCDs.
 
 // ==================== Chip-edge masking ====================

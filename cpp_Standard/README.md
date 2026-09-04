@@ -26,6 +26,13 @@ layout names are centralized in `config/pathconfig.hpp`; CLI overrides workflow
 paths. Scientific branches and thresholds in `config/LensingConfig.hpp` require
 rebuilding.
 
+Archive-format and detector naming conventions are compiled in
+`config/InitConfig.hpp`: `ARCHIVE_SUFFIX` selects initializer inputs,
+`CCDNUM_KEYWORD` names the DQ/main chip-number FITS keyword, and
+`DQ_STEM_REPLACE_FROM`/`DQ_STEM_REPLACE_TO` map DQ archive stems to science
+exposure stems. Their defaults remain `.fits.fz`, `CCDNUM`, and `ood` to `ooi`;
+changing any of them requires `make clean` and a rebuild.
+
 The optional one-time `process_astrocat` phase runs before `process_extcat` and
 publishes deduplicated one-degree Gaia tiles. Its `--astrocat-output` directory
 is independent of `LensingConfig::ASTROMETRY_CAT`; configure the consumer path

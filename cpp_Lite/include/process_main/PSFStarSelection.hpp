@@ -409,15 +409,6 @@ bool hasNearestGaiaMatch(
     double radius_pixels);
 
 // ==========================================
-// Structure: Store one exact same-chip nearest-neighbour relation
-// Method: Retain the original candidate index and its normalized Fourier chi.
-// ==========================================
-struct NeighborEdge {
-    int star_index = -1;
-    float chi = 0.0f;
-};
-
-// ==========================================
 // Structure: Identify one exposure-level minChi reference candidate
 // Method: Carry deterministic chip/star keys and the legacy index-7 size rank.
 // ==========================================
@@ -473,101 +464,6 @@ MinChiPairResult computeMinChiAndThresholdPairs(
 float normalizedChiDistance(
     const std::vector<float>& first,
     const std::vector<float>& second);
-
-// ==========================================
-// Function: Maintain one exact sorted top-K neighbour list
-// Method: Insert or improve the candidate edge, sort by chi/index, and truncate.
-// ==========================================
-void updateTopK(
-    std::vector<NeighborEdge>& neighbours,
-    int star_index,
-    float chi,
-    int k);
-
-// ==========================================
-// Function: Rebuild exact top-K neighbours on one active survivor set
-// Method: Clear every stale list, compare only active same-chip cached windows,
-//         and refill bounded neighbours in exact distance/index order.
-// ==========================================
-template <typename CandidateSelectionState>
-void rebuildActiveKNN(
-    const std::vector<int>& active_indices,
-    std::vector<CandidateSelectionState>& selection,
-    int k) {
-    for (CandidateSelectionState& candidate : selection) {
-        candidate.knn.clear();
-    }
-    if (k <= 0) return;
-
-    for (std::size_t first = 0; first + 1 < active_indices.size(); ++first) {
-        const int first_index = active_indices[first];
-        if (first_index < 0
-            || first_index >= static_cast<int>(selection.size())) {
-            continue;
-        }
-        for (std::size_t second = first + 1;
-             second < active_indices.size(); ++second) {
-            const int second_index = active_indices[second];
-            if (second_index < 0 || second_index == first_index
-                || second_index >= static_cast<int>(selection.size())) {
-                continue;
-            }
-            const float chi = normalizedChiDistance(
-                selection[first_index].chi_window,
-                selection[second_index].chi_window);
-            updateTopK(
-                selection[first_index].knn, second_index, chi, k);
-            updateTopK(
-                selection[second_index].knn, first_index, chi, k);
-        }
-    }
-}
-
-// ==========================================
-// Structure: Describe one undirected grouping-graph edge
-// Method: Address both endpoints by their original per-chip candidate indices.
-// ==========================================
-struct GraphEdge {
-    int first = -1;
-    int second = -1;
-};
-
-// ==========================================
-// Structure: Return one connected stellar component
-// Method: Preserve original candidate indices and count Gaia supporting labels.
-// ==========================================
-struct StarGroup {
-    std::vector<int> members;
-    int gaia_count = 0;
-};
-
-// ==========================================
-// Function: Extract mutual-KNN graph edges among active candidates
-// Method: Keep an undirected edge only when both retained top-K lists contain
-//         the opposite endpoint and both endpoints survived the shared cut.
-// ==========================================
-std::vector<GraphEdge> buildMutualKNNEdges(
-    const std::vector<int>& active_indices,
-    const std::vector<std::vector<NeighborEdge>>& neighbours_by_star);
-
-// ==========================================
-// Function: Convert one same-chip graph into connected components
-// Method: Use disjoint sets over active original indices and attach Gaia counts.
-// ==========================================
-std::vector<StarGroup> buildConnectedGroups(
-    const std::vector<int>& active_indices,
-    const std::vector<GraphEdge>& edges,
-    const std::vector<bool>& gaia_matched);
-
-// ==========================================
-// Function: Select the shared main and eligible secondary stellar groups
-// Method: Always keep the largest component and keep another component only
-//         when both its relative size and Gaia-count requirements pass.
-// ==========================================
-std::vector<int> selectMainAndSecondaryGroups(
-    const std::vector<StarGroup>& groups,
-    double minimum_size_ratio,
-    int minimum_gaia_count);
 
 // ==========================================
 // Function: Compute one analytic leave-one-out residual and prediction

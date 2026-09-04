@@ -4,7 +4,6 @@
 #include <cmath>
 #include <limits>
 #include <new>
-#include <numeric>
 #include <stdexcept>
 
 namespace PSFModel {
@@ -197,65 +196,6 @@ bool estimatePSFCountPilot(
         && pilot.upper >= pilot.lower
         && pilot.retained_count > 0;
 }
-
-// ==========================================
-// Function: Test whether a top-K list contains one candidate index
-// Method: Perform a bounded linear scan over the short neighbour vector.
-// ==========================================
-bool containsNeighbour(
-    const std::vector<NeighborEdge>& neighbours,
-    int star_index) {
-    return std::any_of(
-        neighbours.begin(), neighbours.end(),
-        [star_index](const NeighborEdge& edge) {
-            return edge.star_index == star_index;
-        });
-}
-
-// ==========================================
-// Class: Maintain connected components over a compact active-index domain
-// Method: Apply path compression and union by rank.
-// ==========================================
-class DisjointSet {
-public:
-    // ==========================================
-    // Function: Initialize singleton disjoint-set components
-    // Method: Assign every compact active index as its own parent with zero rank.
-    // ==========================================
-    explicit DisjointSet(int size)
-        : parent_(static_cast<std::size_t>(size)),
-          rank_(static_cast<std::size_t>(size), 0) {
-        std::iota(parent_.begin(), parent_.end(), 0);
-    }
-
-    // ==========================================
-    // Function: Find one disjoint-set root
-    // Method: Compress every traversed parent link recursively.
-    // ==========================================
-    int find(int value) {
-        if (parent_[value] != value) parent_[value] = find(parent_[value]);
-        return parent_[value];
-    }
-
-    // ==========================================
-    // Function: Unite two disjoint-set members
-    // Method: Attach the lower-rank root and increment rank on a tie.
-    // ==========================================
-    void unite(int first, int second) {
-        int root_first = find(first);
-        int root_second = find(second);
-        if (root_first == root_second) return;
-        if (rank_[root_first] < rank_[root_second]) {
-            std::swap(root_first, root_second);
-        }
-        parent_[root_second] = root_first;
-        if (rank_[root_first] == rank_[root_second]) rank_[root_first]++;
-    }
-
-private:
-    std::vector<int> parent_;
-    std::vector<int> rank_;
-};
 
 // ==========================================
 // Function: Smooth one continuous FD histogram without filling empty bins
@@ -1509,37 +1449,6 @@ float normalizedChiDistance(
 }
 
 // ==========================================
-// Function: Maintain one exact sorted top-K neighbour list
-// Method: Insert or improve the candidate edge, sort by chi/index, and truncate.
-// ==========================================
-void updateTopK(
-    std::vector<NeighborEdge>& neighbours,
-    int star_index,
-    float chi,
-    int k) {
-    if (star_index < 0 || k <= 0 || !std::isfinite(chi)) return;
-    auto existing = std::find_if(
-        neighbours.begin(), neighbours.end(),
-        [star_index](const NeighborEdge& edge) {
-            return edge.star_index == star_index;
-        });
-    if (existing == neighbours.end()) {
-        neighbours.push_back({star_index, chi});
-    } else if (chi < existing->chi) {
-        existing->chi = chi;
-    }
-    std::sort(
-        neighbours.begin(), neighbours.end(),
-        [](const NeighborEdge& first, const NeighborEdge& second) {
-            if (first.chi != second.chi) return first.chi < second.chi;
-            return first.star_index < second.star_index;
-        });
-    if (static_cast<int>(neighbours.size()) > k) {
-        neighbours.resize(static_cast<std::size_t>(k));
-    }
-}
-
-// ==========================================
 // Function: Select capped exposure-wide large-size minChi references
 // Method: Sort the top fraction by size/chip/star, then apply a per-chip cap
 //         without filling from candidates below the exposure-wide pool.
@@ -1625,122 +1534,6 @@ MinChiPairResult computeMinChiAndThresholdPairs(
         }
     }
     return result;
-}
-
-// ==========================================
-// Function: Extract mutual-KNN graph edges among active candidates
-// Method: Keep an undirected edge only when both retained top-K lists contain
-//         the opposite endpoint and both endpoints survived the shared cut.
-// ==========================================
-std::vector<GraphEdge> buildMutualKNNEdges(
-    const std::vector<int>& active_indices,
-    const std::vector<std::vector<NeighborEdge>>& neighbours_by_star) {
-    std::vector<GraphEdge> edges;
-    if (active_indices.empty()) return edges;
-    const int maximum_index = *std::max_element(
-        active_indices.begin(), active_indices.end());
-    std::vector<bool> active(static_cast<std::size_t>(maximum_index + 1), false);
-    for (int index : active_indices) {
-        if (index >= 0) active[index] = true;
-    }
-    for (int first : active_indices) {
-        if (first < 0 || first >= static_cast<int>(neighbours_by_star.size())) continue;
-        for (const NeighborEdge& neighbour : neighbours_by_star[first]) {
-            const int second = neighbour.star_index;
-            if (second <= first || second > maximum_index || !active[second]
-                || second >= static_cast<int>(neighbours_by_star.size())) {
-                continue;
-            }
-            if (containsNeighbour(neighbours_by_star[second], first)) {
-                edges.push_back({first, second});
-            }
-        }
-    }
-    return edges;
-}
-
-// ==========================================
-// Function: Convert one same-chip graph into connected components
-// Method: Use disjoint sets over active original indices and attach Gaia counts.
-// ==========================================
-std::vector<StarGroup> buildConnectedGroups(
-    const std::vector<int>& active_indices,
-    const std::vector<GraphEdge>& edges,
-    const std::vector<bool>& gaia_matched) {
-    std::vector<StarGroup> groups;
-    if (active_indices.empty()) return groups;
-
-    const int maximum_index = *std::max_element(
-        active_indices.begin(), active_indices.end());
-    std::vector<int> local_index(static_cast<std::size_t>(maximum_index + 1), -1);
-    for (int local = 0; local < static_cast<int>(active_indices.size()); ++local) {
-        const int original = active_indices[local];
-        if (original >= 0) local_index[original] = local;
-    }
-    DisjointSet disjoint_set(static_cast<int>(active_indices.size()));
-    for (const GraphEdge& edge : edges) {
-        if (edge.first < 0 || edge.second < 0
-            || edge.first > maximum_index || edge.second > maximum_index) {
-            continue;
-        }
-        const int first_local = local_index[edge.first];
-        const int second_local = local_index[edge.second];
-        if (first_local >= 0 && second_local >= 0) {
-            disjoint_set.unite(first_local, second_local);
-        }
-    }
-
-    std::vector<int> root_to_group(active_indices.size(), -1);
-    for (int local = 0; local < static_cast<int>(active_indices.size()); ++local) {
-        const int root = disjoint_set.find(local);
-        if (root_to_group[root] < 0) {
-            root_to_group[root] = static_cast<int>(groups.size());
-            groups.push_back({});
-        }
-        StarGroup& group = groups[root_to_group[root]];
-        const int original = active_indices[local];
-        group.members.push_back(original);
-        if (original >= 0 && original < static_cast<int>(gaia_matched.size())
-            && gaia_matched[original]) {
-            group.gaia_count++;
-        }
-    }
-    return groups;
-}
-
-// ==========================================
-// Function: Select the shared main and eligible secondary stellar groups
-// Method: Always keep the largest component and keep another component only
-//         when both its relative size and Gaia-count requirements pass.
-// ==========================================
-std::vector<int> selectMainAndSecondaryGroups(
-    const std::vector<StarGroup>& groups,
-    double minimum_size_ratio,
-    int minimum_gaia_count) {
-    std::vector<int> selected;
-    if (groups.empty() || minimum_size_ratio < 0.0 || minimum_gaia_count < 0) {
-        return selected;
-    }
-    std::size_t main_group = 0;
-    for (std::size_t group = 1; group < groups.size(); ++group) {
-        if (groups[group].members.size() > groups[main_group].members.size()) {
-            main_group = group;
-        }
-    }
-    const double main_size = static_cast<double>(groups[main_group].members.size());
-    for (std::size_t group = 0; group < groups.size(); ++group) {
-        const bool keep_main = group == main_group;
-        const bool size_ok = main_size > 0.0
-            && static_cast<double>(groups[group].members.size())
-                >= minimum_size_ratio * main_size;
-        const bool gaia_ok = groups[group].gaia_count >= minimum_gaia_count;
-        if (keep_main || (size_ok && gaia_ok)) {
-            selected.insert(
-                selected.end(), groups[group].members.begin(), groups[group].members.end());
-        }
-    }
-    std::sort(selected.begin(), selected.end());
-    return selected;
 }
 
 // ==========================================
