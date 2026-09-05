@@ -66,3 +66,10 @@ runs with the site's standard `srun` or `mpirun` command.
 The default Stage-9 row now contains 18 external fields, `EXPO_NUM`, `ccD_NUM`,
 and 25 pipeline fields (45 total). Regenerate Stage-9/rearr/FD products rather
 than reading legacy 44-column catalogs with this build.
+
+Before Standard PCA residual aggregation, rank zero reads each Science FITS
+`CCDNUM` once, validates uniqueness/range, and broadcasts the physical-CCD to
+Science-list index. Both residual passes therefore locate Norm through the
+matched Science path's continuous basename rather than treating CCDNUM as a
+list position. `tests/PSFReconsCcdLookupTest.cpp` covers reordered lists,
+physical CCD gaps, missing headers, duplicates, and out-of-range identities.
