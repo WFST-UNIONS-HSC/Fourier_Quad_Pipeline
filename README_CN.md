@@ -23,7 +23,7 @@ Fortran 两种实现，每种实现均有 Standard 和 Lite 版本。
 ### 1. 下载 Release 源码包
 
 打开 [GitHub Releases](https://github.com/WFST-UNIONS-HSC/Fourier_Quad_Pipeline/releases)，
-只下载准备运行的 Pipeline 对应源码包：
+下载准备运行的 Pipeline 对应源码包：
 
 | Pipeline | Release 源码包 |
 |---|---|
@@ -49,6 +49,7 @@ Fortran 两种实现，每种实现均有 Standard 和 Lite 版本。
   [CPP_PIPELINE_PARAMETERS.md](CPP_PIPELINE_PARAMETERS.md)。
 - F77 用户：按照 [F77 指南](F77_GUIDE_CN.md)修改 `para.inc`、`cust_para.inc` 和
   `sig_para.inc`。
+*cpp_Lite优先将Initialize.hpp中各变量设置正确，程序即可运行*
 
 ### 5. 编译和运行
 

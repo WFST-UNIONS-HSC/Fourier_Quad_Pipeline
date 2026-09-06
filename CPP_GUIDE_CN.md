@@ -50,48 +50,6 @@ C++ Standard 可以选择不读取 DQ 的配置。
 
 默认 `223092870` 启用全部阶段；阶段 9 必须与阶段 8 同时启用。
 
-Stage 5 将中心值 `exp(-1)` 阈值以上的 Fourier 像素精确整数个数保存为
-私有候选参数 index 12 `star_area`，并以它进行曝光级 stellar-locus 科学选择。
-index 7 仍是 minChi reference 排序使用的 0.02 阈值 legacy area，index 10 仍保存
-历史 FWHM。正 MAD 的 Gaia pilot（不足时退回全部候选）最多执行三轮 3-MAD
-clipping，且只接受下一 population 仍为正 MAD 的 clip，然后使用局部 ±5-MAD range。
-初始 MAD 为零时保留完整输入并使用无 padding 的插值 `Q(q)--Q(1-q)` bounds；
-`q = LensingConfig::psf_count_zero_mad_quantile`，默认 `0.05`。
-
-科学 histogram 的 bin 宽固定为 2 个整数 count level，名义中心为
-`first + 2 * bin + 0.5`，diagnostics 同时保存 pilot domain 实际包含的首末整数。
-raw count 始终不修改；只在 working histogram 中对两侧由正值封闭的 1 或 2 个 bin
-（即 2 或 4 个 count）的内部空洞做线性插值，再进行不变的 1-2-3-2-1 平滑。Gaia
-峰资格以名义 bin center 的全局最近距离再加 1 count 为界。所有严格满足
-`H > H_selected / e` 的局部峰组成一个 peak complex，不考虑内部 valley；seed basin
-从最外侧有效峰向外下降，遇到下一次上升停止。随后两轮不对称 MAD refinement 每轮都
-从 pilot histogram domain 内全部真实样本重建 population，允许重新吸收；等于中心的
-重复值仍不进入两侧 MAD，宽度下限仍为 1 count。左右两侧各自从第一个严格低于所选峰
-高度 10% 的 bin 向边界搜索，选择最大正有符号二阶差分作为 elbow；可用 elbow 只能向外
-放宽 pre-guard MAD cut。生产选择继续采用严格的 `lower < star_area < upper`。
-
-`PsfGroupingType = 3` 保留同一套质量、Gaia/star-area、归一化窗口和 minChi 门控，
-随后完全绕过两种 graph grouping。曝光级 Freedman-Diaconis 的 IQR、范围和 histogram
-仍使用所有 minChi survivor 的同芯片、无序、有限 pair chi，但宽度的 `n^(-1/3)` 项
-使用全部 minChi survivor 星数，而不是高度相关的 pair 数。1-2-3-2-1 平滑只做边界归一化，
-不填空洞，plateau 峰折叠到较低的中间 bin。局部峰必须严格满足 `H > H_main / e`；
-从最右有效峰到其右侧第一个无效峰之间选择最大正有符号二阶差分，以对应 bin center
-为 pair chi cut，只有严格大于 cut 的 pair 才算 bad。第二次同芯片 pair pass 计算每颗
-星的 `bad / finite` 比例；FD 宽度只使用正比例（其 IQR 为零时用最小正值），但原点固定
-为零的 histogram 会包含所有零值，并用严格的 `H > 0.10 H_main` 峰规则。等于 fraction
-cut 的星保留；估计失败采用 fail-open，全零比例不增加拒绝；pair stage 成功后没有有限
-分母的星不能通过，且每芯片仍必须至少保留 `nstar_min_local` 颗星。`PSF_TYPE3_*` 日志
-完整记录两级 grid、峰、elbow、cut 与 fail-open 决策，并以 `fd_samples` 和
-`fd_scale_samples` 分别报告 distribution 与宽度缩放所用的样本数。
-
-Standard 与 Lite 仍写出 `stamps/svg_StarLocus/<exposure>_locus.svg`，但横轴现在直接
-使用科学选择的整数 `exp(-1)` pixel count。每个 histogram bin 覆盖两个整数 count
-level；raw、smoothed、Gaia、精确的 minChi 后/grouping 前 survivor，以及最终 PRESS 前
-selected 分布连同 pilot、所选峰、Gaia median、pre-guard MAD cuts、
-可用的左右 elbow 和最终 guarded cuts 均使用同一 count grid。
-历史 index-10 FWHM 仍供已有非 locus 输出与
-rescale 消费者使用，但 SVG 不再读取或映射它。输出目录由 `process_init` 创建；旧数据树
-若跳过初始化，必须在运行 Stage 5 前补齐该目录。
 
 ## 编译
 

@@ -23,7 +23,7 @@ All four variants build an executable named `Fourier_Quad_Pipe`.
 ### 1. Download a Release source package
 
 Open [GitHub Releases](https://github.com/WFST-UNIONS-HSC/Fourier_Quad_Pipeline/releases)
-and download only the source package for the Pipeline you plan to run:
+and download the source package for the Pipeline you plan to run:
 
 | Pipeline | Release source package |
 |---|---|
@@ -53,6 +53,9 @@ required; DQ masks depend on the selected Pipeline configuration.
   [CPP_PIPELINE_PARAMETERS.md](CPP_PIPELINE_PARAMETERS.md).
 - F77 users: edit `para.inc`, `cust_para.inc`, and `sig_para.inc` as described
   in the [F77 guide](F77_GUIDE.md).
+
+*For `cpp_Lite`, first set the variables in `Initialize.hpp` correctly; the
+program can then run.*
 
 ### 5. Build and run
 
