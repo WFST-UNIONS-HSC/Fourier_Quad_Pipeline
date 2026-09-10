@@ -208,8 +208,10 @@ runtime layout and products.
 
 An exposure list contains one chip-list path per nonblank record; a trailing
 legacy chip count is accepted. Initialization reads archives in place and
-creates `science/`, `dqmask/`, `stamps/`, and `result/` below each dataset,
-plus top-level exposure/fits lists and a manifest.
+creates `science/`, `dqmask/`, `stamps/`, `expolists/`, and `result/` below
+each dataset, plus top-level exposure/fits lists and a manifest. Per-exposure
+chip lists are stored in `<dataset>/expolists/`, while numerical products
+remain under `<dataset>/stamps/`.
 
 Principal products are:
 

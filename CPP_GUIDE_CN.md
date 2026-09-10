@@ -179,8 +179,9 @@ catalog、External source catalog 与取决于配置的 DQ masks。顶层章节�
 约定；本节只说明 C++ 运行布局和产物。
 
 曝光表每个非空记录包含一个 CCD 列表路径，可带兼容 CCD 数量。初始化器原地读取归档，
-在每个数据集下创建 `science/`、`dqmask/`、`stamps/`、`result/`，并发布曝光/fits
-列表与 manifest。
+在每个数据集下创建 `science/`、`dqmask/`、`stamps/`、`expolists/`、`result/`，
+并发布曝光/fits 列表与 manifest。逐曝光 CCD 列表保存在 `<dataset>/expolists/`，
+数值阶段产物仍保存在 `<dataset>/stamps/`。
 
 主要结果为：
 
