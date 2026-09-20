@@ -35,6 +35,11 @@ branch. Adding the constant back does not restore that behavior. A **derived
 parameter** is retained for completeness but must not be edited directly; change
 its source parameter and keep the associated assertions and consumers consistent.
 
+In both variants, Stage 5 writes each `*_star_comp_expo.dat` model size and
+ellipticity from the ordinary model fitted with all retained stars. The companion
+residual is therefore a full-fit residual at that same star, not a leave-one-out
+prediction. Analytic LOO quantities remain internal to PRESS rejection only.
+
 ## `ProcessConfig` (`config/ProcessConfig.hpp` and `config/pathconfig.hpp`)
 
 | Parameter | Type | Standard default | Lite default | CLI override | Legal values / meaning | Function | When to change | Rebuild after change |
@@ -159,6 +164,7 @@ directory content.
 | `ext_cat` | `int` | `1` | `N/A — removed in Lite` | No | `0` off, `1` on | Selects Standard External source catalog branch; Lite is fixed on. | Change only for a Standard no-catalog run. | Yes |
 | `ext_PSF` | `int` | `0` | `N/A — removed in Lite` | No | `0` frame stars, `1` external PSF | Selects Standard PSF source; Lite uses frame stars. | Change only with valid external PSFs. | Yes |
 | `CCD_split` | `int` | `2` | same | No | `1` whole chip, `2` amplifier split | Sets background/noise amplifier regions. | Change for another detector/readout model. | Yes |
+| `PreprocsType` | `int` | `2` | `N/A — fixed modern preprocessing` | No | `1` historical F77 estimators, `2` current weighted C++ estimators | Selects Standard Stage-1 background subtraction and sigma normalization. Type 1 preserves the historical random/rank estimators while publishing coefficients in the current downstream coordinate contracts. | Use Type 1 only for controlled F77-compatibility comparisons. | Yes |
 | `nct` | `int` | `12` | same | No | Positive rectangle count | Number of background rectangles. | Tune only with background-model validation. | Yes |
 | `ncx` | `int` | `3` | same | No | Positive x count | Background rectangles along x. | Keep consistent with `nct` geometry. | Yes |
 | `psf_order` | `int` | `8` | same | No | Supported PSF polynomial selector | Exposure PSF polynomial order. | Adjust PSF modeling only. | Yes |
@@ -175,7 +181,7 @@ directory content.
 | `psf_count_hist_range_sigma` | `double` | `5.0` | same | No | Positive width multiplier | Positive-MAD pilot half-range in count units; an initially zero-MAD pilot uses its configured symmetric quantiles. The science/SVG histogram width is a fixed, non-configurable two integer counts per bin. | Tune Stage 5 locus search range. | Yes |
 | `psf_count_locus_sigma` | `double` | `4.0` | same | No | Positive sigma multiplier | Multiplier applied independently to re-absorbing lower/upper count-MAD refinement and its pre-guard cuts. Independent outer elbows may only widen the final strict `star_area` bounds. | Tune Stage 5 selection. | Yes |
 | `psf_count_locus_min_samples` | `int` | `30` | same | No | Positive count | Minimum samples for a valid integer star-area locus. | Tune sparse-exposure handling. | Yes |
-| `PsfGroupingType` | `int` | `3` | same | No | `1` threshold graph, `2` mutual KNN, `3` adaptive pair/fraction cuts | Selects the post-minChi pre-PRESS topology; type 3 bypasses graph grouping and scales its Stage-1 FD width by the minChi-survivor star count while retaining every finite pair chi. | Change for controlled algorithm comparison. | Yes |
+| `PsfGroupingType` | `int` | `4` | `N/A — fixed adaptive grouping` | No | `1` F77 largest component, `2` threshold graph, `3` mutual KNN, `4` adaptive pair/fraction cuts | Selects Standard Stage-5 PSF-star grouping. Type 1 uses the F77 size cut, pair threshold, and largest connected group with only hard numerical-safety gates; it builds the all-star fit cache but skips PRESS removal. Types 2/3/4 are the renumbered modern paths. | Use Type 1 only for compatibility runs; use the other values for controlled modern comparisons. | Yes |
 | `psf_minchi_reference_fraction` | `double` | `1 / 3` | same | No | `(0, 1]` | Fraction of largest locus candidates eligible as references. | Tune Stage 5 threshold estimation. | Yes |
 | `psf_minchi_reference_max_per_chip` | `int` | `5` | same | No | Positive count | Caps reference stars per chip. | Tune Stage 5 threshold estimation. | Yes |
 | `psf_minchi_sigma_cut` | `double` | `4.0` | same | No | Positive sigma multiplier | Minimum-chi upper-tail rejection cut. | Tune Stage 5 selection. | Yes |
@@ -184,9 +190,9 @@ directory content.
 | `psf_group_merge_min_gaia` | `int` | `1` | same | No | Non-negative match count | Gaia support required to merge a secondary group. | Tune Stage 5 grouping. | Yes |
 | `psf_gaia_match_radius_pix` | `double` | `2.0` | same | No | Positive pixels | Gaia matching radius for PSF candidates. | Change for astrometric precision/pixel scale. | Yes |
 | `psf_gaia_locus_min_matches` | `int` | `5` | same | No | Positive match count | Gaia matches required for locus support. | Tune sparse fields. | Yes |
-| `psf_pair_chi_valid_peak_fraction` | `double` | `exp(-1)` | same | No | `(0, 1)` | Strict relative-height threshold for valid Type-3 pair-chi peaks. | Tune only with pair-histogram validation. | Yes |
-| `psf_bad_fraction_valid_peak_fraction` | `double` | `0.10` | same | No | `(0, 1)` | Strict relative-height threshold for valid Type-3 bad-fraction peaks. | Tune only with fraction-histogram validation. | Yes |
-| `psf_press_rejection_enabled` | `bool` | `true` | same | No | Boolean | Enables optional standardized-PRESS cleanup. | Disable for controlled fallback testing. | Yes |
+| `psf_pair_chi_valid_peak_fraction` | `double` | `exp(-1)` | same | No | `(0, 1)` | Strict relative-height threshold for valid adaptive-grouping pair-chi peaks. | Tune only with pair-histogram validation. | Yes |
+| `psf_bad_fraction_valid_peak_fraction` | `double` | `0.10` | same | No | `(0, 1)` | Strict relative-height threshold for valid adaptive-grouping bad-fraction peaks. | Tune only with fraction-histogram validation. | Yes |
+| `psf_press_rejection_enabled` | `bool` | `false` | `true` | No | Boolean | Enables optional standardized-PRESS cleanup on modern grouping paths. Standard F77 grouping always retains the successful initial all-star fit without PRESS removal. | Change only for controlled rejection tests. | Yes |
 | `psf_press_sigma_cut` | `double` | `4.0` | same | No | Positive sigma multiplier | PRESS outlier rejection cut. | Tune only with PSF residual validation. | Yes |
 | `psf_press_max_removals` | `int` | `5` | same | No | Non-negative count | Maximum proposed PRESS removals per chip. | Tune only with PSF residual validation. | Yes |
 | `psf_loo_min_denom` | `double` | `1.0e-6` | same | No | `(0, 1)` | Minimum analytic leave-one-out denominator. | Numerical guard; normally unchanged. | Yes |
@@ -226,7 +232,7 @@ directory content.
 | `source_thresh` | `double` | `2.0` | same | No | Positive S/N threshold | Source detection threshold. | Adjust scientific source selection. | Yes |
 | `core_thresh` | `double` | `4.0` | same | No | Positive threshold | Source-core detection threshold. | Adjust scientific source selection. | Yes |
 | `flat_thresh` | `double` | `0.01` | `N/A — removed in Lite` | No | Positive flat value | Minimum accepted Standard flat-field value. | Change with flat calibration. | Yes |
-| `NstampType` | `int` | `1` | same | No | `1` physical blank stamp, `2` local covariance power | Selects Stage-3 noise product. | Change for controlled noise-method runs. | Yes |
+| `NstampType` | `int` | `3` | `N/A — fixed QC physical blank stamp` | No | `1` deterministic F77 blank stamp, `2` QC/randomized physical blank stamp, `3` local covariance power | Selects the Standard Stage-3 noise product. Types 1 and 2 remain real-space stamps and are FFT-converted downstream; Type 3 is already Fourier-domain power. | Use Type 1 only for compatibility comparisons; change other values for controlled noise-method runs. | Yes |
 | `noise_sigma_ratio_min` | `double` | `0.80` | same | No | Positive lower ratio | Blank/source sigma lower gate. | Tune blank-stamp quality. | Yes |
 | `noise_sigma_ratio_max` | `double` | `1.25` | same | No | Above minimum | Blank/source sigma upper gate. | Tune blank-stamp quality. | Yes |
 | `noise_mad_ratio_min` | `double` | `0.70` | same | No | Positive lower ratio | Blank/source MAD lower gate. | Tune blank-stamp quality. | Yes |

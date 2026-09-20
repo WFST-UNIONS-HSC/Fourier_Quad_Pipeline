@@ -172,8 +172,8 @@ namespace {
 
     // ==========================================
     // Function: Verify equivalence after Type-1 and Type-2 noise-power preparation
-    // Method: FFT one fixed real-space noise stamp for Type 1, feed that explicit power to
-    //         Type 2, and compare corrected products for modes 0/1/2 plus unsupported mode 3.
+    // Method: FFT one fixed real-space noise stamp for Types 1/2, feed that
+    //         explicit power to Type 3, and compare all corrected products.
     // ==========================================
     bool testNoiseProductModeEquivalence() {
         constexpr int n = 8;
@@ -198,36 +198,49 @@ namespace {
 
         std::vector<float> type1NoisePower;
         std::vector<float> type2NoisePower;
+        std::vector<float> type3NoisePower;
         if (!ImageProcessing::prepareNoisePower(
                 n, noiseStamp, 1, type1NoisePower)
             || !ImageProcessing::prepareNoisePower(
-                n, explicitNoisePower, 2, type2NoisePower)
+                n, noiseStamp, 2, type2NoisePower)
+            || !ImageProcessing::prepareNoisePower(
+                n, explicitNoisePower, 3, type3NoisePower)
             || !vectorsNear(type1NoisePower, type2NoisePower, 2.0e-7,
-                            "prepared noise mode equivalence")) {
+                            "prepared real-space noise mode equivalence")
+            || !vectorsNear(type1NoisePower, type3NoisePower, 2.0e-7,
+                            "prepared stored-power mode equivalence")) {
             return false;
         }
 
         for (int smoothMode = 0; smoothMode <= 3; ++smoothMode) {
             std::vector<float> type1Corrected;
             std::vector<float> type2Corrected;
+            std::vector<float> type3Corrected;
             double type1Pc = 0.0;
             double type2Pc = 0.0;
+            double type3Pc = 0.0;
             if (!ImageProcessing::buildCorrectedPower(
                     n, n, sourceStamp, type1NoisePower, smoothMode,
                     type1Corrected, type1Pc)
                 || !ImageProcessing::buildCorrectedPower(
                     n, n, sourceStamp, type2NoisePower, smoothMode,
                     type2Corrected, type2Pc)
+                || !ImageProcessing::buildCorrectedPower(
+                    n, n, sourceStamp, type3NoisePower, smoothMode,
+                    type3Corrected, type3Pc)
                 || std::abs(type1Pc - type2Pc) > 1.0e-12
+                || std::abs(type1Pc - type3Pc) > 1.0e-12
                 || !vectorsNear(type1Corrected, type2Corrected, 2.0e-7,
-                                "corrected noise mode equivalence")) {
+                                "corrected real-space noise mode equivalence")
+                || !vectorsNear(type1Corrected, type3Corrected, 2.0e-7,
+                                "corrected stored-power mode equivalence")) {
                 return false;
             }
         }
 
         std::vector<float> rejected;
         return !ImageProcessing::prepareNoisePower(n, noiseStamp, 0, rejected)
-            && !ImageProcessing::prepareNoisePower(n, noiseStamp, 3, rejected)
+            && !ImageProcessing::prepareNoisePower(n, noiseStamp, 4, rejected)
             && !ImageProcessing::prepareNoisePower(n + 1, noiseStamp, 1, rejected);
     }
 

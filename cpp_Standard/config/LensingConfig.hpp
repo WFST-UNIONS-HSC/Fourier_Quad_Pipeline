@@ -34,6 +34,13 @@ namespace LensingConfig {
     constexpr int include_Mask = 2;  // Select the DQ-mask input mode.
     constexpr int include_BGsub = 1;  // Subtract the fitted science-image background.
 
+    // ==========================================
+    // Configuration: Stage-1 preprocessing estimator selector
+    // Method: Keep the historical random F77 estimators available as Type 1 while
+    //         retaining the current robust C++ background/noise estimators as Type 2.
+    // ==========================================
+    constexpr int PreprocsType = 2;
+
     // Split parameters
     constexpr int ext_cat = 1;  // Use the external source catalog when one.
     constexpr int ext_PSF = 0;  // Use externally supplied PSF images when one.
@@ -55,7 +62,7 @@ namespace LensingConfig {
     // Method: Keep exposure locus, grouping topology, Gaia support, and PRESS
     //         thresholds explicit and independently rebuild-configurable.
     // ==========================================
-    constexpr int PsfGroupingType = 3;  // 1 threshold graph; 2 mutual KNN; 3 adaptive pair fractions.
+    constexpr int PsfGroupingType = 4;  // 1 F77; 2 threshold graph; 3 mutual KNN; 4 adaptive pair fractions.
     // ---
     constexpr int psf_exposure_min_candidates = 60;  // Minimum exposure-wide PSF candidates.
     constexpr double psf_count_pilot_clip_sigma = 3.0;  // Robust star-area pilot clipping multiplier.
@@ -74,7 +81,7 @@ namespace LensingConfig {
     constexpr int psf_gaia_locus_min_matches = 5;  // Minimum Gaia matches for locus support.
     constexpr double psf_pair_chi_valid_peak_fraction = 0.3678794411714423216;  // exp(-1) pair-chi peak threshold.
     constexpr double psf_bad_fraction_valid_peak_fraction = 0.10;  // Bad-pair-fraction peak threshold.
-    constexpr double psf_type3_elbow_search_height_fraction = 0.10;  // Elbow candidates must lie below this smoothed main-peak fraction.
+    constexpr double psf_adaptive_elbow_search_height_fraction = 0.10;  // Elbow candidates must lie below this smoothed main-peak fraction.
     constexpr bool psf_press_rejection_enabled = false;  // Enable optional post-fit PRESS cleanup.
     constexpr double psf_press_sigma_cut = 4.0;  // Standardized PRESS rejection sigma.
     constexpr int psf_press_max_removals = 5;  // Maximum PRESS removals permitted per chip.
@@ -132,9 +139,9 @@ namespace LensingConfig {
 
     // ==========================================
     // Configuration: Stage-3 noise-product construction method
-    // Method: Select a physical blank-noise stamp (1) or local covariance noise power (2).
+    // Method: Select F77 blank noise (1), QC/random blank noise (2), or covariance power (3).
     // ==========================================
-    constexpr int NstampType = 2;  // One uses blank stamps; two uses covariance power.
+    constexpr int NstampType = 3;
     // ==========================================
     // Configuration: Stage-3 blank-noise-stamp quality gates
     // Method: Retain the main-branch fixed candidate QC before random selection.
@@ -258,11 +265,13 @@ namespace LensingConfig {
     // ==========================================
     static_assert(AstroCatType == 1 || AstroCatType == 2,
                 "AstroCatType must be 1 or 2");
-    static_assert(NstampType == 1 || NstampType == 2,
-                  "NstampType must be 1 or 2");
+    static_assert(PreprocsType == 1 || PreprocsType == 2,
+                  "PreprocsType must be 1 or 2");
+    static_assert(NstampType >= 1 && NstampType <= 3,
+                  "NstampType must be 1, 2, or 3");
     static_assert(PsfGroupingType == 1 || PsfGroupingType == 2
-                      || PsfGroupingType == 3,
-                  "PsfGroupingType must be 1, 2, or 3");
+                      || PsfGroupingType == 3 || PsfGroupingType == 4,
+                  "PsfGroupingType must be 1, 2, 3, or 4");
     static_assert(psf_exposure_min_candidates > 0,
                   "PSF exposure minimum must be positive");
     static_assert(psf_minchi_reference_fraction > 0.0
@@ -285,9 +294,9 @@ namespace LensingConfig {
     static_assert(psf_bad_fraction_valid_peak_fraction > 0.0
                       && psf_bad_fraction_valid_peak_fraction < 1.0,
                   "PSF bad-pair peak fraction must lie in (0,1)");
-    static_assert(psf_type3_elbow_search_height_fraction > 0.0
-                      && psf_type3_elbow_search_height_fraction < 1.0,
-                  "PSF Type-3 elbow search height fraction must lie in (0,1)");
+    static_assert(psf_adaptive_elbow_search_height_fraction > 0.0
+                      && psf_adaptive_elbow_search_height_fraction < 1.0,
+                  "PSF adaptive elbow search height fraction must lie in (0,1)");
     static_assert(psf_knn_k > 0, "PSF KNN count must be positive");
     static_assert(psf_press_max_removals >= 0,
                   "PSF PRESS removal cap must be non-negative");

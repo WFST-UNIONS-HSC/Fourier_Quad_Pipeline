@@ -815,6 +815,54 @@ void testMinChiReferencesAndPairs() {
 }
 
 // ==========================================
+// Function: Verify F77 size rank, pair sample, and largest-component policy
+// Method: Exercise one-based rank conversion, both-large threshold sampling,
+//         inclusive graph cuts, first-group ties, and both local minima.
+// ==========================================
+void testF77SelectionPolicy() {
+    std::vector<std::vector<float>> rank_windows = {
+        {0.80f, 0.20f}, {0.79f, 0.21f}, {0.78f, 0.22f},
+        {0.77f, 0.23f}, {0.76f, 0.24f}, {0.75f, 0.25f}};
+    std::vector<std::vector<F77PSFCandidateView>> rank_candidates(1);
+    for (int index = 0; index < 6; ++index) {
+        rank_candidates[0].push_back({
+            static_cast<double>(index + 1), &rank_windows[index]});
+    }
+    F77PSFPairStatistics rank_statistics;
+    require(computeF77PSFPairStatistics(
+                rank_candidates, rank_statistics),
+            "finite F77 pair statistics must succeed");
+    require(rank_statistics.size_threshold == 4.0,
+            "six candidates must use the fourth one-based sorted size");
+    require(rank_statistics.threshold_pair_chi.size() == 3,
+            "only the three pairs among sizes four/five/six enter the sample");
+
+    std::vector<std::vector<float>> group_windows = {
+        {0.80f, 0.20f}, {0.82f, 0.18f},
+        {0.20f, 0.80f}, {0.18f, 0.82f}};
+    std::vector<std::vector<F77PSFCandidateView>> group_candidates(1);
+    for (std::size_t index = 0; index < group_windows.size(); ++index) {
+        group_candidates[0].push_back({
+            static_cast<double>(index + 1), &group_windows[index]});
+    }
+    F77PSFPairStatistics group_statistics;
+    require(computeF77PSFPairStatistics(
+                group_candidates, group_statistics),
+            "two-component F77 fixture must produce pair statistics");
+    std::vector<std::vector<int>> selected;
+    require(selectF77PSFLargestGroups(
+                group_candidates, group_statistics, 0.05f, 2, selected),
+            "finite F77 graph selection must succeed");
+    require(selected.size() == 1
+                && selected[0] == std::vector<int>({0, 1}),
+            "equal largest components must keep only the first component");
+    require(selectF77PSFLargestGroups(
+                group_candidates, group_statistics, 0.05f, 3, selected)
+                && selected[0].empty(),
+            "largest component below the final local minimum must reject the chip");
+}
+
+// ==========================================
 // Function: Verify leverage-standardized PRESS and removal safeguards
 // Method: Check the exact score formula, denominator guard, removal cap, and
 //         inclusive retained-star minimum boundaries.
@@ -1006,6 +1054,7 @@ int main() {
     testGrouping();
     testKNNRebuiltAfterMinChiCut();
     testMinChiReferencesAndPairs();
+    testF77SelectionPolicy();
     testAnalyticLOO();
     testPressStandardizationAndDecision();
     std::cout << "PSF star-selection tests passed\n";

@@ -26,6 +26,13 @@ layout names are centralized in `config/pathconfig.hpp`; CLI overrides workflow
 paths. Scientific branches and thresholds in `config/LensingConfig.hpp` require
 rebuilding.
 
+The compatibility selectors default to the pre-existing modern behavior:
+`PreprocsType=2`, `NstampType=3`, and `PsfGroupingType=4`. Setting an individual
+selector to `1` enables its independent historical F77-compatible path; see the
+parameter reference for the renumbered modern choices. Stage 5 always writes
+`*_star_comp_expo.dat` from the all-star fitted model evaluated at each retained
+star. Analytic leave-one-out values remain internal to optional PRESS rejection.
+
 Archive-format and detector naming conventions are compiled in
 `config/InitConfig.hpp`: `ARCHIVE_SUFFIX` selects initializer inputs,
 `CCDNUM_KEYWORD` names the DQ/main chip-number FITS keyword, and

@@ -1,5 +1,6 @@
 #include "process_main/ProcessMainState.hpp"
 #include "process_main/PreProcess.hpp"
+#include "process_main/PreProcessLegacy.hpp"
 #include "general/OutputLayout.hpp"
 #include "LensingConfig.hpp"
 #include "pathconfig.hpp"
@@ -605,10 +606,9 @@ namespace PreProcess {
     }
 
     // ==========================================
-    // Function: Estimate and subtract one amplifier's global background model
-    // Method: Use a deterministic rough bilinear predictor, full weight-valid block residuals,
-    //         and iterative MAD rejection against the final 12-term polynomial before one
-    //         validated image subtraction.
+    // Function: Estimate and subtract one amplifier's selected background model
+    // Method: Dispatch Type 1 to the historical F77 random/rank estimator; otherwise use
+    //         the deterministic weighted rough model and iteratively clipped polynomial.
     // ==========================================
     void setBackground(int x_start, int x_end, int y_start, int y_end, int nx, int ny,
                        std::vector<float>& image, const std::vector<int>& weight,
@@ -616,6 +616,15 @@ namespace PreProcess {
                        int& ierror) {
         bg_coeffs.clear();
         if (ierror != 0) return;
+
+        if constexpr (LensingConfig::PreprocsType == 1) {
+            if (!PreProcessLegacy::setBackground(
+                    x_start, x_end, y_start, y_end, nx, ny, image,
+                    blocksize, nct, ncx, bg_coeffs)) {
+                ierror = 1;
+            }
+            return;
+        }
 
         const size_t image_size = static_cast<size_t>(nx) * static_cast<size_t>(ny);
         if (nx <= 0 || ny <= 0 || x_start < 0 || x_end > nx || y_start < 0 || y_end > ny
@@ -1003,9 +1012,9 @@ namespace PreProcess {
     }
 
     // ==========================================
-    // Function: Estimate, validate, and apply one amplifier's noise-sigma plane
-    // Method: Match the F77 mode-bar estimator, use a private symmetric clip mask, fit every
-    //         surviving base-valid triple, and mutate the amplifier only after final validation.
+    // Function: Estimate, validate, and apply one amplifier's selected noise-sigma plane
+    // Method: Dispatch Type 1 to the historical unscaled 2000-triple estimator; otherwise
+    //         use the weighted mode-bar path and mutate only after final validation.
     // ==========================================
     void setSig(int x_start, int x_end, int y_start, int y_end, int nx, int ny,
                 std::vector<float>& image, const std::vector<int>& weight,
@@ -1014,6 +1023,15 @@ namespace PreProcess {
         bb = 0.0;
         cc = 0.0;
         if (ierror != 0) return;
+
+        if constexpr (LensingConfig::PreprocsType == 1) {
+            if (!PreProcessLegacy::setSig(
+                    x_start, x_end, y_start, y_end,
+                    nx, ny, image, aa, bb, cc)) {
+                ierror = 1;
+            }
+            return;
+        }
 
         const size_t image_size = static_cast<size_t>(nx) * static_cast<size_t>(ny);
         if (x_start < 0 || x_end > nx || y_start < 0 || y_end > ny

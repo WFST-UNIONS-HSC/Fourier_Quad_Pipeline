@@ -1019,7 +1019,7 @@ namespace ImageProcessing {
 
     // ==========================================
     // Function: Convert a Stage-3 noise product into Fourier-space noise power
-    // Method: FFT a Type-1 real-space stamp or validate and copy Type-2 stored power.
+    // Method: FFT Type-1/2 real-space stamps or validate and copy Type-3 stored power.
     // ==========================================
     bool prepareNoisePower(int n,
                            const std::vector<float>& noiseProduct,
@@ -1031,7 +1031,7 @@ namespace ImageProcessing {
             return false;
         }
 
-        if (nstampType == 1) {
+        if (nstampType == 1 || nstampType == 2) {
             double noisePc = 0.0;
             getPower(n, n, noiseProduct, noisePower, 0, noisePc);
             return noisePower.size() == elements
@@ -1039,7 +1039,7 @@ namespace ImageProcessing {
                                [](float value) { return std::isfinite(value); });
         }
 
-        if (nstampType == 2) {
+        if (nstampType == 3) {
             noisePower = noiseProduct;
             return std::all_of(noisePower.begin(), noisePower.end(),
                                [](float value) { return std::isfinite(value); });

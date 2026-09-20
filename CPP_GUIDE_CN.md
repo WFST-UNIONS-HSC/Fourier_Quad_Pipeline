@@ -117,6 +117,7 @@ CLI 支持 `--name value` 与 `--name=value`。布尔值支持 `true/false`、`1
 | 外部星表 schema | `EXTCAT_TOTAL_COLUMNS`、`EXTCAT_INPUT_COLUMNS_ONE_BASED`、`EXTCAT_RA_COLUMN_ONE_BASED`、`EXTCAT_DEC_COLUMN_ONE_BASED`、`EXTCAT_ZP_COLUMN_ONE_BASED` | `config/ExtCatConfig.hpp`；投影和 RA/Dec/ZP 列可用 `--extcat-columns`、`--extcat-ra-column`、`--extcat-dec-column`、`--extcat-zp-column` 运行时修改 | 更换 survey 或列顺序时修改。显式投影必须保留 RA、Dec、ZP 和启用阶段消费的字段；改变总列数还需同步审查重排与 FD 列号。 |
 | Gaia、外部星表与标定路径 | `ASTROMETRY_CAT`、`SOURCE_CAT_DEFAULT`（有效 `SOURCE_CAT`）、`FLAT_PATH`、`PSF_PATH` | `config/pathconfig.hpp`；`--extcat-output` 可在运行时设置有效 `SOURCE_CAT`，其余为编译时 | 更换 Gaia 瓦片、规范化源星表、平场或外部 PSF 数据源时修改；`--astrocat-output` 与 `ASTROMETRY_CAT` 相互独立；容器内路径必须与 bind 目标一致。 |
 | Standard 分支选择 | `ASTROMETRY_trivial=0`、`include_FLAT=0`、`include_Mask=2`、`ext_cat=1`、`ext_PSF=0`、`PSF_type=1`、`PSF_Ms=0` | `config/LensingConfig.hpp`，编译时 | 只有 Standard 可切换这些分支。Lite 已固定为 Gaia、无平场、逐 CCD DQ、外部源星表、帧内 PSF、局域多项式且无 PCA。 |
+| Standard 兼容选择器 | `PreprocsType=2`、`NstampType=3`、`PsfGroupingType=4` | `config/LensingConfig.hpp`，编译时 | 默认值保持当前 C++ 预处理、协方差噪声和自适应 PSF 分组不变。每个选择器的值 `1` 都进入独立的历史 F77 兼容路径；现代噪声/分组编号已按参数表重排。Lite 不提供这些选择器。 |
 | 图像与探测器几何 | `CCD_split=2`、`chipnx=2046`、`chipny=4094`、`pixel_size=0.2628`、`N_CCD=62` | `config/LensingConfig.hpp`，编译时 | Stage 1 动态读取 science NAXIS；Standard Hybrid PSF 与 FD 使用配置的物理 CCD 几何。更换相机或读出结构时成组修改；曝光表与逐曝光 FD 数组没有配置硬上限。 |
 | 数值阶段 | `PROCESS_stage=223092870` | `config/LensingConfig.hpp`，编译时 | 用素因数选择九个主流程阶段；阶段 9（23）必须与阶段 8（19）同时启用。 |
 | 源检测与像素阈值 | `saturation_thresh=25000` | `config/LensingConfig.hpp`，编译时 | 更换图像源后，以代表性数据重新标定。 |
@@ -126,6 +127,10 @@ CLI 支持 `--name value` 与 `--name=value`。布尔值支持 `true/false`、`1
 每个独立参数的 Standard/Lite 默认值、合法值、CLI 覆盖和重编译要求见
 [CPP_PIPELINE_PARAMETERS.md](CPP_PIPELINE_PARAMETERS.md)。修改高耦合参数时，应保留基准
 配置，并先用最小代表性数据验证。
+
+Stage 5 在 Standard 和 Lite 中都用“所有保留拟合星共同得到的模型”回代到每颗拟合星，
+并据此写出 `*_star_comp_expo.dat` 的模型形状与 residual；该产物现在是普通 full-fit
+诊断，不再是 leave-one-out 预测。LOO 数值只保留在可选的 PRESS 剔除内部，不写入该文件。
 
 
 ## 运行示例

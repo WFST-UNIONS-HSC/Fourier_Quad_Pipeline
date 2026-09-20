@@ -35,6 +35,10 @@ naming defaults are centralized in `Initialize.hpp`. `config/` remains the
 internal compatibility and advanced-default layer; runtime CLI values still
 override represented compiled workflow defaults.
 
+Stage 5 writes `*_star_comp_expo.dat` from the model fitted with all retained
+stars and evaluated at each fitted star. Its residual is therefore full-fit, while
+analytic leave-one-out values remain confined to optional PRESS rejection.
+
 The optional one-time `process_astrocat` phase runs before `process_extcat` and
 publishes deduplicated one-degree Gaia tiles. Its `--astrocat-output` directory
 is independent of `Initialize::ASTROMETRY_CAT`, and Lite Stage 1 always reads
