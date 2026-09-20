@@ -476,12 +476,36 @@ float normalizedChiDistance(
 
 // ==========================================
 // Structure: View one numerically safe candidate in F77 selection
-// Method: Borrow the normalized central window and expose its legacy size.
+// Method: Preserve its original chip-local index while borrowing the normalized
+//         central window and exposing its legacy size.
 // ==========================================
 struct F77PSFCandidateView {
+    int star_index = -1;
     double size = 0.0;
     const std::vector<float>* chi_window = nullptr;
 };
+
+// ==========================================
+// Function: Prepare one candidate for the compact F77 selection population
+// Method: Apply candidate-level numerical gates, normalize its borrowed window,
+//         and retain the original chip-local star index without a positivity gate.
+// ==========================================
+bool prepareF77PSFCandidate(
+    int star_index,
+    double selection_flag,
+    double full_power_sum,
+    double size,
+    std::vector<float>& chi_window,
+    F77PSFCandidateView& candidate);
+
+// ==========================================
+// Function: Test the historical F77 exposure candidate minimum
+// Method: Compare only the compact numerically safe population with twice the
+//         configured per-exposure minimum.
+// ==========================================
+bool hasMinimumF77PSFCandidates(
+    std::size_t safe_candidate_count,
+    int minimum_stars);
 
 // ==========================================
 // Structure: Store the single-pass F77 pair statistics

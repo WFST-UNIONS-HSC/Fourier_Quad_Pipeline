@@ -1651,7 +1651,8 @@ namespace PSFModel {
         int safe_candidate_count = 0;
         for (int chip_index = 0; chip_index < nchip; ++chip_index) {
             ChipPSFState& chip = state.chips[chip_index];
-            bool chip_safe = true;
+            int invalid_candidate_count = 0;
+            candidates[chip_index].reserve(chip.selection.size());
             for (int star_index = 0;
                  star_index < state.getNStar(chip_index); ++star_index) {
                 Internal::StarSelectionState& selection =
@@ -1663,44 +1664,32 @@ namespace PSFModel {
                 selection.min_chi = 1000.0f;
                 selection.bad_pair_fraction = 0.0;
                 selection.knn.clear();
-                if (state.getStarPara(chip_index, star_index, 4) <= 0.0
-                    || !std::isfinite(selection.full_power_sum)
-                    || selection.full_power_sum == 0.0
-                    || selection.chi_window.empty()) {
-                    chip_safe = false;
-                }
-            }
-            if (!chip_safe) {
-                std::cout << "PSF_F77_CHIP chip=" << (chip_index + 1)
-                          << " decision=REJECT_INVALID_NUMERICS\n";
-                for (int star_index = 0;
-                     star_index < state.getNStar(chip_index); ++star_index) {
+                Internal::F77PSFCandidateView candidate;
+                if (!Internal::prepareF77PSFCandidate(
+                        star_index,
+                        state.getStarPara(chip_index, star_index, 4),
+                        selection.full_power_sum,
+                        state.getStarPara(chip_index, star_index, 7),
+                        selection.chi_window,
+                        candidate)) {
                     state.getStarPara(chip_index, star_index, 4) = -1.0;
-                    std::vector<float>().swap(
-                        chip.selection[star_index].chi_window);
-                }
-                continue;
-            }
-
-            candidates[chip_index].reserve(chip.selection.size());
-            for (int star_index = 0;
-                 star_index < state.getNStar(chip_index); ++star_index) {
-                Internal::StarSelectionState& selection =
-                    chip.selection[star_index];
-                const double inverse_sum = 1.0 / selection.full_power_sum;
-                for (float& value : selection.chi_window) {
-                    value = static_cast<float>(
-                        static_cast<double>(value) * inverse_sum);
+                    std::vector<float>().swap(selection.chi_window);
+                    invalid_candidate_count++;
+                    continue;
                 }
                 selection.in_size_locus = true;
-                candidates[chip_index].push_back({
-                    state.getStarPara(chip_index, star_index, 7),
-                    &selection.chi_window});
+                candidates[chip_index].push_back(candidate);
                 safe_candidate_count++;
             }
+            std::cout << "PSF_F77_CHIP chip=" << (chip_index + 1)
+                      << " invalid_candidates=" << invalid_candidate_count
+                      << " safe_candidates=" << candidates[chip_index].size()
+                      << '\n';
         }
 
-        if (safe_candidate_count < 2 * LensingConfig::nstar_min) {
+        if (!Internal::hasMinimumF77PSFCandidates(
+                static_cast<std::size_t>(safe_candidate_count),
+                LensingConfig::nstar_min)) {
             std::cout << "PSF_F77_EXPOSURE candidates=" << safe_candidate_count
                       << " decision=REJECT_MINIMUM\n";
             rejectExposureCandidates(state);
@@ -1739,12 +1728,18 @@ namespace PSFModel {
             std::vector<bool> keep(
                 static_cast<std::size_t>(state.getNStar(chip_index)), false);
             for (int star_index : selected[chip_index]) keep[star_index] = true;
+            for (std::size_t compact_index = 0;
+                 compact_index < candidates[chip_index].size();
+                 ++compact_index) {
+                const int original_index =
+                    candidates[chip_index][compact_index].star_index;
+                chip.selection[original_index].min_chi =
+                    statistics.min_chi[chip_index][compact_index];
+            }
             for (int star_index = 0;
                  star_index < state.getNStar(chip_index); ++star_index) {
                 Internal::StarSelectionState& selection =
                     chip.selection[star_index];
-                selection.min_chi = statistics.min_chi[chip_index].empty()
-                    ? 1000.0f : statistics.min_chi[chip_index][star_index];
                 selection.selected_group = keep[star_index];
                 state.getStarPara(chip_index, star_index, 4) =
                     keep[star_index] ? 1.0 : -1.0;

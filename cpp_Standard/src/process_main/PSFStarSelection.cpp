@@ -1509,6 +1509,55 @@ float normalizedChiDistance(
 }
 
 // ==========================================
+// Function: Prepare one candidate for the compact F77 selection population
+// Method: Reject only unsafe inputs, allow a negative finite nonzero full sum,
+//         normalize in place, and verify the resulting window remains finite.
+// ==========================================
+bool prepareF77PSFCandidate(
+    int star_index,
+    double selection_flag,
+    double full_power_sum,
+    double size,
+    std::vector<float>& chi_window,
+    F77PSFCandidateView& candidate) {
+    candidate = {};
+    if (star_index < 0 || !(selection_flag > 0.0)
+        || !std::isfinite(full_power_sum) || full_power_sum == 0.0
+        || !std::isfinite(size) || chi_window.empty()
+        || !std::all_of(
+            chi_window.begin(), chi_window.end(),
+            [](float value) { return std::isfinite(value); })) {
+        return false;
+    }
+    const double inverse_sum = 1.0 / full_power_sum;
+    for (float& value : chi_window) {
+        value = static_cast<float>(static_cast<double>(value) * inverse_sum);
+    }
+    if (!std::all_of(
+            chi_window.begin(), chi_window.end(),
+            [](float value) { return std::isfinite(value); })) {
+        return false;
+    }
+    candidate.star_index = star_index;
+    candidate.size = size;
+    candidate.chi_window = &chi_window;
+    return true;
+}
+
+// ==========================================
+// Function: Test the historical F77 exposure candidate minimum
+// Method: Compare only the compact safe population with twice the configured
+//         per-exposure minimum.
+// ==========================================
+bool hasMinimumF77PSFCandidates(
+    std::size_t safe_candidate_count,
+    int minimum_stars) {
+    if (minimum_stars <= 0) return false;
+    return safe_candidate_count
+        >= 2U * static_cast<std::size_t>(minimum_stars);
+}
+
+// ==========================================
 // Function: Compute the exact F77 exposure-size and same-chip pair statistics
 // Method: Use the one-based floor(2N/3) rank, visit every unordered pair once,
 //         and retain threshold pairs only when both sizes meet the rank cut.
@@ -1527,7 +1576,7 @@ bool computeF77PSFPairStatistics(
         const auto& chip = candidates_by_chip[chip_index];
         statistics.min_chi[chip_index].assign(chip.size(), 1000.0f);
         for (const F77PSFCandidateView& candidate : chip) {
-            if (!std::isfinite(candidate.size)
+            if (candidate.star_index < 0 || !std::isfinite(candidate.size)
                 || candidate.chi_window == nullptr
                 || candidate.chi_window->empty()) {
                 return false;
@@ -1818,7 +1867,16 @@ bool selectF77PSFLargestGroups(
         }
         if (static_cast<int>(groups[largest].members.size())
             >= minimum_local_stars) {
-            selected_by_chip[chip_index] = groups[largest].members;
+            std::vector<int>& selected = selected_by_chip[chip_index];
+            selected.reserve(groups[largest].members.size());
+            for (int compact_index : groups[largest].members) {
+                if (compact_index < 0
+                    || compact_index >= static_cast<int>(chip.size())
+                    || chip[compact_index].star_index < 0) {
+                    return false;
+                }
+                selected.push_back(chip[compact_index].star_index);
+            }
         }
     }
     return true;
