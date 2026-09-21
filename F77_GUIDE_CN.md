@@ -105,7 +105,7 @@ Fortran 程序没有 `--help`、`--run-*` 或 `--config`；请在 `para.inc` 选
 | Standard PCA 产物 | `stamps/dat_StarXY/<exposure>/`、`stamps/fits_PsfResi/<exposure>/`、`stamps/dat_Pcs/`、`stamps/dat_StarCompV2/` |
 | 最终星表 | `result/<exposure>_all.cat` |
 
-F77 程序不会创建目录。运行前请使用 C++ initializer 初始化数据集树，或自行创建完整产物目录。
+F77 程序不会创建目录。运行前请使用 init_program 初始化数据集树，或自行创建完整产物目录。
 阶段 8 仍在曝光表同目录写父级汇总 `expo_info.dat`。阶段 9 的每一行都包含从 1 开始的
 `EXPO_NUM`、物理 `ccD_NUM`、24 列剪切记录和 `Chi2`；启用外部星表时，其字段位于这些列之前。
 
