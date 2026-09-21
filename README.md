@@ -17,6 +17,8 @@ repository provides current C++17 and legacy Fortran implementations, each in St
 | F77 Standard | [`f77`](f77/) | Full legacy Fortran branch set. |
 
 All four variants build an executable named `Fourier_Quad_Pipe`.
+>*Note: The F77 version only includes the main scientific processing pipeline and does not include normalized external star catalogs, initialized data structures, reshuffled shear catalogs, or field distortion test programs.*
+>*To use the F77 version, you must prepare compliant external star catalogs and initialize the data structures to be processed using [Standalone Init Script](init_program/init_program.py).*
 
 ## Quick Start
 

@@ -32,14 +32,8 @@ namespace LensingConfig {
                                 1;
     constexpr int include_FLAT = 0;  // Apply super-flat correction when one.
     constexpr int include_Mask = 2;  // Select the DQ-mask input mode.
-    constexpr int include_BGsub = 1;  // Subtract the fitted science-image background.
-
-    // ==========================================
-    // Configuration: Stage-1 preprocessing estimator selector
-    // Method: Keep the historical random F77 estimators available as Type 1 while
-    //         retaining the current robust C++ background/noise estimators as Type 2.
-    // ==========================================
-    constexpr int PreprocsType = 2;
+    constexpr int PreprocsType = 1;  // Stage-1 preprocessing estimator selector, 1 for legacy, 2 for the new.
+    constexpr int include_BGsub = 0;  // Subtract the fitted science-image background.
 
     // Split parameters
     constexpr int ext_cat = 1;  // Use the external source catalog when one.
@@ -62,7 +56,7 @@ namespace LensingConfig {
     // Method: Keep exposure locus, grouping topology, Gaia support, and PRESS
     //         thresholds explicit and independently rebuild-configurable.
     // ==========================================
-    constexpr int PsfGroupingType = 4;  // 1 F77; 2 threshold graph; 3 mutual KNN; 4 adaptive pair fractions.
+    constexpr int PsfGroupingType = 1;  // 1 F77; 2 threshold graph; 3 mutual KNN; 4 adaptive pair fractions.
     // ---
     constexpr int psf_exposure_min_candidates = 60;  // Minimum exposure-wide PSF candidates.
     constexpr double psf_count_pilot_clip_sigma = 3.0;  // Robust star-area pilot clipping multiplier.
@@ -94,7 +88,8 @@ namespace LensingConfig {
 
     constexpr int PSF_type = 1;  // One selects local polynomial; two selects hybrid PSF.
     constexpr int PSF_Ms = 0;  // Enable PCA/multi-scale PSF reconstruction when one.
-
+    // ==========================================
+    
     // Stamp dimensions
     constexpr int ns = 64;  // Science stamp and Fourier-grid side length.
     constexpr int nsns = ns * ns;  // Pixels in one science stamp.
@@ -141,7 +136,7 @@ namespace LensingConfig {
     // Configuration: Stage-3 noise-product construction method
     // Method: Select F77 blank noise (1), QC/random blank noise (2), or covariance power (3).
     // ==========================================
-    constexpr int NstampType = 3;
+    constexpr int NstampType = 1;
     // ==========================================
     // Configuration: Stage-3 blank-noise-stamp quality gates
     // Method: Retain the main-branch fixed candidate QC before random selection.
@@ -205,6 +200,7 @@ namespace LensingConfig {
     constexpr double sig_scale_s1 = 0.673475;  // Stage-1 noise calibration candidate.
     constexpr double sig_scale_s2 = 1.027786;  // Stage-2 noise calibration.
     constexpr double sig_scale = sig_scale_s2;  // Active noise calibration selector.
+    // ==========================================
 
     constexpr int area_max = ns * ns;  // Maximum connected source area.
     constexpr int area_thresh = 6;  // Minimum connected source area.

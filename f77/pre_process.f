@@ -25,13 +25,18 @@ c        call chip_pre_process(IMAGE_FILE(ichip),DIR_OUTPUT)
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       subroutine chip_pre_process(IMAGE_FILE,DIR_OUTPUT,cid,MASK_FILE)
 c      subroutine chip_pre_process(IMAGE_FILE,DIR_OUTPUT)
+c ==========================================
+c Function: Preprocess one chip through Stage 1
+c Method: Apply masks, selected background/noise, and defect handling
+c ==========================================
       implicit none
       include 'para.inc'
+      include 'path_layout.inc'
       include 'sig_para.inc'
 
       character*(*) IMAGE_FILE,DIR_OUTPUT
       integer proc_error
-      character*(strl) PREFIX,filename,catfile,PREFIX_e
+      character*(strl) filename,catfile
 
       integer nx,ny
       real array(npx,npy),normap(npx,npy)
@@ -52,9 +57,6 @@ c      subroutine chip_pre_process(IMAGE_FILE,DIR_OUTPUT)
       real flat_weight(npx,npy)
 
       integer cid
-      character*(2) c_chip
-
-
       proc_error=0
       do i=1,2
         do j=1,3
@@ -89,10 +91,9 @@ c Function: Apply the DQ mask before astrometry and defect merging
 c ==========================================
       if (proc_error.eq.0 .and.
      .   (include_Mask.eq.2 .or. include_Mask.eq.3)) then
-        write(c_chip,'(I2)') cid
-        call get_PREFIX_expo(IMAGE_FILE,PREFIX_e)
-        MASK_FILE=trim(DIR_OUTPUT)//'/dqmask/'//trim(PREFIX_e)
-     .  //'_'//trim(adjustl(c_chip))//'.fits'
+        call fq_expo_ccd_product_path(IMAGE_FILE,DIR_OUTPUT,
+     .  DIR_DQ,cid,
+     .    '.fits',MASK_FILE)
         call readimage(MASK_FILE,nxx,nyy,npx,npy,flat_weight)
         if (flat_weight(1,1).lt.(-99990.0)) then
           write(*,*) 'Error / cant find mask file!'
@@ -118,11 +119,11 @@ c------------------------------------------------------
       if (ccD_split.eq.2) then
 
         call set_background(1,nxc,1,ny,npx,npy,normap
-     .,blocksize,nct,ncx,proc_error)
+     .,blocksize,nct,ncx,proc_error,PreprocsType)
         call set_background(nxc+1,nx,1,ny,npx,npy,normap
-     .,blocksize,nct,ncx,proc_error)
+     .,blocksize,nct,ncx,proc_error,PreprocsType)
         call set_sig(1,nxc,1,ny,npx,npy,normap,weight
-     .,aa,bb,cc,proc_error,sig_scale)
+     .,aa,bb,cc,proc_error,sig_scale,PreprocsType)
         if (proc_error.eq.0) then
           sigabc(1,1)=aa
           sigabc(1,2)=bb
@@ -130,7 +131,7 @@ c------------------------------------------------------
         endif
         if (proc_error.eq.0) then
           call set_sig(nxc+1,nx,1,ny,npx,npy,normap,weight
-     .    ,aa,bb,cc,proc_error,sig_scale)
+     .    ,aa,bb,cc,proc_error,sig_scale,PreprocsType)
         endif
         if (proc_error.eq.0) then
           sigabc(2,1)=aa
@@ -139,9 +140,9 @@ c------------------------------------------------------
         endif
       else
         call set_background(1,nx,1,ny,npx,npy,normap        
-     .,blocksize,nct,ncx,proc_error)
+     .,blocksize,nct,ncx,proc_error,PreprocsType)
         call set_sig(1,nx,1,ny,npx,npy,normap,weight
-     .,aa,bb,cc,proc_error,sig_scale)
+     .,aa,bb,cc,proc_error,sig_scale,PreprocsType)
         if (proc_error.eq.0) then
           sigabc(1,1)=aa
           sigabc(1,2)=bb
@@ -149,9 +150,9 @@ c------------------------------------------------------
         endif
       endif
 c--------------------------------------------------------------
-      call get_PREFIX(IMAGE_FILE,PREFIX)
-      filename=trim(DIR_OUTPUT)//'/astrometry/'
-     .//trim(PREFIX)//'_astro.dat'
+      call fq_chip_product_path(IMAGE_FILE,DIR_OUTPUT,
+     .  DIR_ASTRO_DATA,
+     .  '_astro.dat',filename)
       if (ASTROMETRY_trivial.eq.1) then
         call gen_astrometry_data_trivial(cRPIX,cD,cRVAL,filename)
       else
@@ -210,8 +211,9 @@ c Serialize the final combined saturation, DQ, and detected-defect mask.
         enddo
       enddo
 
-      filename=trim(DIR_OUTPUT)//'/stamps/'//trim(PREFIX)
-     .//'_norm.fits'
+      call fq_chip_product_path(IMAGE_FILE,DIR_OUTPUT,
+     .  DIR_NORM,
+     .  '_norm.fits',filename)
       call writeimage_copyhdu(IMAGE_FILE,filename
      .,nx,ny,npx,npy,normap)
 
@@ -232,14 +234,17 @@ c      pause
       END
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       subroutine set_background(nx1,nx2,ny1,ny2,npx,npy,image
-     .,blocksize,nct,ncx,ierror)
+     .,blocksize,nct,ncx,ierror,preprocs_type)
       implicit none
 
-c The purpose of this code is to achieve a fine adjustment of the
-c background.
+c ==========================================
+c Function: Subtract rough and fine Stage-1 background models
+c Method: Select legacy absolute or current local affine coordinates
+c ==========================================
 
 c input & output:
       integer nx1,nx2,ny1,ny2,npx,npy,ierror,blocksize,nct,ncx
+      integer preprocs_type
       real image(npx,npy)
 
 c parameters:
@@ -248,18 +253,152 @@ c parameters:
       parameter (nfit=5000)
 
 c local variables:
-      real pix(npp),arr(npp,3),c(nct)
+      real pix(npp),arr(npp,3),arr2(npp,3),c(nct),crough(4)
       real mean_sam(nfit,3),sam(nfit),tempo(nfit),tmp_fit(nfit,3)
-      integer indx(npp),nsam,nsam1,changed
+      integer indx(npp),nsam,nsam1,changed,nr
       integer ix,iy,i,j,k,nbx,nby,xmin,xmax,ymin,ymax,nct_min
       real i2,j2,ij,mean,sig,aa,bb,cc,med,x,y
-      real bound1,bound2
+      real bound1,bound2,arr_min,arr_max,ratio
 c sub-region affine normalization (numerical_fix F1):
       real xmid,ymid,xhalf_1,yhalf_1
 c uses:
       real ran1,func_val
 
       if (ierror.eq.1) return
+
+      if (preprocs_type.ne.1 .and. preprocs_type.ne.2) then
+        write(*,*) 'Error / invalid PreprocsType',preprocs_type
+        ierror=1
+        return
+      endif
+
+      if (preprocs_type.eq.1) then
+c ==========================================
+c Function: Restore the original two-level F77 background workflow
+c Method: Use random samples and absolute scaled pixel coordinates
+c ==========================================
+        ratio=1./max(nx2-nx1,ny2-ny1)
+
+c Perform the legacy rough flatten locally.  The current flatten_chip
+c routine belongs to Type 2 and uses amplifier-local coordinates.
+        do i=1,npp
+          ix=int(ran1()*(nx2-nx1)+nx1)
+          iy=int(ran1()*(ny2-ny1)+ny1)
+          pix(i)=image(ix,iy)
+          arr2(i,1)=ix*ratio
+          arr2(i,2)=iy*ratio
+          arr2(i,3)=pix(i)
+        enddo
+        call sort(npp,npp,pix)
+
+        if (pix(1).eq.pix(npp)) then
+          ierror=1
+          return
+        endif
+
+        arr_min=pix(npp/3)
+        arr_max=pix(2*npp/3)
+        nr=0
+        do i=1,npp
+          if (arr2(i,3).ge.arr_min.and.arr2(i,3).le.arr_max) then
+            nr=nr+1
+            arr(nr,1)=arr2(i,1)
+            arr(nr,2)=arr2(i,2)
+            arr(nr,3)=arr2(i,3)
+          endif
+        enddo
+
+        if (nr.lt.npp/10) then
+          ierror=1
+          return
+        endif
+
+        call fit_2D(npp,nr,arr,4,2,crough)
+
+        do i=nx1,nx2
+          do j=ny1,ny2
+            x=i*ratio
+            y=j*ratio
+            image(i,j)=image(i,j)-func_val(x,y,4,2,crough)
+          enddo
+        enddo
+
+c Fit and subtract the legacy fine background from the rough residual.
+        nbx=max((nx2-nx1)/blocksize,1)
+        nby=max((ny2-ny1)/blocksize,1)
+
+        nsam=0
+        do i=1,nbx
+          xmin=(i-1)*blocksize+nx1
+          xmax=min(xmin+blocksize,nx2)
+          do j=1,nby
+            ymin=(j-1)*blocksize+ny1
+            ymax=min(ymin+blocksize,ny2)
+
+            do k=1,npp
+              ix=int(ran1()*(xmax-xmin)+xmin)
+              iy=int(ran1()*(ymax-ymin)+ymin)
+              arr(k,1)=ix*ratio
+              arr(k,2)=iy*ratio
+              arr(k,3)=image(ix,iy)
+              pix(k)=arr(k,3)
+            enddo
+
+            call indexx(npp,npp,pix,indx)
+            k=indx(npp/2)
+            nsam=nsam+1
+            mean_sam(nsam,1)=arr(k,1)
+            mean_sam(nsam,2)=arr(k,2)
+            mean_sam(nsam,3)=arr(k,3)
+          enddo
+        enddo
+
+        nct_min=nct*3/2
+        nsam1=nsam
+        changed=1
+        do while (changed.eq.1 .and. nsam1.ge.nct_min)
+          call find_slope_2D(nfit,nsam1,mean_sam,aa,bb,cc)
+
+          do i=1,nsam1
+            sam(i)=mean_sam(i,3)-aa-bb*mean_sam(i,1)
+     .             -cc*mean_sam(i,2)
+            tempo(i)=sam(i)
+          enddo
+          call sort(nsam1,nfit,tempo)
+          mean=tempo(nsam1/2)
+          sig=0.5*(tempo(nsam1*5/6)-tempo(nsam1/6))
+          nsam=0
+          changed=0
+          do i=1,nsam1
+            if (abs(sam(i)-mean).lt.3.*sig) then
+              nsam=nsam+1
+              mean_sam(nsam,1)=mean_sam(i,1)
+              mean_sam(nsam,2)=mean_sam(i,2)
+              mean_sam(nsam,3)=mean_sam(i,3)
+            else
+              changed=1
+            endif
+          enddo
+          nsam1=nsam
+        enddo
+
+        if (nsam1.lt.nct_min) then
+          write(*,*) 'Background not stable enough!',nsam1
+          ierror=1
+          return
+        endif
+
+        call fit_2D(nfit,nsam1,mean_sam,nct,ncx,c)
+
+        do i=nx1,nx2
+          do j=ny1,ny2
+            x=i*ratio
+            y=j*ratio
+            image(i,j)=image(i,j)-func_val(x,y,nct,ncx,c)
+          enddo
+        enddo
+        return
+      endif
 
 c a rough flattening of the field first:
       call flatten_chip(nx1,nx2,ny1,ny2,npx,npy,image,4,2,ierror)
@@ -456,28 +595,31 @@ c numerical_fix F1: evaluate on the same normalized frame used to fit.
       end
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       subroutine set_sig(nx1,nx2,ny1,ny2,npx,npy,image
-     .,weight,aa,bb,cc,ierror,sig_scale_in)
+     .,weight,aa,bb,cc,ierror,sig_scale_in,preprocs_type)
       implicit none
 
 c ==========================================
 c Function: Estimate, validate, and apply one amplifier noise plane
-c Method: Find the image-density mode, clip a private symmetric bar,
-c         refine it once with a provisional plane, and fit all surviving
-c         triples. Validate and normalize this amplifier immediately;
-c         no DQ image is read or required.
+c Method: Select legacy random fitting or current robust F6 fitting
 c ==========================================
-      integer nx1,nx2,ny1,ny2,npx,npy,ierror
+      integer nx1,nx2,ny1,ny2,npx,npy,ierror,preprocs_type
       integer weight(npx,npy)
       real image(npx,npy),aa,bb,cc,sig_scale_in
 
       include 'sig_para.inc'
 
+      integer npp_old
+      parameter (npp_old=2000)
+
       integer i,j,ib,jb,nbx,nby,nblock,ibin,imax,iq
       integer xmin,xmax,ymin,ymax,nval,ntri,width,height
       integer nhist,nbelow,iter,use_local,npossible,nuse,nmask
       integer score,scoremax,scorem,scorep
+      integer ix_old,iy_old,nr_old
       integer hist(sig_hist_nbin)
       logical*1 src(npx,npy)
+      real pix_old(npp_old),arr_old(npp_old,3)
+      real arr2_old(npp_old,3),arr_min_old,arr_max_old,temp_old
       double precision blkval(sig_block_max)
       double precision bmeds(sig_max_blocks),bsigs(sig_max_blocks)
       double precision bmed,pmed,slocal,dval
@@ -487,11 +629,65 @@ c ==========================================
       double precision qval,rawa,rawb,rawc,aad,bbd,ccd,tmin,tmax
       logical sig_finite_d
       external sig_finite_d
+      real ran1
 
       aa=0.
       bb=0.
       cc=0.
       if (ierror.ne.0) return
+
+      if (preprocs_type.ne.1 .and. preprocs_type.ne.2) then
+        write(*,*) 'Error / invalid PreprocsType',preprocs_type
+        ierror=1
+        return
+      endif
+
+      if (preprocs_type.eq.1) then
+c ==========================================
+c Function: Restore the original random-2000 F77 sigma workflow
+c Method: Trim the middle third and fit absolute pixel coordinates
+c ==========================================
+        do i=1,npp_old
+          ix_old=int(ran1()*(nx2-nx1-1)+nx1)
+          iy_old=int(ran1()*(ny2-ny1-1)+ny1)
+          pix_old(i)=0.5*((image(ix_old,iy_old)
+     .               -image(ix_old+1,iy_old))**2
+     .               +(image(ix_old,iy_old)
+     .               -image(ix_old,iy_old+1))**2)
+          arr_old(i,1)=ix_old
+          arr_old(i,2)=iy_old
+          arr_old(i,3)=pix_old(i)
+        enddo
+        call sort(npp_old,npp_old,pix_old)
+
+        arr_min_old=pix_old(npp_old/3)
+        arr_max_old=pix_old(2*npp_old/3)
+        nr_old=0
+        do i=1,npp_old
+          if (arr_old(i,3).ge.arr_min_old .and.
+     .        arr_old(i,3).le.arr_max_old) then
+            nr_old=nr_old+1
+            arr2_old(nr_old,1)=arr_old(i,1)
+            arr2_old(nr_old,2)=arr_old(i,2)
+            arr2_old(nr_old,3)=arr_old(i,3)
+          endif
+        enddo
+
+        if (nr_old.lt.npp_old/10) then
+          ierror=1
+          return
+        endif
+
+        call find_slope_2D(npp_old,nr_old,arr2_old,aa,bb,cc)
+
+        do i=nx1,nx2
+          do j=ny1,ny2
+            temp_old=aa+bb*i+cc*j
+            image(i,j)=image(i,j)/sqrt(0.5*temp_old)
+          enddo
+        enddo
+        return
+      endif
 
       if (nx2.le.nx1 .or. ny2.le.ny1) then
         write(*,*) 'Error / set_sig invalid amplifier geometry'

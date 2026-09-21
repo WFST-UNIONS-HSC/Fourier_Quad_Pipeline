@@ -54,6 +54,10 @@ At minimum, review `PROCESS_stage`, `ASTROMETRY_CAT`, `SOURCE_CAT`, and any
 active `FLAT_PATH`. In a container, these strings must be container paths that
 match the bind destinations.
 
+`SOURCE_CAT_TILE_PREFIX` controls the external-catalog tile basename prefix
+(the default is `extern_`). `strl` is 512 in both variants; longer exposure-list,
+chip-list, input, or generated product paths are rejected instead of truncated.
+
 Lite documents its frozen branch behavior at the top of `para.inc`; the
 deleted alternatives cannot be re-enabled by adding a parameter.
 
@@ -84,6 +88,11 @@ Each exposure-list record must contain the chip-list path and chip count:
 /data/work/stamps/123457.list 59
 ```
 
+Blank records are ignored in both the exposure list and each chip list. Science
+paths in a chip list must follow `<dataset>/science/<exposure>/<chip>.fits` so
+the pipeline can derive `<dataset>` by removing three path components. Exposure
+and chip counts are checked against `NMAX_EXPO` and `NMAX_CHIP`.
+
 Run with one positional argument:
 
 ```bash
@@ -96,8 +105,24 @@ program. Select stages in `para.inc` and rebuild.
 ## Outputs
 
 Stages write their intermediate products below the dataset tree referenced by
-the chip lists. Stage 8 writes `expo_info.dat` beside the exposure list. Stage
-9 writes per-exposure `result/<exposure>_all.cat` catalogs.
+the chip lists. Standard and Lite now use the same case-sensitive product
+layout as `cpp_Standard` and `cpp_Lite`:
+
+| Product family | Location |
+|---|---|
+| DQ mask | `dqmask/<exposure>/<exposure>_<ccd>.fits` |
+| Normalized images and astrometry | `stamps/Norm/<exposure>/`, `astrometry/dat_Astro/<exposure>/`, `astrometry/Head/`, `astrometry/dat_Chk/` |
+| Source and star intermediates | product-specific `stamps/cat_Orig`, `stamps/dat_*`, and `stamps/fits_*` directories, with an `<exposure>/` subdirectory for chip products |
+| Exposure PSF products | `stamps/dat_StarInfo`, `stamps/fits_StarP`, `stamps/fits_PsfSrc`, `stamps/dat_StarComp`, and `stamps/dat_Rescale` |
+| Standard PCA products | `stamps/dat_StarXY/<exposure>/`, `stamps/fits_PsfResi/<exposure>/`, `stamps/dat_Pcs/`, and `stamps/dat_StarCompV2/` |
+| Final catalog | `result/<exposure>_all.cat` |
+
+The program does not create directories. Initialize the dataset tree with the
+C++ initializer, or create the complete product hierarchy before running F77.
+Stage 8 also writes the parent-list summary `expo_info.dat` beside the exposure
+list. Every Stage 9 row contains one-based `EXPO_NUM`, physical `ccD_NUM`, the
+24-field shear record, and `Chi2`; external-catalog columns precede these fields
+when enabled.
 
 Do not modify original archives or catalogs in place. Use a writable processing
 tree and ensure every MPI rank can see the same absolute paths.

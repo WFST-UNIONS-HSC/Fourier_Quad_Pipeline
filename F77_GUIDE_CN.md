@@ -49,6 +49,9 @@ catalog、External source catalog 和取决于配置的 DQ masks。F77 Lite 使�
 至少检查 `PROCESS_stage`、`ASTROMETRY_CAT`、`SOURCE_CAT` 和启用时的
 `FLAT_PATH`。容器内这些字符串必须使用容器路径，并与 bind 目标一致。
 
+`SOURCE_CAT_TILE_PREFIX` 控制外部星表 tile 文件名前缀（默认 `extern_`）。两个版本的
+`strl` 均为 512；过长的曝光表、CCD 表、输入路径或生成产物路径会直接报错，而不会静默截断。
+
 Lite 的冻结分支写在 `para.inc` 开头；仅添加参数不能恢复已删除代码。
 
 ## 编译
@@ -75,6 +78,10 @@ make LAPACK_LIB_DIR=/path/to/lapack/lib \
 /data/work/stamps/123457.list 59
 ```
 
+曝光表与各 CCD 表中的空行都会被忽略。CCD 表内的 science 路径须遵循
+`<dataset>/science/<exposure>/<chip>.fits`，流水线会从路径末尾移除三级来得到
+`<dataset>`。曝光数与 CCD 数分别受 `NMAX_EXPO`、`NMAX_CHIP` 边界检查。
+
 运行时只传一个位置参数：
 
 ```bash
@@ -85,8 +92,21 @@ Fortran 程序没有 `--help`、`--run-*` 或 `--config`；请在 `para.inc` 选
 
 ## 输出
 
-各阶段在 CCD 列表指向的数据集树下写中间产物。阶段 8 在曝光表同目录写
-`expo_info.dat`；阶段 9 写 `result/<exposure>_all.cat`。
+各阶段在 CCD 表指向的数据集树下写中间产物。Standard 与 Lite 现在使用与
+`cpp_Standard`、`cpp_Lite` 相同且区分大小写的产物布局：
+
+| 产物族 | 位置 |
+|---|---|
+| DQ mask | `dqmask/<exposure>/<exposure>_<ccd>.fits` |
+| 归一化图与测天 | `stamps/Norm/<exposure>/`、`astrometry/dat_Astro/<exposure>/`、`astrometry/Head/`、`astrometry/dat_Chk/` |
+| 源与恒星中间产物 | 按产品拆分的 `stamps/cat_Orig`、`stamps/dat_*`、`stamps/fits_*`；逐 CCD 产物包含 `<exposure>/` 子目录 |
+| 曝光级 PSF 产物 | `stamps/dat_StarInfo`、`stamps/fits_StarP`、`stamps/fits_PsfSrc`、`stamps/dat_StarComp`、`stamps/dat_Rescale` |
+| Standard PCA 产物 | `stamps/dat_StarXY/<exposure>/`、`stamps/fits_PsfResi/<exposure>/`、`stamps/dat_Pcs/`、`stamps/dat_StarCompV2/` |
+| 最终星表 | `result/<exposure>_all.cat` |
+
+F77 程序不会创建目录。运行前请使用 C++ initializer 初始化数据集树，或自行创建完整产物目录。
+阶段 8 仍在曝光表同目录写父级汇总 `expo_info.dat`。阶段 9 的每一行都包含从 1 开始的
+`EXPO_NUM`、物理 `ccD_NUM`、24 列剪切记录和 `Chi2`；启用外部星表时，其字段位于这些列之前。
 
 请使用可写处理目录，不要原地修改原始归档或星表，并确保所有 MPI rank 看到相同绝对路径。
 

@@ -5,17 +5,19 @@
       integer npx,npy,strl
       parameter (npx=3000)
       parameter (npy=5000)
-      parameter (strl=150)
+      parameter (strl=512)
 
       integer ASTROMETRY_trivial,PROCESS_stage,include_FLAT
-      integer include_Mask
+      integer include_Mask,PreprocsType
       parameter (ASTROMETRY_trivial=0)
       parameter (PROCESS_stage=2*3*5*7*11*13*17*19*23)
       parameter (include_FLAT=0)    
       parameter (include_Mask=2)
-
+      parameter (PreprocsType=1)
 	
       character*200 ASTROMETRY_CAT,SOURCE_CAT,FLAT_PATH,PSF_PATH
+      character*16 SOURCE_CAT_TILE_PREFIX
+      parameter (SOURCE_CAT_TILE_PREFIX='extern_')
       parameter (ASTROMETRY_CAT
      .='/lustre/home/acct-phyzj/phyzj/jzhang/gaia/gaia_cat_sorted')
 
@@ -154,6 +156,4 @@ c	parameter (g2_c=-0.)
       real chi2_thresh
       parameter (chi2_thresh=0.01)
 ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-
 
