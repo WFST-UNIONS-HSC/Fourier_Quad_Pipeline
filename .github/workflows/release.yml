@@ -4,7 +4,6 @@ name: Publish release
 # Trigger: push a version tag (v*) or manual dispatch.
 # Creates a GitHub Release and attaches one zip file per
 # top-level content directory in the repository, including
-# gen_src_cat.zip for the external-catalog generator.
 # ==========================================
 on:
   workflow_dispatch:
@@ -51,9 +50,6 @@ jobs:
               F77_GUIDE.md F77_GUIDE_CN.md \
               CPP_GUIDE.md CPP_GUIDE_CN.md \
               CPP_PIPELINE_PARAMETERS.md LICENSE
-
-          # gen_src_cat is a required standalone release asset.
-          test -f artifacts/gen_src_cat.zip
 
           echo "=== Artifact list ==="
           ls -lh artifacts/
