@@ -16,24 +16,20 @@ namespace PreProcess {
     // Helper functions for preprocessing
     // ==========================================
     // Function: Estimate and subtract one amplifier's background model
-    // Method: Fit the final validated polynomial and return the exact coefficients used for
-    //         subtraction through bg_coeffs.
+    // Method: Run the frozen historical F77 estimator and publish coefficients in
+    //         the normalized-coordinate FITS metadata basis.
     // ==========================================
     void setBackground(int x_start, int x_end, int y_start, int y_end, int nx, int ny,
-                       std::vector<float>& image, const std::vector<int>& weight,
-                       int blocksize, int nct, int ncx, std::vector<double>& bg_coeffs,
+                       std::vector<float>& image, int blocksize, int nct, int ncx,
+                       std::vector<double>& bg_coeffs,
                        int& ierror);
 
-    void flattenChip(int x_start, int x_end, int y_start, int y_end, int nx, int ny, std::vector<float>& array,
-                     int nct, int ncx, int& ierror);
-
     // ==========================================
-    // Function: Estimate, validate, and apply one amplifier's noise-sigma plane
-    // Method: Use the caller's immutable base-validity map and explicit named sig_scale.
+    // Function: Estimate and apply one amplifier's historical noise-sigma plane
+    // Method: Run the frozen random-2000 F77 estimator with its positivity guard.
     // ==========================================
     void setSig(int x_start, int x_end, int y_start, int y_end, int nx, int ny, std::vector<float>& image,
-                const std::vector<int>& weight, double& aa, double& bb, double& cc, int& ierror,
-                double sig_scale);
+                double& aa, double& bb, double& cc, int& ierror);
 
     void locateDefects(int nx, int ny, const std::vector<float>& array, std::vector<float>& normap,
                        std::vector<int>& weight, int area_max, int area_thresh, int& ierror);

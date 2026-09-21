@@ -24,11 +24,15 @@ namespace SourceExtractor {
                              const std::vector<float>& sigmap, const double cRPIX[2], const double cD[2][2],
                              const double cRVAL[2], const double PU[2][LensingConfig::npd], int& ngal, int& procError);
                              
-    void findNoise(
+    // ==========================================
+    // Function: Extract the deterministic historical F77 blank-noise stamp
+    // Method: Select the outer-ring candidate with the smallest raw maximum.
+    // ==========================================
+    void findNoiseF77(
         int& flag, std::vector<float>& stamps,
         int nx, int ny, const std::vector<float>& array,
-        const std::vector<int>& weight, const std::vector<float>& sigmap,
-        double xp, double yp, double sourceSig, int& imax, int& jmax);
+        const std::vector<int>& weight, double xp, double yp,
+        double sourceSig, int& imax, int& jmax);
 
     void checkSource(
         int& flag, std::vector<float>& stamps,
@@ -37,12 +41,16 @@ namespace SourceExtractor {
         int& imax, int& jmax, double& peak,
         double& half_light_flux, int& half_light_area);
 
-    void BlankSrcStamp(
+    // ==========================================
+    // Function: Produce the fixed Lite blank-noise and source-stamp pair
+    // Method: Preserve F77 noise-before-source ordering without modern QC.
+    // ==========================================
+    void F77BlankSrcStamp(
         int& flag, std::vector<float>& sourceStamp, std::vector<float>& noiseStamp,
         int nx, int ny, const std::vector<float>& array,
-        const std::vector<int>& weight, const std::vector<float>& sigmap,
-        double xp, double yp, double sig, int& imax, int& jmax,
-        double& peak, double& half_light_flux, int& half_light_area);
+        const std::vector<int>& weight, double xp, double yp, double sig,
+        int& imax, int& jmax, double& peak, double& half_light_flux,
+        int& half_light_area);
 
     void extractSourceAndNoise(
         int& flag, std::vector<float>& sourceProduct, std::vector<float>& noiseProduct,

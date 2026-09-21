@@ -1,4 +1,5 @@
 #include "process_main/SourceExtractor.hpp"
+#include "process_main/F77NoiseSelection.hpp"
 #include "process_main/ProcessMainState.hpp"
 #include "process_main/OutputFile.hpp"
 #include "general/OutputLayout.hpp"
@@ -10,7 +11,6 @@
 #include "process_main/Astrometry.hpp"
 #include "process_main/ExternalCatalogReader.hpp"
 #include "process_main/ImageProcessing.hpp"
-#include "general/NumericalRecipes.hpp"
 #include "process_main/Universalblock.hpp"
 #include <iostream>
 #include <vector>
@@ -26,7 +26,6 @@
 #include <limits>
 #include <utility>
 #include <system_error>
-
 namespace SourceExtractor {
 
     // ==========================================
@@ -40,23 +39,6 @@ namespace SourceExtractor {
         }
 
         // ==========================================
-        // Function: Compute a robust sample median for noise-candidate quality control
-        // Method: Partition a private value copy and average the central values for even samples.
-        // ==========================================
-        double sampleMedian(std::vector<double> values) {
-            const std::size_t count = values.size();
-            const std::size_t midpoint = count / 2U;
-            std::nth_element(values.begin(), values.begin() + midpoint, values.end());
-            const double upper = values[midpoint];
-            if (count % 2U != 0U) {
-                return upper;
-            }
-            const double lower = *std::max_element(
-                values.begin(), values.begin() + midpoint);
-            return 0.5 * (lower + upper);
-        }
-
-        // ==========================================
         // Function: Convert a live catalog size to the pipeline's integer interface
         // Method: Abort MPI before narrowing if a dynamic row count exceeds int range.
         // ==========================================
@@ -67,67 +49,6 @@ namespace SourceExtractor {
             }
             return static_cast<int>(count);
         }
-
-        // ==========================================
-        // Function: Subtract the Stage-1 background model from one science chip
-        // Method: Rebuild the independent normalized coordinate frame used by each Stage-1
-        //         amplifier fit and evaluate the caller-supplied coefficient block once per pixel.
-        // ==========================================
-        void subtractBackground(int nx, int ny, std::vector<float>& array,
-                                const std::vector<double>& bg_coeffs, int ccd_split,
-                                int nbg, int ncx) {
-            if (nx <= 0 || ny <= 0 || (ccd_split != 1 && ccd_split != 2)
-                || nbg <= 0 || ncx <= 0
-                || array.size() < static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny)
-                || bg_coeffs.size() < static_cast<std::size_t>(ccd_split)
-                                      * static_cast<std::size_t>(nbg)) {
-                MPIFailure::abortWorld(
-                    "subtract Stage-1 background", "invalid chip geometry or coefficient contract");
-            }
-
-            const int nxc = nx / 2;
-            for (int amp = 0; amp < ccd_split; ++amp) {
-                const int x_start = ccd_split == 2 && amp == 1 ? nxc : 0;
-                const int x_end = ccd_split == 2 && amp == 0 ? nxc : nx;
-                if (x_end <= x_start) {
-                    MPIFailure::abortWorld(
-                        "subtract Stage-1 background", "invalid amplifier geometry");
-                }
-
-                const double x_mid = 0.5 * (
-                    static_cast<double>(x_start + 1) + static_cast<double>(x_end));
-                const double y_mid = 0.5 * (
-                    static_cast<double>(1) + static_cast<double>(ny));
-                const double x_half_inv = 2.0 / static_cast<double>(
-                    std::max(x_end - x_start - 1, 1));
-                const double y_half_inv = 2.0 / static_cast<double>(
-                    std::max(ny - 1, 1));
-                const std::size_t coefficient_start = static_cast<std::size_t>(amp)
-                                                     * static_cast<std::size_t>(nbg);
-                const std::vector<double> amplifier_coeffs(
-                    bg_coeffs.begin() + static_cast<std::ptrdiff_t>(coefficient_start),
-                    bg_coeffs.begin() + static_cast<std::ptrdiff_t>(coefficient_start
-                                                                     + static_cast<std::size_t>(nbg)));
-
-                for (int y = 0; y < ny; ++y) {
-                    const double yn = (static_cast<double>(y + 1) - y_mid) * y_half_inv;
-                    for (int x = x_start; x < x_end; ++x) {
-                        const double xn = (static_cast<double>(x + 1) - x_mid) * x_half_inv;
-                        const double background = UniversalUtils::funcVal(
-                            xn, yn, nbg, ncx, amplifier_coeffs);
-                        if (!std::isfinite(background)) {
-                            MPIFailure::abortWorld(
-                                "subtract Stage-1 background", "nonfinite background model");
-                        }
-                        const std::size_t index = static_cast<std::size_t>(y)
-                                                * static_cast<std::size_t>(nx)
-                                                + static_cast<std::size_t>(x);
-                        array[index] -= static_cast<float>(background);
-                    }
-                }
-            }
-        }
-
     }
 
     // ==========================================
@@ -214,8 +135,9 @@ namespace SourceExtractor {
             }
         }
 
-        subtractBackground(nx, ny, array, bg_coeffs, LensingConfig::CCD_split,
-                           LensingConfig::nct, LensingConfig::ncx);
+        // Background coefficients remain a required Norm-HDU schema field,
+        // but the frozen include_BGsub=0 path does not consume them.
+        (void)bg_coeffs;
 
         int nxc = nx / 2;
         double sigabc[2][3] = {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
@@ -701,242 +623,75 @@ namespace SourceExtractor {
             fout_orig.close();
         }
     }
-
     // ==========================================
-    // Function: Select an unbiased local-noise stamp for a detected source
-    // Method: Apply fixed geometry, amplifier, mask, local-sigma, MAD, and positive-tail gates;
-    //         shuffle all preselected candidates with the existing rank-local ran1 stream and
-    //         accept the first candidate that passes complete post-flatten quality control.
+    // Function: Extract the deterministic historical F77 blank-noise stamp
+    // Method: Select argmin(max(image)) on the 5x5 outer ring, flatten only
+    //         that candidate once, and decorate it with the source sigma.
     // ==========================================
-    void findNoise(int& flag, std::vector<float>& stamps, int nx, int ny,
-                   const std::vector<float>& array, const std::vector<int>& weight,
-                   const std::vector<float>& sigmap, double xp, double yp,
-                   double sourceSig, int& imax, int& jmax) {
+    void findNoiseF77(
+        int& flag, std::vector<float>& stamps, int nx, int ny,
+        const std::vector<float>& array, const std::vector<int>& weight,
+        double xp, double yp, double sourceSig, int& imax, int& jmax) {
         flag = 0;
-        // The legacy interface carries these outputs, but checkSource owns their final values.
         (void)imax;
         (void)jmax;
-
-        const std::size_t expectedSize = static_cast<std::size_t>(nx)
-                                       * static_cast<std::size_t>(ny);
-        if (nx <= 0 || ny <= 0 || sigmap.size() != expectedSize
-            || !std::isfinite(sourceSig) || sourceSig <= 0.0) {
+        if (!std::isfinite(sourceSig) || sourceSig <= 0.0) {
             flag = -1;
             return;
         }
 
-        struct NoiseCandidate {
-            int x0 = 0;
-            int y0 = 0;
-            double sigma = 0.0;
-        };
-
-        const int cx_0 = static_cast<int>(xp + 0.5) - 1;
-        const int cy_0 = static_cast<int>(yp + 0.5) - 1;
-        const int x1_0 = cx_0 - LensingConfig::nl_2 - 1;
-        const int y1_0 = cy_0 - LensingConfig::nl_2 - 1;
-        const int nxc = nx / 2;
-        const int sourceAmp = (cx_0 < nxc) ? 0 : 1;
-        const int offset_xy = LensingConfig::nl_2 - LensingConfig::ns_2;
-
-        std::vector<NoiseCandidate> candidates;
-        candidates.reserve(16U);
-
-        constexpr int nsteph = 5;
-        for (int i = 0; i < nsteph; ++i) {
-            for (int j = 0; j < nsteph; ++j) {
-                if (i != 0 && i != nsteph - 1 && j != 0 && j != nsteph - 1) {
-                    continue;
-                }
-
-                const int ix1_0 = x1_0 + LensingConfig::nl * (i - 2);
-                const int iy1_0 = y1_0 + LensingConfig::nl * (j - 2);
-                const int ix2_0 = ix1_0 + LensingConfig::nl - 1;
-                const int iy2_0 = iy1_0 + LensingConfig::nl - 1;
-
-                if (ix1_0 < LensingConfig::chip_edge_margin - 1
-                    || ix2_0 > nx - 1 - LensingConfig::chip_edge_margin
-                    || iy1_0 < LensingConfig::chip_edge_margin - 1
-                    || iy2_0 > ny - 1 - LensingConfig::chip_edge_margin) {
-                    continue;
-                }
-
-                if (LensingConfig::CCD_split == 2) {
-                    int candidateAmp = -1;
-                    if (ix1_0 >= 0 && ix2_0 < nxc) {
-                        candidateAmp = 0;
-                    } else if (ix1_0 >= nxc && ix2_0 < nx) {
-                        candidateAmp = 1;
-                    }
-                    if (candidateAmp < 0 || candidateAmp != sourceAmp) {
-                        continue;
-                    }
-                }
-
-                int nbad = 0;
-                for (int y = iy1_0; y <= iy2_0; ++y) {
-                    for (int x = ix1_0; x <= ix2_0; ++x) {
-                        if (weight[static_cast<std::size_t>(y) * nx + x] == 0) {
-                            ++nbad;
-                        }
-                    }
-                }
-                if (nbad > LensingConfig::nl) {
-                    continue;
-                }
-
-                int nsourceCentral = 0;
-                for (int y = 0; y < LensingConfig::ns; ++y) {
-                    for (int x = 0; x < LensingConfig::ns; ++x) {
-                        const int sourceX = ix1_0 + offset_xy + x;
-                        const int sourceY = iy1_0 + offset_xy + y;
-                        if (weight[static_cast<std::size_t>(sourceY) * nx + sourceX] > 1) {
-                            ++nsourceCentral;
-                        }
-                    }
-                }
-                if (nsourceCentral > 0) {
-                    continue;
-                }
-
-                const int candidateCx = (ix1_0 + ix2_0) / 2;
-                const int candidateCy = (iy1_0 + iy2_0) / 2;
-                const double noiseSig = sigmap[
-                    static_cast<std::size_t>(candidateCy) * nx + candidateCx];
-                if (!std::isfinite(noiseSig) || noiseSig <= 0.0) {
-                    continue;
-                }
-
-                const double sigmaRatio = noiseSig / sourceSig;
-                if (sigmaRatio <= LensingConfig::noise_sigma_ratio_min
-                    || sigmaRatio >= LensingConfig::noise_sigma_ratio_max) {
-                    continue;
-                }
-
-                candidates.push_back({ix1_0, iy1_0, noiseSig});
-            }
-        }
-
-        if (candidates.empty()) {
+        const Internal::F77NoiseCandidate selected =
+            Internal::selectF77NoiseCandidate(
+                nx, ny, array, weight, xp, yp,
+                LensingConfig::nl, LensingConfig::nl_2,
+                LensingConfig::chip_edge_margin);
+        if (!selected.found) {
             flag = -1;
             return;
         }
 
-        for (int i = static_cast<int>(candidates.size()) - 1; i > 0; --i) {
-            const double u = NumericalRecipes::ran1();
-            const int j = static_cast<int>(u * static_cast<double>(i + 1));
-            std::swap(candidates[static_cast<std::size_t>(i)],
-                      candidates[static_cast<std::size_t>(j)]);
+        std::vector<float> expanded(
+            static_cast<std::size_t>(LensingConfig::nl) * LensingConfig::nl,
+            0.0f);
+        std::vector<int> expanded_weight(
+            static_cast<std::size_t>(LensingConfig::nl) * LensingConfig::nl,
+            0);
+        for (int y = 0; y < LensingConfig::nl; ++y) {
+            for (int x = 0; x < LensingConfig::nl; ++x) {
+                const std::size_t source_index =
+                    static_cast<std::size_t>(selected.y0 + y) * nx
+                    + selected.x0 + x;
+                const std::size_t destination_index =
+                    static_cast<std::size_t>(y) * LensingConfig::nl + x;
+                expanded[destination_index] = array[source_index];
+                expanded_weight[destination_index] = weight[source_index];
+            }
         }
 
-        for (const NoiseCandidate& candidate : candidates) {
-            std::vector<float> stampl(LensingConfig::nl * LensingConfig::nl, 0.0f);
-            std::vector<int> weightl(LensingConfig::nl * LensingConfig::nl, 0);
+        ImageProcessing::flattenStamp2D(
+            LensingConfig::ns, LensingConfig::nl,
+            expanded, expanded_weight, flag);
+        if (flag < 0) return;
 
-            for (int y = 0; y < LensingConfig::nl; ++y) {
-                for (int x = 0; x < LensingConfig::nl; ++x) {
-                    const std::size_t sourceIndex =
-                        static_cast<std::size_t>(candidate.y0 + y) * nx
-                        + candidate.x0 + x;
-                    const int destinationIndex = y * LensingConfig::nl + x;
-                    stampl[destinationIndex] = array[sourceIndex];
-                    weightl[destinationIndex] = weight[sourceIndex];
-                }
+        ImageProcessing::markNoise(
+            LensingConfig::nl, expanded, expanded_weight, sourceSig,
+            LensingConfig::source_thresh, LensingConfig::core_thresh);
+        const int offset = LensingConfig::nl_2 - LensingConfig::ns_2;
+        stamps.assign(static_cast<std::size_t>(LensingConfig::nsns), 0.0f);
+        std::vector<int> stamp_weight(
+            static_cast<std::size_t>(LensingConfig::nsns), 0);
+        for (int y = 0; y < LensingConfig::ns; ++y) {
+            for (int x = 0; x < LensingConfig::ns; ++x) {
+                const int output_index = y * LensingConfig::ns + x;
+                const int input_index = (y + offset) * LensingConfig::nl
+                                      + x + offset;
+                stamps[output_index] = expanded[input_index];
+                stamp_weight[output_index] = expanded_weight[input_index];
             }
-
-            int candidateFlag = 0;
-            ImageProcessing::flattenStamp2D(
-                LensingConfig::ns, LensingConfig::nl,
-                stampl, weightl, candidateFlag);
-            if (candidateFlag < 0) {
-                continue;
-            }
-
-            std::vector<double> validPixels;
-            validPixels.reserve(static_cast<std::size_t>(LensingConfig::nsns));
-            for (int y = 0; y < LensingConfig::ns; ++y) {
-                for (int x = 0; x < LensingConfig::ns; ++x) {
-                    const int index = (y + offset_xy) * LensingConfig::nl
-                                    + x + offset_xy;
-                    if (weightl[index] == 1) {
-                        validPixels.push_back(stampl[index]);
-                    }
-                }
-            }
-            if (validPixels.empty()) {
-                continue;
-            }
-
-            const double median = sampleMedian(validPixels);
-            std::vector<double> deviations;
-            deviations.reserve(validPixels.size());
-            for (const double pixel : validPixels) {
-                deviations.push_back(std::abs(pixel - median));
-            }
-            const double sigmaMad = 1.4826 * sampleMedian(std::move(deviations));
-            if (!std::isfinite(sigmaMad) || sigmaMad <= 0.0) {
-                continue;
-            }
-
-            const double madRatio = sigmaMad / candidate.sigma;
-            if (madRatio <= LensingConfig::noise_mad_ratio_min
-                || madRatio >= LensingConfig::noise_mad_ratio_max) {
-                continue;
-            }
-
-            int positiveTailCount = 0;
-            const double positiveTailThreshold = LensingConfig::noise_tail_sigma
-                                               * sigmaMad;
-            for (const double pixel : validPixels) {
-                if (pixel - median > positiveTailThreshold) {
-                    ++positiveTailCount;
-                }
-            }
-            const double tailFraction = static_cast<double>(positiveTailCount)
-                                      / static_cast<double>(validPixels.size());
-            if (tailFraction >= LensingConfig::noise_max_tail_fraction) {
-                continue;
-            }
-
-            ImageProcessing::markNoise(
-                LensingConfig::nl, stampl, weightl, candidate.sigma,
-                LensingConfig::source_thresh, LensingConfig::core_thresh);
-
-            int maskedCentral = 0;
-            for (int y = 0; y < LensingConfig::ns; ++y) {
-                for (int x = 0; x < LensingConfig::ns; ++x) {
-                    const int index = (y + offset_xy) * LensingConfig::nl
-                                    + x + offset_xy;
-                    if (weightl[index] == 0) {
-                        ++maskedCentral;
-                    }
-                }
-            }
-            const double maskFraction = static_cast<double>(maskedCentral)
-                                      / static_cast<double>(LensingConfig::nsns);
-            if (maskFraction > LensingConfig::noise_max_mask_fraction) {
-                continue;
-            }
-
-            std::vector<int> weights(LensingConfig::nsns, 0);
-            for (int y = 0; y < LensingConfig::ns; ++y) {
-                for (int x = 0; x < LensingConfig::ns; ++x) {
-                    const int outputIndex = y * LensingConfig::ns + x;
-                    const int inputIndex = (y + offset_xy) * LensingConfig::nl
-                                         + x + offset_xy;
-                    stamps[outputIndex] = stampl[inputIndex];
-                    weights[outputIndex] = weightl[inputIndex];
-                }
-            }
-
-            ImageProcessing::decorateStamp(
-                LensingConfig::ns, candidate.sigma, weights, stamps);
-            return;
         }
-
-        flag = -1;
+        ImageProcessing::decorateStamp(
+            LensingConfig::ns, sourceSig, stamp_weight, stamps);
     }
-
     // ==========================================
     // Function: Extract and validate a source stamp
     // Method: Mirror F77 check_source defect counting and stamp decoration.
@@ -1057,32 +812,31 @@ namespace SourceExtractor {
 
         ImageProcessing::decorateStamp(LensingConfig::ns, sig, weights, stamps);
     }
-
     // ==========================================
-    // Function: Produce the legacy blank-noise and source-stamp pair
-    // Method: Preserve main-branch rejection and RNG order by finding noise before checking source.
+    // Function: Produce the F77 blank-noise and source-stamp pair
+    // Method: Preserve the historical noise-before-source order without using
+    //         the modern candidate shuffle or blank-stamp quality gates.
     // ==========================================
-    void BlankSrcStamp(
+    void F77BlankSrcStamp(
         int& flag, std::vector<float>& sourceStamp, std::vector<float>& noiseStamp,
         int nx, int ny, const std::vector<float>& array,
-        const std::vector<int>& weight, const std::vector<float>& sigmap,
-        double xp, double yp, double sig, int& imax, int& jmax,
-        double& peak, double& half_light_flux, int& half_light_area) {
+        const std::vector<int>& weight, double xp, double yp, double sig,
+        int& imax, int& jmax, double& peak, double& half_light_flux,
+        int& half_light_area) {
         flag = 0;
-        findNoise(flag, noiseStamp, nx, ny, array, weight, sigmap,
-                  xp, yp, sig, imax, jmax);
-        if (flag < 0) {
-            return;
-        }
-
-        checkSource(flag, sourceStamp, nx, ny, array, weight,
-                    xp, yp, sig, imax, jmax,
-                    peak, half_light_flux, half_light_area);
+        findNoiseF77(
+            flag, noiseStamp, nx, ny, array, weight,
+            xp, yp, sig, imax, jmax);
+        if (flag < 0) return;
+        checkSource(
+            flag, sourceStamp, nx, ny, array, weight,
+            xp, yp, sig, imax, jmax,
+            peak, half_light_flux, half_light_area);
     }
 
     // ==========================================
-    // Function: Produce the fixed Lite source and blank-noise products
-    // Method: Preserve the Type-1 extraction order through BlankSrcStamp.
+    // Function: Produce the fixed Lite source and noise products
+    // Method: Always use deterministic historical F77 blank-noise selection.
     // ==========================================
     void extractSourceAndNoise(
         int& flag, std::vector<float>& sourceProduct, std::vector<float>& noiseProduct,
@@ -1090,8 +844,9 @@ namespace SourceExtractor {
         const std::vector<int>& weight, const std::vector<float>& sigmap,
         double xp, double yp, double sig, int& imax, int& jmax,
         double& peak, double& half_light_flux, int& half_light_area) {
-        BlankSrcStamp(
-            flag, sourceProduct, noiseProduct, nx, ny, array, weight, sigmap,
+        (void)sigmap;
+        F77BlankSrcStamp(
+            flag, sourceProduct, noiseProduct, nx, ny, array, weight,
             xp, yp, sig, imax, jmax, peak, half_light_flux, half_light_area);
     }
 

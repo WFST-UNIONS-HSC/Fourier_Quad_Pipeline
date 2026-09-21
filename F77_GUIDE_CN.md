@@ -9,7 +9,7 @@
 
 - `f77`（F77 Standard）：完整分支，包含 `00_psf_module.f` 中的可选 PCA/多尺度 PSF 存储。
 - `f77_Lite`（F77 Lite）：固定生产路径，已删除替代测天、平场、掩膜、源、PSF、去混叠、混合与
-  PCA 分支。
+  PCA 分支；其阶段 1 固定为历史 Type-1 随机/排序背景与噪声估计路径。
 
 两者均生成 `Fourier_Quad_Pipe`。
 
@@ -44,7 +44,7 @@ catalog、External source catalog 和取决于配置的 DQ masks。F77 Lite 使�
 |---|---|
 | `para.inc` | 阶段、星表/标定路径、stamp 几何、分支、阈值、容量和星表索引 |
 | `cust_para.inc` | CCD 几何与 Standard PCA 参数 |
-| `sig_para.inc` | 稳健 mode-bar 噪声平面估计器 |
+| `sig_para.inc` | 仅 Standard 使用的稳健 mode-bar 噪声平面估计器；Lite 中不存在 |
 
 至少检查 `PROCESS_stage`、`ASTROMETRY_CAT`、`SOURCE_CAT` 和启用时的
 `FLAT_PATH`。容器内这些字符串必须使用容器路径，并与 bind 目标一致。
@@ -52,7 +52,8 @@ catalog、External source catalog 和取决于配置的 DQ masks。F77 Lite 使�
 `SOURCE_CAT_TILE_PREFIX` 控制外部星表 tile 文件名前缀（默认 `extern_`）。两个版本的
 `strl` 均为 512；过长的曝光表、CCD 表、输入路径或生成产物路径会直接报错，而不会静默截断。
 
-Lite 的冻结分支写在 `para.inc` 开头；仅添加参数不能恢复已删除代码。
+Lite 的冻结分支写在 `para.inc` 开头；仅添加参数不能恢复已删除代码。Lite 不再包含
+`PreprocsType` selector，也不依赖 F6/mode-bar 阶段 1 实现。
 
 ## 编译
 

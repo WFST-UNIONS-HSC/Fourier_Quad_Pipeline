@@ -14,8 +14,11 @@ identity astrometry, external/hybrid PSF, and PCA branches.
 [`cpp_Lite`](cpp_Lite/) (C++ Lite) physically removes those alternatives and
 keeps Gaia astrometry, per-chip DQ
 masks, External source catalog matching, deblending, local-polynomial PSF, and
-no PCA. Because C++ Lite fixes the per-chip DQ branch, its runs require DQ masks;
-C++ Standard can select a configuration that does not read them.
+no PCA. It is also fixed to historical Type-1 preprocessing, no Stage-3
+background re-subtraction, deterministic F77 blank-noise stamps, F77
+largest-component PSF grouping, and one initial full fit without PRESS star
+rejection/refitting. Because C++ Lite fixes the per-chip DQ branch, its runs
+require DQ masks; C++ Standard can select a configuration that does not read them.
 
 Each variant contains `main.cpp`, `config/`, `include/`, `src/`, `tests/`, and a
 Makefile. Shared exposure-list, path, MPI, scheduler, and numerical utilities
@@ -139,7 +142,7 @@ run `make` again. Do not edit derived dimensions or column indices independently
 | External-catalog schema | `EXTCAT_TOTAL_COLUMNS`, `EXTCAT_INPUT_COLUMNS_ONE_BASED`, `EXTCAT_RA_COLUMN_ONE_BASED`, `EXTCAT_DEC_COLUMN_ONE_BASED`, `EXTCAT_ZP_COLUMN_ONE_BASED` | `config/ExtCatConfig.hpp`; runtime `--extcat-columns`, `--extcat-ra-column`, `--extcat-dec-column`, `--extcat-zp-column` for projection/field locations | Change for another survey or column order. A projection must retain RA, Dec, ZP, and fields consumed by enabled phases; changing total width also requires review of rearrangement and FD indices. |
 | Gaia, source-catalog, and calibration paths | `ASTROMETRY_CAT`, `SOURCE_CAT_DEFAULT` (effective `SOURCE_CAT`), `FLAT_PATH`, `PSF_PATH` | `config/pathconfig.hpp`; `--extcat-output` sets the effective `SOURCE_CAT` at runtime; the others are compile-time | Change for another Gaia tile set, normalized source catalog, flat, or external-PSF source. `--astrocat-output` remains independent of `ASTROMETRY_CAT`. Container paths must match bind destinations. |
 | Standard branch selection | `ASTROMETRY_trivial=0`, `include_FLAT=0`, `include_Mask=2`, `ext_cat=1`, `ext_PSF=0`, `PSF_type=1`, `PSF_Ms=0` | `config/LensingConfig.hpp`, compile-time | Only Standard can switch these branches. Lite is fixed to Gaia, no flat, per-chip DQ, external source catalog, frame-star PSF, local polynomial, and no PCA. |
-| Standard compatibility selectors | `PreprocsType=2`, `NstampType=3`, `PsfGroupingType=4` | `config/LensingConfig.hpp`, compile-time | The defaults preserve the current C++ preprocessing, covariance noise, and adaptive PSF grouping. Value `1` selects the independent historical F77-compatible path for each selector; modern noise/grouping values were renumbered as documented in the parameter reference. Lite has no corresponding selectors. |
+| Standard compatibility selectors | `PreprocsType=1`, `include_BGsub=0`, `NstampType=1`, `PsfGroupingType=1` | `config/LensingConfig.hpp`, compile-time | Current Standard defaults select historical preprocessing, no Stage-3 background re-subtraction, deterministic F77 blank noise, and F77 largest-component grouping. Standard still retains the alternate branches. Lite has no corresponding selectors and physically implements only these frozen paths. |
 | Image and detector geometry | `CCD_split=2`, `chipnx=2046`, `chipny=4094`, `pixel_size=0.2628`, `N_CCD=62` | `config/LensingConfig.hpp`, compile-time | Stage 1 reads science NAXIS dynamically; Standard Hybrid PSF and FD use the configured physical chip geometry. Change the coupled values for another camera/readout model. Exposure lists and per-exposure FD arrays have no configured hard cap. |
 | Numerical stages | `PROCESS_stage=223092870` | `config/LensingConfig.hpp`, compile-time | Select the nine main stages by prime factors; Stage 9 (23) requires Stage 8 (19). |
 | Detection and pixel thresholds | `saturation_thresh=25000` | `config/LensingConfig.hpp`, compile-time | Recalibrate with representative data after changing the image source. |
@@ -153,8 +156,10 @@ smallest representative dataset.
 
 Stage 5 writes `*_star_comp_expo.dat` using the model fitted with all retained
 stars, evaluated back at each fitted star. Its model shape and residual are ordinary
-full-fit diagnostics in both Standard and Lite. Leave-one-out values are used only
-inside optional PRESS rejection and are not serialized into this product.
+full-fit diagnostics in both Standard and Lite. Standard may use leave-one-out
+values inside optional PRESS rejection on modern grouping paths. Lite never performs
+PRESS rejection; it computes leverage/analytic LOO only to validate its initial-fit
+cache, and those values are not serialized into this product.
 
 ## Run examples
 

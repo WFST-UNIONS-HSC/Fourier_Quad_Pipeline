@@ -38,7 +38,9 @@ its source parameter and keep the associated assertions and consumers consistent
 In both variants, Stage 5 writes each `*_star_comp_expo.dat` model size and
 ellipticity from the ordinary model fitted with all retained stars. The companion
 residual is therefore a full-fit residual at that same star, not a leave-one-out
-prediction. Analytic LOO quantities remain internal to PRESS rejection only.
+prediction. Standard analytic LOO quantities may feed optional modern-path PRESS
+rejection. Lite retains the same leverage/LOO denominator guard only to validate
+its initial full-fit cache and performs no PRESS rejection or refit.
 
 ## `ProcessConfig` (`config/ProcessConfig.hpp` and `config/pathconfig.hpp`)
 
@@ -156,7 +158,7 @@ directory content.
 | `PROCESS_stage` | `int` | `223092870` | same | No | Product of stage primes `2,3,5,7,11,13,17,19,23`; 23 requires 19 | Enables numerical stages by divisibility. | Change for staged/restart runs. | Yes |
 | `include_FLAT` | `int` | `0` | `N/A — removed in Lite` | No | `0` off, `1` on | Enables Standard super-flat correction. | Enable only with valid flat files. | Yes |
 | `include_Mask` | `int` | `2` | `N/A — removed in Lite` | No | `0` none, `1` legacy, `2` per-chip DQ, `3` both | Selects Standard mask branch; Lite is fixed to per-chip DQ. | Change when DQ masks are unavailable or mask mode changes. | Yes |
-| `include_BGsub` | `int` | `1` | same | No | `0` off, `1` on | Subtracts the fitted Science-image background. | Change only for controlled preprocessing experiments. | Yes |
+| `include_BGsub` | `int` | `0` | `N/A — fixed off in Lite` | No | `0` off, `1` on | Subtracts the fitted Science-image background in Standard; Lite reads/validates Norm metadata but does not subtract it in Stage 3. | Standard compatibility experiments only; Lite has no selector. | Yes |
 | `ASTROMETRY_CAT` | `std::string` | `/lustre/home/acct-phyzj/phyzj/jzhang/gaia/gaia_cat_sorted` | same | No | Readable Gaia tile directory | Gaia catalog location. | Change for every site/catalog deployment. | Yes |
 | `SOURCE_CAT_DEFAULT` | `const char*` | `/lustre/home/acct-phyzj/share/DES/testy/des_y6_cat` | same | `--extcat-output` | Readable/writable tile directory | Compiled External source catalog default. | Prefer CLI per deployment. | CLI override; rebuild not required |
 | `FLAT_PATH` | `std::string` | `/lustre/home/acct-phyzj/share/DES/testy/DES_super_flat/i2014` | `N/A — removed in Lite` | No | Readable flat FITS directory | Standard super-flat location. | Change when `include_FLAT=1`. | Yes |
@@ -164,7 +166,7 @@ directory content.
 | `ext_cat` | `int` | `1` | `N/A — removed in Lite` | No | `0` off, `1` on | Selects Standard External source catalog branch; Lite is fixed on. | Change only for a Standard no-catalog run. | Yes |
 | `ext_PSF` | `int` | `0` | `N/A — removed in Lite` | No | `0` frame stars, `1` external PSF | Selects Standard PSF source; Lite uses frame stars. | Change only with valid external PSFs. | Yes |
 | `CCD_split` | `int` | `2` | same | No | `1` whole chip, `2` amplifier split | Sets background/noise amplifier regions. | Change for another detector/readout model. | Yes |
-| `PreprocsType` | `int` | `2` | `N/A — fixed modern preprocessing` | No | `1` historical F77 estimators, `2` current weighted C++ estimators | Selects Standard Stage-1 background subtraction and sigma normalization. Type 1 preserves the historical random/rank estimators while publishing coefficients in the current downstream coordinate contracts. | Use Type 1 only for controlled F77-compatibility comparisons. | Yes |
+| `PreprocsType` | `int` | `1` | `N/A — fixed historical Type 1` | No | `1` historical F77 estimators, `2` current weighted C++ estimators | Selects Standard Stage-1 preprocessing; Lite directly implements the historical F77 random/rank estimators and still publishes current Norm metadata. | Change only for controlled Standard comparisons; Lite has no selector. | Yes |
 | `nct` | `int` | `12` | same | No | Positive rectangle count | Number of background rectangles. | Tune only with background-model validation. | Yes |
 | `ncx` | `int` | `3` | same | No | Positive x count | Background rectangles along x. | Keep consistent with `nct` geometry. | Yes |
 | `psf_order` | `int` | `8` | same | No | Supported PSF polynomial selector | Exposure PSF polynomial order. | Adjust PSF modeling only. | Yes |
@@ -174,28 +176,28 @@ directory content.
 | `npl` | `int` | `10` | same | No | Non-negative coefficient-count offset | Local PSF coefficient count minus one. | Adjust local PSF model only. | Yes |
 | `nplx` | `int` | `2` | same | No | Non-negative x degree | Local PSF polynomial x degree. | Keep consistent with `npl`. | Yes |
 | `nstar_min_local` | `int` | `16` | same | No | Positive count | Minimum stars retained for a local fit. | Tune only with PSF fit validation. | Yes |
-| `psf_exposure_min_candidates` | `int` | `60` | same | No | Positive count | Minimum exposure-wide PSF candidates. | Tune Stage 5 selection. | Yes |
-| `psf_count_pilot_clip_sigma` | `double` | `3.0` | same | No | Positive sigma multiplier | Iterative integer-star-area pilot median/MAD clipping multiplier; a proposed clip that collapses the next MAD to zero is rejected. | Tune only with locus-tail and quantization validation. | Yes |
-| `psf_count_pilot_clip_iterations` | `int` | `3` | same | No | Positive pass count | Maximum robust star-area pilot clipping passes. | Tune only with locus-tail validation. | Yes |
-| `psf_count_zero_mad_quantile` | `double` | `0.05` | same | No | `0 <= q < 0.5` | Lower quantile for an initially zero-MAD star-area pilot; the upper quantile is `1-q`. | Tune only with integer-pilot coverage validation. | Yes |
-| `psf_count_hist_range_sigma` | `double` | `5.0` | same | No | Positive width multiplier | Positive-MAD pilot half-range in count units; an initially zero-MAD pilot uses its configured symmetric quantiles. The science/SVG histogram width is a fixed, non-configurable two integer counts per bin. | Tune Stage 5 locus search range. | Yes |
-| `psf_count_locus_sigma` | `double` | `4.0` | same | No | Positive sigma multiplier | Multiplier applied independently to re-absorbing lower/upper count-MAD refinement and its pre-guard cuts. Independent outer elbows may only widen the final strict `star_area` bounds. | Tune Stage 5 selection. | Yes |
-| `psf_count_locus_min_samples` | `int` | `30` | same | No | Positive count | Minimum samples for a valid integer star-area locus. | Tune sparse-exposure handling. | Yes |
-| `PsfGroupingType` | `int` | `4` | `N/A — fixed adaptive grouping` | No | `1` F77 largest component, `2` threshold graph, `3` mutual KNN, `4` adaptive pair/fraction cuts | Selects Standard Stage-5 PSF-star grouping. Type 1 excludes each numerically unsafe candidate individually, then applies the F77 size cut, pair threshold, and largest connected group to the compact safe population; it builds the all-star fit cache but skips PRESS removal. Types 2/3/4 are the renumbered modern paths. | Use Type 1 only for compatibility runs; use the other values for controlled modern comparisons. | Yes |
-| `psf_minchi_reference_fraction` | `double` | `1 / 3` | same | No | `(0, 1]` | Fraction of largest locus candidates eligible as references. | Tune Stage 5 threshold estimation. | Yes |
-| `psf_minchi_reference_max_per_chip` | `int` | `5` | same | No | Positive count | Caps reference stars per chip. | Tune Stage 5 threshold estimation. | Yes |
-| `psf_minchi_sigma_cut` | `double` | `4.0` | same | No | Positive sigma multiplier | Minimum-chi upper-tail rejection cut. | Tune Stage 5 selection. | Yes |
-| `psf_knn_k` | `int` | `8` | same | No | Positive neighbor count | Neighbors in mutual-KNN grouping. | Change with grouping validation. | Yes |
-| `psf_group_merge_ratio` | `double` | `0.30` | same | No | Non-negative group-size ratio | Secondary/main group merge threshold. | Tune Stage 5 grouping. | Yes |
-| `psf_group_merge_min_gaia` | `int` | `1` | same | No | Non-negative match count | Gaia support required to merge a secondary group. | Tune Stage 5 grouping. | Yes |
-| `psf_gaia_match_radius_pix` | `double` | `2.0` | same | No | Positive pixels | Gaia matching radius for PSF candidates. | Change for astrometric precision/pixel scale. | Yes |
-| `psf_gaia_locus_min_matches` | `int` | `5` | same | No | Positive match count | Gaia matches required for locus support. | Tune sparse fields. | Yes |
-| `psf_pair_chi_valid_peak_fraction` | `double` | `exp(-1)` | same | No | `(0, 1)` | Strict relative-height threshold for valid adaptive-grouping pair-chi peaks. | Tune only with pair-histogram validation. | Yes |
-| `psf_bad_fraction_valid_peak_fraction` | `double` | `0.10` | same | No | `(0, 1)` | Strict relative-height threshold for valid adaptive-grouping bad-fraction peaks. | Tune only with fraction-histogram validation. | Yes |
-| `psf_press_rejection_enabled` | `bool` | `false` | `true` | No | Boolean | Enables optional standardized-PRESS cleanup on modern grouping paths. Standard F77 grouping always retains the successful initial all-star fit without PRESS removal. | Change only for controlled rejection tests. | Yes |
-| `psf_press_sigma_cut` | `double` | `4.0` | same | No | Positive sigma multiplier | PRESS outlier rejection cut. | Tune only with PSF residual validation. | Yes |
-| `psf_press_max_removals` | `int` | `5` | same | No | Non-negative count | Maximum proposed PRESS removals per chip. | Tune only with PSF residual validation. | Yes |
-| `psf_loo_min_denom` | `double` | `1.0e-6` | same | No | `(0, 1)` | Minimum analytic leave-one-out denominator. | Numerical guard; normally unchanged. | Yes |
+| `psf_exposure_min_candidates` | `int` | `60` | `N/A — removed in Lite` | No | Positive count | Minimum exposure-wide PSF candidates. | Tune Stage 5 selection. | Yes |
+| `psf_count_pilot_clip_sigma` | `double` | `3.0` | `N/A — removed in Lite` | No | Positive sigma multiplier | Iterative integer-star-area pilot median/MAD clipping multiplier; a proposed clip that collapses the next MAD to zero is rejected. | Tune only with locus-tail and quantization validation. | Yes |
+| `psf_count_pilot_clip_iterations` | `int` | `3` | `N/A — removed in Lite` | No | Positive pass count | Maximum robust star-area pilot clipping passes. | Tune only with locus-tail validation. | Yes |
+| `psf_count_zero_mad_quantile` | `double` | `0.05` | `N/A — removed in Lite` | No | `0 <= q < 0.5` | Lower quantile for an initially zero-MAD star-area pilot; the upper quantile is `1-q`. | Tune only with integer-pilot coverage validation. | Yes |
+| `psf_count_hist_range_sigma` | `double` | `5.0` | `N/A — removed in Lite` | No | Positive width multiplier | Positive-MAD pilot half-range in count units; an initially zero-MAD pilot uses its configured symmetric quantiles. The science/SVG histogram width is a fixed, non-configurable two integer counts per bin. | Tune Stage 5 locus search range. | Yes |
+| `psf_count_locus_sigma` | `double` | `4.0` | `N/A — removed in Lite` | No | Positive sigma multiplier | Multiplier applied independently to re-absorbing lower/upper count-MAD refinement and its pre-guard cuts. Independent outer elbows may only widen the final strict `star_area` bounds. | Tune Stage 5 selection. | Yes |
+| `psf_count_locus_min_samples` | `int` | `30` | `N/A — removed in Lite` | No | Positive count | Minimum samples for a valid integer star-area locus. | Tune sparse-exposure handling. | Yes |
+| `PsfGroupingType` | `int` | `1` | `N/A — fixed F77 grouping` | No | `1` F77 largest component, `2` threshold graph, `3` mutual KNN, `4` adaptive pair/fraction cuts | Selects Standard Stage-5 grouping. Lite directly applies the F77 safe-candidate size cut, pair threshold, and largest connected component, then builds one initial fit cache without PRESS rejection. | Change only for controlled Standard comparisons; Lite has no selector. | Yes |
+| `psf_minchi_reference_fraction` | `double` | `1 / 3` | `N/A — removed in Lite` | No | `(0, 1]` | Fraction of largest locus candidates eligible as references. | Tune Stage 5 threshold estimation. | Yes |
+| `psf_minchi_reference_max_per_chip` | `int` | `5` | `N/A — removed in Lite` | No | Positive count | Caps reference stars per chip. | Tune Stage 5 threshold estimation. | Yes |
+| `psf_minchi_sigma_cut` | `double` | `4.0` | `N/A — removed in Lite` | No | Positive sigma multiplier | Minimum-chi upper-tail rejection cut. | Tune Stage 5 selection. | Yes |
+| `psf_knn_k` | `int` | `8` | `N/A — removed in Lite` | No | Positive neighbor count | Neighbors in mutual-KNN grouping. | Change with grouping validation. | Yes |
+| `psf_group_merge_ratio` | `double` | `0.30` | `N/A — removed in Lite` | No | Non-negative group-size ratio | Secondary/main group merge threshold. | Tune Stage 5 grouping. | Yes |
+| `psf_group_merge_min_gaia` | `int` | `1` | `N/A — removed in Lite` | No | Non-negative match count | Gaia support required to merge a secondary group. | Tune Stage 5 grouping. | Yes |
+| `psf_gaia_match_radius_pix` | `double` | `2.0` | `N/A — removed in Lite` | No | Positive pixels | Gaia matching radius for PSF candidates. | Change for astrometric precision/pixel scale. | Yes |
+| `psf_gaia_locus_min_matches` | `int` | `5` | `N/A — removed in Lite` | No | Positive match count | Gaia matches required for locus support. | Tune sparse fields. | Yes |
+| `psf_pair_chi_valid_peak_fraction` | `double` | `exp(-1)` | `N/A — removed in Lite` | No | `(0, 1)` | Strict relative-height threshold for valid adaptive-grouping pair-chi peaks. | Tune only with pair-histogram validation. | Yes |
+| `psf_bad_fraction_valid_peak_fraction` | `double` | `0.10` | `N/A — removed in Lite` | No | `(0, 1)` | Strict relative-height threshold for valid adaptive-grouping bad-fraction peaks. | Tune only with fraction-histogram validation. | Yes |
+| `psf_press_rejection_enabled` | `bool` | `false` | `N/A — removed in Lite` | No | Boolean | Enables optional standardized-PRESS cleanup on Standard modern grouping paths; F77 grouping and Lite retain the initial fit without star rejection. | Change only for controlled Standard rejection tests. | Yes |
+| `psf_press_sigma_cut` | `double` | `4.0` | `N/A — removed in Lite` | No | Positive sigma multiplier | Standard-only PRESS outlier rejection cut. | Tune only with Standard PSF residual validation. | Yes |
+| `psf_press_max_removals` | `int` | `5` | `N/A — removed in Lite` | No | Non-negative count | Standard-only maximum proposed PRESS removals per chip. | Tune only with Standard PSF residual validation. | Yes |
+| `psf_loo_min_denom` | `double` | `1.0e-6` | same | No | `(0, 1)` | Guards analytic LOO/leverage validation in Standard and the Lite initial-fit cache. | Numerical guard; normally unchanged. | Yes |
 | `step_psf` | `int` | `100` | `N/A — removed in Lite` | No | Positive pixels | Standard PSF-star spatial sampling step. | Change only for the corresponding Standard branch. | Yes |
 | `deblending` | `int` | `1` | `N/A — removed in Lite` | No | `0` off, `1` on | Standard source deblending selector; Lite is fixed on. | Change only for controlled source tests. | Yes |
 | `n_neighbor` | `int` | `5` | `N/A — removed in Lite` | No | Positive neighbor count | Standard deblending neighborhood size. | Change with deblending validation. | Yes |
@@ -219,62 +221,62 @@ directory content.
 | `len_sam` | `int` | `50` | same | No | Positive internal row width | PSF sample metadata length. | Internal layout; normally unchanged. | Yes |
 | `npd` | `int` | `33` | same | No | Positive coefficient count | PU astrometric distortion terms. | Change only with astrometric model code. | Yes |
 | `blocksize` | `int` | `200` | same | No | Positive pixels | Target background block side. | Tune background modeling. | Yes |
-| `bg_rough_grid_x` | `int` | `32` | same | No | Positive grid count | Rough background grid columns. | Tune background modeling. | Yes |
-| `bg_rough_grid_y` | `int` | `32` | same | No | Positive grid count | Rough background grid rows. | Tune background modeling. | Yes |
-| `bg_min_block_pixels` | `int` | `1000` | same | No | Positive pixel count | Minimum pixels in a background block. | Tune masked/small images. | Yes |
-| `bg_min_clipped_pixels` | `int` | `200` | same | No | Positive pixel count | Minimum pixels after block clipping. | Tune masked/small images. | Yes |
-| `bg_min_valid_frac` | `double` | `0.25` | same | No | Fraction in `(0, 1]` | Minimum valid fraction per background block. | Tune masking tolerance. | Yes |
-| `bg_clip_low` | `double` | `4.0` | same | No | Positive sigma multiplier | Lower background clipping limit. | Tune background robustness. | Yes |
-| `bg_clip_high` | `double` | `2.5` | same | No | Positive sigma multiplier | Upper background clipping limit. | Tune background robustness. | Yes |
-| `bg_fit_clip_sigma` | `double` | `3.0` | same | No | Positive sigma multiplier | Background-plane fit clipping. | Tune background robustness. | Yes |
-| `bg_fit_max_iter` | `int` | `4` | same | No | Non-negative iterations | Maximum background-plane clipping iterations. | Tune convergence/runtime. | Yes |
-| `bg_min_fit_factor` | `int` | `3` | same | No | Positive samples-per-coefficient factor | Minimum plane-fit sample multiplier. | Tune fit stability. | Yes |
+| `bg_rough_grid_x` | `int` | `32` | `N/A — removed in Lite` | No | Positive grid count | Rough background grid columns. | Tune background modeling. | Yes |
+| `bg_rough_grid_y` | `int` | `32` | `N/A — removed in Lite` | No | Positive grid count | Rough background grid rows. | Tune background modeling. | Yes |
+| `bg_min_block_pixels` | `int` | `1000` | `N/A — removed in Lite` | No | Positive pixel count | Minimum pixels in a background block. | Tune masked/small images. | Yes |
+| `bg_min_clipped_pixels` | `int` | `200` | `N/A — removed in Lite` | No | Positive pixel count | Minimum pixels after block clipping. | Tune masked/small images. | Yes |
+| `bg_min_valid_frac` | `double` | `0.25` | `N/A — removed in Lite` | No | Fraction in `(0, 1]` | Minimum valid fraction per background block. | Tune masking tolerance. | Yes |
+| `bg_clip_low` | `double` | `4.0` | `N/A — removed in Lite` | No | Positive sigma multiplier | Lower background clipping limit. | Tune background robustness. | Yes |
+| `bg_clip_high` | `double` | `2.5` | `N/A — removed in Lite` | No | Positive sigma multiplier | Upper background clipping limit. | Tune background robustness. | Yes |
+| `bg_fit_clip_sigma` | `double` | `3.0` | `N/A — removed in Lite` | No | Positive sigma multiplier | Background-plane fit clipping. | Tune background robustness. | Yes |
+| `bg_fit_max_iter` | `int` | `4` | `N/A — removed in Lite` | No | Non-negative iterations | Maximum background-plane clipping iterations. | Tune convergence/runtime. | Yes |
+| `bg_min_fit_factor` | `int` | `3` | `N/A — removed in Lite` | No | Positive samples-per-coefficient factor | Minimum plane-fit sample multiplier. | Tune fit stability. | Yes |
 | `source_thresh` | `double` | `2.0` | same | No | Positive S/N threshold | Source detection threshold. | Adjust scientific source selection. | Yes |
 | `core_thresh` | `double` | `4.0` | same | No | Positive threshold | Source-core detection threshold. | Adjust scientific source selection. | Yes |
 | `flat_thresh` | `double` | `0.01` | `N/A — removed in Lite` | No | Positive flat value | Minimum accepted Standard flat-field value. | Change with flat calibration. | Yes |
-| `NstampType` | `int` | `3` | `N/A — fixed QC physical blank stamp` | No | `1` deterministic F77 blank stamp, `2` QC/randomized physical blank stamp, `3` local covariance power | Selects the Standard Stage-3 noise product. Types 1 and 2 remain real-space stamps and are FFT-converted downstream; Type 3 is already Fourier-domain power. | Use Type 1 only for compatibility comparisons; change other values for controlled noise-method runs. | Yes |
-| `noise_sigma_ratio_min` | `double` | `0.80` | same | No | Positive lower ratio | Blank/source sigma lower gate. | Tune blank-stamp quality. | Yes |
-| `noise_sigma_ratio_max` | `double` | `1.25` | same | No | Above minimum | Blank/source sigma upper gate. | Tune blank-stamp quality. | Yes |
-| `noise_mad_ratio_min` | `double` | `0.70` | same | No | Positive lower ratio | Blank/source MAD lower gate. | Tune blank-stamp quality. | Yes |
-| `noise_mad_ratio_max` | `double` | `1.30` | same | No | Above minimum | Blank/source MAD upper gate. | Tune blank-stamp quality. | Yes |
-| `noise_tail_sigma` | `double` | `2.5` | same | No | Positive sigma | Tail-count threshold. | Tune blank-stamp quality. | Yes |
-| `noise_max_tail_fraction` | `double` | `0.05` | same | No | Fraction `[0, 1]` | Maximum blank-stamp tail fraction. | Tune blank-stamp quality. | Yes |
-| `noise_max_mask_fraction` | `double` | `0.02` | same | No | Fraction `[0, 1]` | Maximum blank-stamp masked fraction. | Tune blank-stamp quality. | Yes |
+| `NstampType` | `int` | `1` | `N/A — fixed deterministic F77 blank stamp` | No | `1` deterministic F77 blank stamp, `2` QC/randomized physical blank stamp, `3` local covariance power | Selects the Standard Stage-3 noise product. Lite directly uses deterministic F77 blank-noise selection while retaining `sigmap` for source sigma. | Change only for controlled Standard comparisons; Lite has no selector. | Yes |
+| `noise_sigma_ratio_min` | `double` | `0.80` | `N/A — removed in Lite` | No | Positive lower ratio | Blank/source sigma lower gate. | Tune blank-stamp quality. | Yes |
+| `noise_sigma_ratio_max` | `double` | `1.25` | `N/A — removed in Lite` | No | Above minimum | Blank/source sigma upper gate. | Tune blank-stamp quality. | Yes |
+| `noise_mad_ratio_min` | `double` | `0.70` | `N/A — removed in Lite` | No | Positive lower ratio | Blank/source MAD lower gate. | Tune blank-stamp quality. | Yes |
+| `noise_mad_ratio_max` | `double` | `1.30` | `N/A — removed in Lite` | No | Above minimum | Blank/source MAD upper gate. | Tune blank-stamp quality. | Yes |
+| `noise_tail_sigma` | `double` | `2.5` | `N/A — removed in Lite` | No | Positive sigma | Tail-count threshold. | Tune blank-stamp quality. | Yes |
+| `noise_max_tail_fraction` | `double` | `0.05` | `N/A — removed in Lite` | No | Fraction `[0, 1]` | Maximum blank-stamp tail fraction. | Tune blank-stamp quality. | Yes |
+| `noise_max_mask_fraction` | `double` | `0.02` | `N/A — removed in Lite` | No | Fraction `[0, 1]` | Maximum blank-stamp masked fraction. | Tune blank-stamp quality. | Yes |
 | `noise_region_size` | `int` | `192` | same | No | Positive even pixels; greater than inner size | Outer local-noise square side. | Change with covariance geometry. | Yes |
 | `noise_inner_size` | `int` | `96` | same | No | Even pixels; at least `nl` | Central covariance exclusion side. | Change with source/stamp geometry. | Yes |
 | `noise_plane_min_valid_fraction` | `double` | `0.30` | same | No | Fraction `(0, 1]` | Minimum valid plane-fit shell fraction. | Tune masking tolerance. | Yes |
-| `noise_cov_padding_factor` | `double` | `2.0` | same | No | Positive; padded side must support linear autocorrelation | Covariance FFT padding multiplier. | Change only with FFT validation. | Yes |
-| `noise_cov_fft_size` | `int` | `384` | same | No | Derived padded side | Covariance FFT side. | Derived parameter — do not edit directly. | Yes |
-| `noise_cov_max_lag` | `int` | `8` | same | No | `0 <= lag < noise_region_size` | Maximum retained signed covariance lag. | Tune covariance model. | Yes |
-| `noise_cov_min_valid_pixels` | `int` | `4096` | same | No | Positive count | Minimum covariance-mask pixels. | Tune masking tolerance. | Yes |
-| `noise_cov_min_pair_fraction` | `double` | `0.50` | same | No | Fraction `(0, 1]` | Minimum lag pair-count fraction. | Tune covariance reliability. | Yes |
-| `noise_cov_sigma_ratio_min` | `double` | `0.80` | same | No | Positive lower ratio | Covariance/source sigma lower gate. | Tune covariance quality. | Yes |
-| `noise_cov_sigma_ratio_max` | `double` | `1.25` | same | No | Above minimum | Covariance/source sigma upper gate. | Tune covariance quality. | Yes |
-| `noise_cov_max_negative_fraction` | `double` | `0.25` | same | No | Fraction `[0, 1]` | Maximum negative power fraction. | Tune covariance quality. | Yes |
-| `noise_cov_imag_tolerance` | `double` | `1.0e-10` | same | No | Non-negative numerical tolerance | Maximum imaginary FFT residual. | Numerical guard; normally unchanged. | Yes |
-| `sig_blocksize` | `int` | `200` | same | No | Positive pixels | Mode-bar noise-estimator block side. | Tune only with noise-estimator calibration. | Yes |
-| `sig_block_max` | `int` | `sig_blocksize²` = `40000` | same | No | Derived pixel count | Maximum pixels per noise block. | Derived parameter — do not edit directly. | Yes |
-| `sig_max_blocks` | `int` | `2048` | same | No | Positive count | Maximum sampled noise blocks. | Tune memory/runtime only. | Yes |
-| `sig_min_block_pixels` | `int` | `1000` | same | No | Positive count | Minimum pixels in one noise block. | Tune sparse/masked data. | Yes |
-| `sig_min_block_triples` | `int` | `1000` | same | No | Positive count | Minimum valid triples per block. | Tune sparse/masked data. | Yes |
-| `sig_min_blocks` | `int` | `4` | same | No | Positive count | Minimum blocks for a plane fit. | Tune sparse data only. | Yes |
-| `sig_hist_nbin` | `int` | `256` | same | No | Positive bin count | Mode-finding histogram bins. | Tune estimator resolution. | Yes |
-| `sig_hist_range` | `double` | `6.0` | same | No | Positive sigma range | Mode histogram range. | Tune estimator robustness. | Yes |
-| `sig_min_mode_count` | `int` | `500` | same | No | Positive count | Minimum samples defining the mode. | Tune sparse data only. | Yes |
-| `sig_min_lower_count` | `int` | `1000` | same | No | Positive count | Minimum lower-side width samples. | Tune sparse data only. | Yes |
-| `sig_lower_quantile` | `double` | `0.3173105` | same | No | Quantile in `(0, 1)` | Lower-side width quantile. | Calibration constant; normally unchanged. | Yes |
-| `sig_clip_k` | `double` | `3.0` | same | No | Positive sigma multiplier | Symmetric clipping threshold. | Tune estimator robustness. | Yes |
-| `sig_rdil` | `int` | `2` | same | No | Positive pixel stride | Pixel stride used by the estimator. | Tune sampling/runtime only. | Yes |
-| `sig_clip_niter` | `int` | `2` | same | No | Non-negative iterations | Number of clipping iterations. | Tune convergence/runtime. | Yes |
-| `sig_min_fit_triples` | `int` | `1000` | same | No | Positive count | Minimum triples in final fit. | Tune sparse data only. | Yes |
-| `sig_min_fit_frac` | `double` | `0.20` | same | No | Fraction `(0, 1]` | Minimum retained fit fraction. | Tune robustness only. | Yes |
-| `sig_median_ratio` | `double` | `1.2678405` | same | No | Positive calibration factor | Median-to-sigma conversion. | Calibration constant; normally unchanged. | Yes |
-| `sig_plane_min` | `double` | `1.0e-8` | same | No | Positive floor | Minimum noise-plane value. | Numerical guard; normally unchanged. | Yes |
-| `sig_max_plane_ratio` | `double` | `4.0` | same | No | Ratio ≥ 1 | Maximum noise-plane variation. | Tune rejection only with validation. | Yes |
-| `sig_pivot_min` | `double` | `1.0e-8` | same | No | Positive floor | Minimum linear-solve pivot. | Numerical guard; normally unchanged. | Yes |
-| `sig_scale_s1` | `double` | `0.673475` | same | No | Positive calibration candidate | Stage-1 noise calibration candidate. | Calibration experiments only. | Yes |
-| `sig_scale_s2` | `double` | `1.027786` | same | No | Positive calibration value | Stage-2 noise calibration. | Calibration experiments only. | Yes |
-| `sig_scale` | `double` | `sig_scale_s2` | same | No | Derived active selector | Active noise calibration scale. | Derived parameter — select a calibrated source value. | Yes |
+| `noise_cov_padding_factor` | `double` | `2.0` | `N/A — removed in Lite` | No | Positive; padded side must support linear autocorrelation | Covariance FFT padding multiplier. | Change only with FFT validation. | Yes |
+| `noise_cov_fft_size` | `int` | `384` | `N/A — removed in Lite` | No | Derived padded side | Covariance FFT side. | Derived parameter — do not edit directly. | Yes |
+| `noise_cov_max_lag` | `int` | `63` | `N/A — removed in Lite` | No | `0 <= lag < noise_region_size` | Maximum retained signed covariance lag. | Tune covariance model. | Yes |
+| `noise_cov_min_valid_pixels` | `int` | `4096` | `N/A — removed in Lite` | No | Positive count | Minimum covariance-mask pixels. | Tune masking tolerance. | Yes |
+| `noise_cov_min_pair_fraction` | `double` | `0.50` | `N/A — removed in Lite` | No | Fraction `(0, 1]` | Minimum lag pair-count fraction. | Tune covariance reliability. | Yes |
+| `noise_cov_sigma_ratio_min` | `double` | `0.80` | `N/A — removed in Lite` | No | Positive lower ratio | Covariance/source sigma lower gate. | Tune covariance quality. | Yes |
+| `noise_cov_sigma_ratio_max` | `double` | `1.25` | `N/A — removed in Lite` | No | Above minimum | Covariance/source sigma upper gate. | Tune covariance quality. | Yes |
+| `noise_cov_max_negative_fraction` | `double` | `0.25` | `N/A — removed in Lite` | No | Fraction `[0, 1]` | Maximum negative power fraction. | Tune covariance quality. | Yes |
+| `noise_cov_imag_tolerance` | `double` | `1.0e-10` | `N/A — removed in Lite` | No | Non-negative numerical tolerance | Maximum imaginary FFT residual. | Numerical guard; normally unchanged. | Yes |
+| `sig_blocksize` | `int` | `200` | `N/A — removed in Lite` | No | Positive pixels | Mode-bar noise-estimator block side. | Tune only with noise-estimator calibration. | Yes |
+| `sig_block_max` | `int` | `sig_blocksize²` = `40000` | `N/A — removed in Lite` | No | Derived pixel count | Maximum pixels per noise block. | Derived parameter — do not edit directly. | Yes |
+| `sig_max_blocks` | `int` | `2048` | `N/A — removed in Lite` | No | Positive count | Maximum sampled noise blocks. | Tune memory/runtime only. | Yes |
+| `sig_min_block_pixels` | `int` | `1000` | `N/A — removed in Lite` | No | Positive count | Minimum pixels in one noise block. | Tune sparse/masked data. | Yes |
+| `sig_min_block_triples` | `int` | `1000` | `N/A — removed in Lite` | No | Positive count | Minimum valid triples per block. | Tune sparse/masked data. | Yes |
+| `sig_min_blocks` | `int` | `4` | `N/A — removed in Lite` | No | Positive count | Minimum blocks for a plane fit. | Tune sparse data only. | Yes |
+| `sig_hist_nbin` | `int` | `256` | `N/A — removed in Lite` | No | Positive bin count | Mode-finding histogram bins. | Tune estimator resolution. | Yes |
+| `sig_hist_range` | `double` | `6.0` | `N/A — removed in Lite` | No | Positive sigma range | Mode histogram range. | Tune estimator robustness. | Yes |
+| `sig_min_mode_count` | `int` | `500` | `N/A — removed in Lite` | No | Positive count | Minimum samples defining the mode. | Tune sparse data only. | Yes |
+| `sig_min_lower_count` | `int` | `1000` | `N/A — removed in Lite` | No | Positive count | Minimum lower-side width samples. | Tune sparse data only. | Yes |
+| `sig_lower_quantile` | `double` | `0.3173105` | `N/A — removed in Lite` | No | Quantile in `(0, 1)` | Lower-side width quantile. | Calibration constant; normally unchanged. | Yes |
+| `sig_clip_k` | `double` | `3.0` | `N/A — removed in Lite` | No | Positive sigma multiplier | Symmetric clipping threshold. | Tune estimator robustness. | Yes |
+| `sig_rdil` | `int` | `2` | `N/A — removed in Lite` | No | Positive pixel stride | Pixel stride used by the estimator. | Tune sampling/runtime only. | Yes |
+| `sig_clip_niter` | `int` | `2` | `N/A — removed in Lite` | No | Non-negative iterations | Number of clipping iterations. | Tune convergence/runtime. | Yes |
+| `sig_min_fit_triples` | `int` | `1000` | `N/A — removed in Lite` | No | Positive count | Minimum triples in final fit. | Tune sparse data only. | Yes |
+| `sig_min_fit_frac` | `double` | `0.20` | `N/A — removed in Lite` | No | Fraction `(0, 1]` | Minimum retained fit fraction. | Tune robustness only. | Yes |
+| `sig_median_ratio` | `double` | `1.2678405` | `N/A — removed in Lite` | No | Positive calibration factor | Median-to-sigma conversion. | Calibration constant; normally unchanged. | Yes |
+| `sig_plane_min` | `double` | `1.0e-8` | `N/A — removed in Lite` | No | Positive floor | Minimum noise-plane value. | Numerical guard; normally unchanged. | Yes |
+| `sig_max_plane_ratio` | `double` | `4.0` | `N/A — removed in Lite` | No | Ratio ≥ 1 | Maximum noise-plane variation. | Tune rejection only with validation. | Yes |
+| `sig_pivot_min` | `double` | `1.0e-8` | `N/A — removed in Lite` | No | Positive floor | Minimum linear-solve pivot. | Numerical guard; normally unchanged. | Yes |
+| `sig_scale_s1` | `double` | `0.673475` | `N/A — removed in Lite` | No | Positive calibration candidate | Stage-1 noise calibration candidate. | Calibration experiments only. | Yes |
+| `sig_scale_s2` | `double` | `1.027786` | `N/A — removed in Lite` | No | Positive calibration value | Stage-2 noise calibration. | Calibration experiments only. | Yes |
+| `sig_scale` | `double` | `sig_scale_s2` | `N/A — removed in Lite` | No | Derived active selector | Active noise calibration scale. | Derived parameter — select a calibrated source value. | Yes |
 | `area_max` | `int` | `ns²` = `4096` | same | No | Derived pixels | Maximum connected source area. | Derived parameter — do not edit directly. | Yes |
 | `area_thresh` | `int` | `6` | same | No | Positive pixels | Minimum connected source area. | Adjust scientific source selection. | Yes |
 | `gal_smooth` | `int` | `0` | same | No | Supported smoothing selector | Galaxy-stamp smoothing type. | Change for controlled processing tests. | Yes |

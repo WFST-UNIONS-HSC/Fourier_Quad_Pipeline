@@ -15,6 +15,8 @@ c exactly one behaviour each:
 c   ASTROMETRY_trivial = 0  -> Gaia-based astrometry only
 c   include_FLAT       = 0  -> no super-flat multiplication
 c   include_Mask       = 2  -> per-chip DQ mask from DIR_DQ/<exposure>
+c   PreprocsType       = 1  -> historical F77 random/rank background
+c                              and sigma estimators
 c   ext_cat            = 1  -> external (SOURCE_CAT) source catalogue
 c   ext_PSF            = 0  -> PSF measured from the stars of the frame
 c   deblending         = 1  -> de-blending always applied
@@ -151,4 +153,3 @@ c	parameter (g2_c=-0.)
       real chi2_thresh
       parameter (chi2_thresh=0.01)
 ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-

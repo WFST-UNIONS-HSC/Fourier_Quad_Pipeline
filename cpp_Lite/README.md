@@ -2,8 +2,10 @@
 
 Reduced C++17 Fourier_Quad pipeline for Gaia astrometry, no super-flat,
 per-chip DQ masks, external sources, enabled deblending, local-polynomial PSF,
-adaptive-pair PSF grouping, physical blank-noise stamps, and no PCA. Alternate
-Standard and Lite selector branches are absent from this tree.
+historical F77 preprocessing, no Stage-3 background re-subtraction,
+deterministic F77 blank-noise selection, historical F77 largest-component PSF
+grouping, and no PCA. Alternate Standard and Lite selector branches are absent
+from this tree.
 
 For ordinary use, edit `Initialize.hpp`, then build and run:
 
@@ -36,8 +38,9 @@ internal compatibility and advanced-default layer; runtime CLI values still
 override represented compiled workflow defaults.
 
 Stage 5 writes `*_star_comp_expo.dat` from the model fitted with all retained
-stars and evaluated at each fitted star. Its residual is therefore full-fit, while
-analytic leave-one-out values remain confined to optional PRESS rejection.
+stars and evaluated at each fitted star. Lite builds and retains only this initial
+full-fit cache; it performs no PRESS star rejection or refit. The leverage/analytic
+LOO calculation remains only as a numerical validity guard for that initial fit.
 
 The optional one-time `process_astrocat` phase runs before `process_extcat` and
 publishes deduplicated one-degree Gaia tiles. Its `--astrocat-output` directory

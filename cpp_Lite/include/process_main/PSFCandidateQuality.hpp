@@ -3,8 +3,6 @@
 
 #include "process_main/PSFStarSelection.hpp"
 
-#include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstddef>
 #include <vector>
@@ -16,61 +14,32 @@ enum class CandidatePowerStatus {
     Accepted,
     InvalidShape,
     NonFinitePower,
-    NegativeCoreMedian,
-    NonPositiveSum,
-    NonPositiveChiWindowSum
+    NonPositiveSum
 };
 
 // ==========================================
-// Function: Assess one corrected star-candidate power spectrum
-// Method: Require a complete finite image, a non-negative median around DC,
-//         and finite positive full/window signed sums for normalization.
+// Function: Apply only hard numerical checks needed by F77 PSF selection
+// Method: Require a finite square stamp and finite nonzero full sum while
+//         deliberately omitting modern core-median and chi-window-sign gates.
 // ==========================================
-inline CandidatePowerStatus assessCandidatePower(
+inline CandidatePowerStatus assessF77CandidatePower(
     int nx, int ny, const std::vector<float>& power,
     double& sum_power, double& chi_window_sum) {
     sum_power = 0.0;
     chi_window_sum = 0.0;
-    if (nx < 3 || ny < 3
-        || power.size() != static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny)) {
+    if (nx < 3 || ny < 3 || nx != ny
+        || power.size() != static_cast<std::size_t>(nx) * ny) {
         return CandidatePowerStatus::InvalidShape;
     }
-
     for (float value : power) {
-        if (!std::isfinite(value)) {
-            return CandidatePowerStatus::NonFinitePower;
-        }
-    }
-
-    const int cx = nx / 2;
-    const int cy = ny / 2;
-    std::array<float, 8> center_neighbors = {
-        power[(cy - 1) * nx + (cx - 1)],
-        power[(cy - 1) * nx + cx],
-        power[(cy - 1) * nx + (cx + 1)],
-        power[cy * nx + (cx - 1)],
-        power[cy * nx + (cx + 1)],
-        power[(cy + 1) * nx + (cx - 1)],
-        power[(cy + 1) * nx + cx],
-        power[(cy + 1) * nx + (cx + 1)]
-    };
-    std::sort(center_neighbors.begin(), center_neighbors.end());
-    const double median8 = 0.5
-        * (static_cast<double>(center_neighbors[3])
-           + static_cast<double>(center_neighbors[4]));
-    if (median8 < 0.0) {
-        return CandidatePowerStatus::NegativeCoreMedian;
-    }
-
-    for (float value : power) {
+        if (!std::isfinite(value)) return CandidatePowerStatus::NonFinitePower;
         sum_power += static_cast<double>(value);
     }
-    if (!std::isfinite(sum_power) || sum_power <= 0.0) {
+    if (!std::isfinite(sum_power) || sum_power == 0.0) {
         return CandidatePowerStatus::NonPositiveSum;
     }
-
-    const PSFChiWindow chi_window = getPSFChiWindow(std::min(nx, ny));
-    if (nx != ny || chi_window.pixelCount() <= 0) {
+    const PSFChiWindow chi_window = getPSFChiWindow(nx);
+    if (chi_window.pixelCount() <= 0) {
         return CandidatePowerStatus::InvalidShape;
     }
     for (int row = chi_window.first; row <= chi_window.last; ++row) {
@@ -78,16 +47,14 @@ inline CandidatePowerStatus assessCandidatePower(
             chi_window_sum += static_cast<double>(power[row * nx + column]);
         }
     }
-    if (!std::isfinite(chi_window_sum) || chi_window_sum <= 0.0) {
-        return CandidatePowerStatus::NonPositiveChiWindowSum;
-    }
-    return CandidatePowerStatus::Accepted;
+    return std::isfinite(chi_window_sum)
+        ? CandidatePowerStatus::Accepted
+        : CandidatePowerStatus::NonFinitePower;
 }
 
 // ==========================================
 // Function: Validate diagnostics derived from an accepted candidate spectrum
-// Method: Reject only non-finite numerical results so NaN cannot reach star
-//         selection or Stage-8 aggregation after recovery is removed.
+// Method: Reject only non-finite results so unsafe values cannot reach grouping.
 // ==========================================
 inline bool candidateDiagnosticsAreFinite(
     double size, double e1, double e2) {

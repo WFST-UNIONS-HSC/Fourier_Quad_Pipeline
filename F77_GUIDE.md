@@ -11,7 +11,8 @@ exposure-list path.
 - `f77` (F77 Standard): full branch set, including optional PCA/multi-scale PSF storage in
   `00_psf_module.f`.
 - `f77_Lite` (F77 Lite): fixed production path with alternate astrometry, flat, mask,
-  source, PSF, deblending, hybrid, and PCA branches removed.
+  source, PSF, deblending, hybrid, and PCA branches removed. Its Stage 1 is the
+  frozen historical Type-1 random/rank background and sigma preprocessing path.
 
 Both variants build `Fourier_Quad_Pipe`.
 
@@ -48,7 +49,7 @@ All settings require rebuilding:
 |---|---|
 | `para.inc` | stage selector, catalog/calibration paths, stamp geometry, branch controls, thresholds, limits, and catalog indices |
 | `cust_para.inc` | CCD geometry and Standard PCA settings |
-| `sig_para.inc` | robust mode-bar noise-plane estimator |
+| `sig_para.inc` | Standard-only robust mode-bar noise-plane estimator; absent from Lite |
 
 At minimum, review `PROCESS_stage`, `ASTROMETRY_CAT`, `SOURCE_CAT`, and any
 active `FLAT_PATH`. In a container, these strings must be container paths that
@@ -59,7 +60,8 @@ match the bind destinations.
 chip-list, input, or generated product paths are rejected instead of truncated.
 
 Lite documents its frozen branch behavior at the top of `para.inc`; the
-deleted alternatives cannot be re-enabled by adding a parameter.
+deleted alternatives cannot be re-enabled by adding a parameter. In particular,
+Lite has no `PreprocsType` selector or F6/mode-bar Stage-1 dependency.
 
 ## Build
 
